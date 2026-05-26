@@ -9,8 +9,10 @@ const app = require('./app');
 const logger = require('./utils/logger');
 const config = require('./config');
 
-const PORT = config.port;
-const HOST = config.host;
+// [수정된 핵심 로직] 
+// Render 환경변수를 최우선으로 적용하고, 호스트는 명시적으로 0.0.0.0으로 고정합니다.
+const PORT = process.env.PORT || config.port || 3000;
+const HOST = '0.0.0.0';
 
 // 서버 시작
 const server = app.listen(PORT, HOST, () => {

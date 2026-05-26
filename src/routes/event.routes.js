@@ -4,8 +4,17 @@
 
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const eventController = require('../controllers/event.controller');
 const { authenticateUser, authenticateDevice } = require('../middlewares/auth.middleware');
+
+// Multer 설정 (메모리 스토리지 사용)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB 제한
+  }
+});
 
 /**
  * GET /api/events
@@ -34,8 +43,17 @@ router.get('/:id', authenticateUser, eventController.getEventById);
 /**
  * POST /api/events
  * 새 이벤트 생성 (Edge Device에서 호출)
+ * [업데이트] 이미지('image') 및 오디오('audio') 파일 직접 업로드 지원
  */
-router.post('/', authenticateDevice, eventController.createEvent);
+router.post(
+  '/', 
+  authenticateDevice, 
+  upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'audio', maxCount: 1 }
+  ]), 
+  eventController.createEvent
+);
 
 /**
  * DELETE /api/events/:id

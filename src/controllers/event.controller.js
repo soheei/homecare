@@ -4,9 +4,12 @@
  * [버그 수정]
  * - createEvent: camelCase → snake_case 변환 (DB 스키마 일치)
  * - 4단계 검증 프로토콜에 맞게 상세 로깅 추가
+ * [업데이트]
+ * - Supabase Storage 직접 업로드 지원
  */
 
 const eventService = require('../services/event.service');
+const storageService = require('../services/storage.service');
 const logger = require('../utils/logger');
 
 /**
@@ -65,15 +68,15 @@ const getEventById = async (req, res, next) => {
 
 /**
  * 새 이벤트 생성 (Edge Device에서 호출)
- * [버그 수정] camelCase → snake_case 변환 후 DB 저장
+ * [업데이트] 파일 직접 업로드 지원 (Supabase Storage)
  */
 const createEvent = async (req, res, next) => {
   try {
     // [로깅 4단계] 수신 데이터 즉시 출력
     logger.info(`[Event] ▶ 수신 요청 from device: ${req.device?.id}`);
-    logger.debug(`[Event] 수신 body: ${JSON.stringify(req.body)}`);
-
-    const {
+    
+    // Multer가 처리한 텍스트 필드는 req.body에, 파일은 req.files에 들어있음
+    let {
       type,
       description,
       imageUrl,
@@ -82,6 +85,37 @@ const createEvent = async (req, res, next) => {
       dangerLevel = 'normal',
       timestamp
     } = req.body;
+
+    // JSON 문자열로 올 수 있는 metadata 파싱
+    if (metadata && typeof metadata === 'string') {
+      try {
+        metadata = JSON.parse(metadata);
+      } catch (e) {
+        logger.warn('[Event] metadata JSON 파싱 실패, 빈 객체로 대체');
+        metadata = {};
+      }
+    }
+
+    // [파일 업로드 처리] 전송된 파일이 있다면 스토리지에 먼저 업로드
+    if (req.files) {
+      // 이미지 업로드 (필드명 'image')
+      if (req.files.image && req.files.image[0]) {
+        const uploadedImageUrl = await storageService.uploadFile(req.files.image[0], 'events');
+        if (uploadedImageUrl) {
+          imageUrl = uploadedImageUrl;
+          logger.info(`[Event] 이미지 업로드 완료: ${imageUrl}`);
+        }
+      }
+      
+      // 오디오 업로드 (필드명 'audio')
+      if (req.files.audio && req.files.audio[0]) {
+        const uploadedAudioUrl = await storageService.uploadFile(req.files.audio[0], 'events');
+        if (uploadedAudioUrl) {
+          audioUrl = uploadedAudioUrl;
+          logger.info(`[Event] 오디오 업로드 완료: ${audioUrl}`);
+        }
+      }
+    }
 
     const deviceId = req.device?.id;
 
@@ -111,7 +145,7 @@ const createEvent = async (req, res, next) => {
       });
     }
 
-    // [버그 수정] DB 스키마(snake_case)에 맞게 변환
+    // DB 스키마(snake_case)에 맞게 변환
     const eventData = {
       type,
       description,
@@ -123,7 +157,7 @@ const createEvent = async (req, res, next) => {
       timestamp: timestamp || new Date().toISOString()
     };
 
-    logger.info(`[Event] DB 저장 시도: type=${type}, danger_level=${dangerLevel}, device_id=${deviceId}`);
+    logger.info(`[Event] DB 저장 시도: type=${type}, danger_level=${dangerLevel}`);
 
     const event = await eventService.createEvent(eventData);
 
@@ -132,10 +166,8 @@ const createEvent = async (req, res, next) => {
     // 위험 상황 감지 시 로그 강조
     if (dangerLevel === 'danger') {
       logger.error(`[Event] ⚠⚠⚠ DANGER 이벤트 감지! id=${event.id} | ${description}`);
-      // TODO: 7월 - Firebase Push Notification 전송
     } else if (dangerLevel === 'warning') {
       logger.warn(`[Event] ⚠ WARNING 이벤트: id=${event.id} | ${description}`);
-      // TODO: 7월 - Firebase Push Notification 전송
     }
 
     res.status(201).json({

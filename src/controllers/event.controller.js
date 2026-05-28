@@ -81,6 +81,7 @@ const createEvent = async (req, res, next) => {
       description,
       imageUrl,
       audioUrl,
+      videoUrl,
       metadata,
       dangerLevel = 'normal',
       timestamp
@@ -113,6 +114,15 @@ const createEvent = async (req, res, next) => {
         if (uploadedAudioUrl) {
           audioUrl = uploadedAudioUrl;
           logger.info(`[Event] 오디오 업로드 완료: ${audioUrl}`);
+        }
+      }
+
+      // 영상 업로드 (필드명 'video')
+      if (req.files.video && req.files.video[0]) {
+        const uploadedVideoUrl = await storageService.uploadFile(req.files.video[0], 'events');
+        if (uploadedVideoUrl) {
+          videoUrl = uploadedVideoUrl;
+          logger.info(`[Event] 영상 업로드 완료: ${videoUrl}`);
         }
       }
     }
@@ -151,6 +161,7 @@ const createEvent = async (req, res, next) => {
       description,
       image_url: imageUrl || null,
       audio_url: audioUrl || null,
+      video_url: videoUrl || null,
       metadata: metadata || {},
       danger_level: dangerLevel,
       device_id: deviceId || null,

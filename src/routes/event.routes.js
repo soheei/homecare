@@ -12,7 +12,22 @@ const { authenticateUser, authenticateDevice } = require('../middlewares/auth.mi
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB 제한
+    fileSize: 200 * 1024 * 1024 // 200MB 제한 (영상 파일 대응)
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = [
+      // 이미지
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      // 오디오
+      'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4',
+      // 영상
+      'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`지원하지 않는 파일 형식입니다: ${file.mimetype}`));
+    }
   }
 });
 
@@ -50,7 +65,8 @@ router.post(
   authenticateDevice, 
   upload.fields([
     { name: 'image', maxCount: 1 },
-    { name: 'audio', maxCount: 1 }
+    { name: 'audio', maxCount: 1 },
+    { name: 'video', maxCount: 1 }
   ]), 
   eventController.createEvent
 );

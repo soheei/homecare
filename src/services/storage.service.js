@@ -18,9 +18,13 @@ const uploadFile = async (file, bucket = 'events') => {
 
     // 파일 확장자 추출
     const ext = path.extname(file.originalname);
+    // 파일 타입별 폴더 분류 (image / audio / video)
+    const typeFolder = file.mimetype.startsWith('video/') ? 'video'
+                     : file.mimetype.startsWith('audio/') ? 'audio'
+                     : 'image';
     // 유니크한 파일 이름 생성 (timestamp_random.ext)
     const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}${ext}`;
-    const filePath = `${file.fieldname}/${fileName}`;
+    const filePath = `${typeFolder}/${fileName}`;
 
     logger.info(`[Storage] Uploading file to bucket: ${bucket}, path: ${filePath}`);
 

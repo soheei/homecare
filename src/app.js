@@ -62,8 +62,8 @@ app.use(morgan('combined', {
 // Routes
 // ===========================================
 
-// Health Check
-app.get('/health', (req, res) => {
+// Health Check (루트 및 /health 모두 응답)
+app.get(['/', '/health'], (req, res) => {
   res.json({
     success: true,
     message: 'HomeCare Backend is running',

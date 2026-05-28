@@ -8,6 +8,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
+const path = require('path');
 const config = require('./config');
 const routes = require('./routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
@@ -19,8 +20,10 @@ const app = express();
 // Security Middlewares
 // ===========================================
 
-// Helmet - HTTP 헤더 보안
-app.use(helmet());
+// Helmet - HTTP 헤더 보안 (프론트 인라인 스크립트 허용)
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
 
 // CORS 설정
 app.use(cors({
@@ -62,8 +65,8 @@ app.use(morgan('combined', {
 // Routes
 // ===========================================
 
-// Health Check (루트 및 /health 모두 응답)
-app.get(['/', '/health'], (req, res) => {
+// Health Check
+app.get('/health', (req, res) => {
   res.json({
     success: true,
     message: 'HomeCare Backend is running',
@@ -74,6 +77,17 @@ app.get(['/', '/health'], (req, res) => {
 
 // API Routes
 app.use('/api', routes);
+
+// ===========================================
+// Frontend Static Files
+// ===========================================
+const frontendPath = path.join(__dirname, '..', 'frontend');
+app.use(express.static(frontendPath));
+
+// 모든 나머지 요청은 index.html로 (SPA 라우팅)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
 
 // ===========================================
 // Error Handling

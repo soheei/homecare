@@ -42,4 +42,5 @@ debug.log
 
 # Claude Code skills (local only)
 .agents/
+.claude/skills/
 skills-lock.json

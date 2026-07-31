@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { C, BG } from '../theme';
 import { EVENT_ICON, formatRelativeTime } from '../lib/eventDisplay';
 import { useAuth } from '../context/AuthContext';
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 6) return '늦은 밤이네요 🌙';
+  if (h < 12) return '좋은 아침이에요 ☀️';
+  if (h < 18) return '좋은 오후예요 👋';
+  return '편안한 저녁 되세요 🌆';
+}
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -39,44 +46,70 @@ export default function HomeScreen() {
   }, []);
 
   const onlineDevices = devices.filter((d) => d.status === 'online').length;
+  const initial = user?.email?.[0]?.toUpperCase() || '?';
 
   const cards = [
-    { icon: '📷', label: '카메라', value: `${onlineDevices}대 온라인`, bg: BG.success },
-    { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: BG.info },
-    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? BG.danger : BG.warning },
-    { icon: '✅', label: '시스템 상태', value: '정상', bg: BG.success }
+    { icon: '📷', label: '카메라', value: `${onlineDevices}대 온라인`, bg: 'bg-brand-100', valueColor: 'text-ink' },
+    { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-sky-100', valueColor: 'text-ink' },
+    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-rose-100' : 'bg-amber-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' },
+    { icon: '✅', label: '시스템 상태', value: '정상', bg: 'bg-emerald-100', valueColor: 'text-success' }
   ];
 
   return (
     <div>
-      <div style={{ background: `linear-gradient(135deg,${C.primary},${C.primaryLight})`, padding: '24px 20px 32px', color: '#fff' }}>
-        <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>안녕하세요 👋</div>
-        <div style={{ fontSize: 15, opacity: 0.9 }}>{user?.email ? `${user.email}님, ` : ''}부모님 집 상태를 확인하세요</div>
+      <div className="relative overflow-hidden bg-gradient-to-br from-brand-500 to-brand-400 px-5 pb-6 pt-7 text-white">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
+        <div className="pointer-events-none absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+
+        <div className="relative flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-lg font-bold ring-1 ring-white/30">
+            {initial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[22px] font-bold leading-tight">{greeting()}</div>
+            <div className="truncate text-[13px] opacity-90">{user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요</div>
+          </div>
+        </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: 20, marginTop: -20 }}>
+
+      <div className="relative z-10 grid grid-cols-2 gap-3 px-5 pt-5">
         {cards.map((c) => (
-          <div key={c.label} style={{ background: C.card, borderRadius: 16, padding: 18, boxShadow: '0 2px 12px rgba(42,95,127,0.08)' }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, marginBottom: 12 }}>{c.icon}</div>
-            <div style={{ fontSize: 13, color: C.textLight, marginBottom: 6 }}>{c.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{c.value}</div>
+          <div
+            key={c.label}
+            className="rounded-2xl border border-black/5 bg-white p-4 shadow-lg shadow-black/[0.05] transition-transform hover:-translate-y-0.5"
+          >
+            <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
+            <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
+            <div className={`text-lg font-bold ${c.valueColor}`}>{c.value}</div>
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: C.text, padding: '0 20px', margin: '24px 0 12px' }}>최근 이벤트</div>
-      <div style={{ padding: '0 20px' }}>
-        {loading && <div style={{ color: C.textLight, fontSize: 14 }}>불러오는 중...</div>}
-        {error && <div style={{ color: C.danger, fontSize: 14 }}>{error}</div>}
+
+      <div className="mx-5 mb-3 mt-8 flex items-center justify-between">
+        <div className="text-lg font-bold text-ink">최근 이벤트</div>
+        <div className="text-xs font-semibold text-ink-light">최근 3건</div>
+      </div>
+      <div className="px-5">
+        {loading && <div className="text-sm text-ink-light">불러오는 중...</div>}
+        {error && <div className="text-sm text-danger">{error}</div>}
         {!loading && !error && events.length === 0 && (
-          <div style={{ color: C.textLight, fontSize: 14 }}>최근 이벤트가 없습니다.</div>
+          <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 py-8 text-center text-sm text-ink-light">
+            최근 이벤트가 없습니다.
+          </div>
         )}
         {events.map((e) => {
           const disp = EVENT_ICON[e.type] || EVENT_ICON.other;
           return (
-            <div key={e.id} style={{ background: C.card, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: '0 2px 8px rgba(42,95,127,0.08)', display: 'flex', gap: 14 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: disp.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{disp.icon}</div>
+            <div
+              key={e.id}
+              className="mb-3 flex items-center gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/[0.03] transition-transform hover:-translate-y-0.5"
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>
+                {disp.icon}
+              </div>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 4 }}>{e.description}</div>
-                <div style={{ fontSize: 12, color: C.textLight }}>{formatRelativeTime(e.timestamp)}</div>
+                <div className="mb-1 text-[15px] font-semibold text-ink">{e.description}</div>
+                <div className="text-xs text-ink-light">{formatRelativeTime(e.timestamp)}</div>
               </div>
             </div>
           );

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { C } from '../theme';
 import { EVENT_ICON, RISK_FROM_LEVEL, formatRelativeTime } from '../lib/eventDisplay';
 
 const FILTERS = [
@@ -40,39 +39,67 @@ export default function EventsScreen() {
 
   return (
     <div>
-      <div style={{ display: 'flex', padding: '16px 20px', gap: 8, overflowX: 'auto', background: C.card, borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 0, zIndex: 5 }}>
-        {FILTERS.map((f) => (
-          <div key={f.key} onClick={() => setFilter(f.key)}
-            style={{ padding: '8px 16px', borderRadius: 20, background: filter === f.key ? C.primary : C.bg, color: filter === f.key ? '#fff' : C.text, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            {f.label}
-          </div>
-        ))}
+      <div className="bg-gradient-to-br from-brand-500 to-brand-400 px-5 pb-6 pt-6 text-white">
+        <div className="text-2xl font-bold">이벤트</div>
+        <div className="mt-1 text-sm opacity-85">감지된 활동을 한눈에 확인하세요</div>
       </div>
 
-      <div style={{ padding: '20px 20px 0' }}>
-        {loading && <div style={{ color: C.textLight, fontSize: 14 }}>불러오는 중...</div>}
-        {error && <div style={{ color: C.danger, fontSize: 14 }}>{error}</div>}
+      <div className="sticky top-0 z-[5] flex gap-2 overflow-x-auto border-b border-black/5 bg-white/90 px-5 py-3.5 backdrop-blur-lg">
+        {FILTERS.map((f) => {
+          const active = filter === f.key;
+          return (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-semibold transition-all ${
+                active ? 'bg-brand-500 text-white shadow-md shadow-brand-500/25' : 'bg-[#f2f4f6] text-ink hover:bg-[#e9ecef]'
+              }`}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="px-5 pt-5">
+        {loading && <div className="text-sm text-ink-light">불러오는 중...</div>}
+        {error && <div className="text-sm text-danger">{error}</div>}
         {!loading && !error && filtered.length === 0 && (
-          <div style={{ color: C.textLight, fontSize: 14 }}>해당 조건의 이벤트가 없습니다.</div>
+          <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 py-8 text-center text-sm text-ink-light">
+            해당 조건의 이벤트가 없습니다.
+          </div>
         )}
         {filtered.map((e) => {
           const disp = EVENT_ICON[e.type] || EVENT_ICON.other;
           const risk = RISK_FROM_LEVEL[e.danger_level] || RISK_FROM_LEVEL.normal;
           return (
-            <div key={e.id} style={{ background: C.card, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: '0 2px 8px rgba(42,95,127,0.08)', display: 'flex', gap: 14, borderLeft: `4px solid ${risk.border}` }}>
-              <div style={{ width: 48, height: 48, borderRadius: 12, background: disp.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>{disp.icon}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: C.text }}>{e.description}</span>
-                  <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 10, marginLeft: 8, background: risk.badgeBg, color: risk.badgeColor }}>{risk.label}</span>
+            <div
+              key={e.id}
+              className="mb-3 flex gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/[0.03] transition-transform hover:-translate-y-0.5"
+              style={{ borderLeft: `4px solid ${risk.border}` }}
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>
+                {disp.icon}
+              </div>
+              <div className="flex-1">
+                <div className="flex flex-wrap items-center">
+                  <span className="text-[15px] font-semibold text-ink">{e.description}</span>
+                  <span
+                    className="ml-2 inline-block rounded-[10px] px-2.5 py-[3px] text-[11px] font-bold"
+                    style={{ background: risk.badgeBg, color: risk.badgeColor }}
+                  >
+                    {risk.label}
+                  </span>
                 </div>
-                <div style={{ fontSize: 12, color: C.textLight, marginTop: 6 }}>{new Date(e.timestamp).toLocaleString('ko-KR')} • {formatRelativeTime(e.timestamp)}</div>
+                <div className="mt-1.5 text-xs text-ink-light">
+                  {new Date(e.timestamp).toLocaleString('ko-KR')} • {formatRelativeTime(e.timestamp)}
+                </div>
               </div>
             </div>
           );
         })}
       </div>
-      <div style={{ height: 20 }} />
+      <div className="h-5" />
     </div>
   );
 }

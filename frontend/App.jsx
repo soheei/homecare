@@ -35,7 +35,7 @@ function HomeScreen() {
     <div>
       <div style={{ background:`linear-gradient(135deg,${C.primary},${C.pl})`, padding:'24px 20px 32px', color:'#fff' }}>
         <div style={{ fontSize:28, fontWeight:700, marginBottom:8 }}>안녕하세요 👋</div>
-        <div style={{ fontSize:15, opacity:0.9 }}>부모님 집 상태를 확인하세요</div>
+        <div style={{ fontSize:15, opacity:0.9 }}>집 상태를 확인하세요</div>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, padding:20, marginTop:-20 }}>
         {cards.map((c,i)=><div key={i} style={{ background:C.card, borderRadius:16, padding:18, boxShadow:'0 2px 12px rgba(42,95,127,0.08)' }}>
@@ -57,7 +57,7 @@ function HomeScreen() {
 
 function ChatScreen() {
   const [messages, setMessages] = useState([
-    {role:'ai',text:'안녕하세요! HOME-TALK AI입니다.\n부모님 집에 대해 무엇이든 물어보세요.',time:'오전 9:30'},
+    {role:'ai',text:'안녕하세요! HOME-TALK AI입니다.\n집에 대해 무엇이든 물어보세요.',time:'오전 9:30'},
     {role:'user',text:'오늘 방문자 알려줘',time:'오전 9:41'},
     {role:'ai',text:'오늘 오전 10시 30분에 현관에서 택배 기사가 감지됐어요. 소포를 문 앞에 두고 갔습니다. 신뢰도는 92%입니다.',time:'오전 9:41'},
   ]);

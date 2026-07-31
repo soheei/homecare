@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
 import EventsScreen from './screens/EventsScreen';
 import SettingsScreen from './screens/SettingsScreen';
+import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import BottomNav from './components/BottomNav';
-import { C } from './theme';
 
 function AppShell() {
   const { session, loading } = useAuth();
@@ -14,7 +15,7 @@ function AppShell() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: C.textLight }}>
+      <div className="flex min-h-screen items-center justify-center text-sm text-ink-light">
         불러오는 중...
       </div>
     );
@@ -28,8 +29,8 @@ function AppShell() {
   const ActiveScreen = screens[tab];
 
   return (
-    <div style={{ maxWidth: 430, margin: '0 auto', minHeight: '100vh', background: C.bg, position: 'relative', fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
-      <div style={{ paddingBottom: 80 }}>
+    <div className="relative mx-auto min-h-screen max-w-[430px] bg-[#f7f8fa] font-sans">
+      <div className="pb-20">
         <ActiveScreen />
       </div>
       <BottomNav tab={tab} setTab={setTab} />
@@ -40,7 +41,12 @@ function AppShell() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppShell />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/reset-password" element={<ResetPasswordScreen />} />
+          <Route path="*" element={<AppShell />} />
+        </Routes>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { C } from '../theme';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const inputClass =
+  'w-full rounded-xl border border-black/10 bg-white px-3.5 py-3 text-sm text-ink outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10';
 
 export default function LoginScreen() {
   const { signIn, signUp } = useAuth();
@@ -10,6 +14,7 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,29 +40,161 @@ export default function LoginScreen() {
   };
 
   return (
-    <div style={{ maxWidth: 430, margin: '0 auto', minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 24, fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
-      <div style={{ textAlign: 'center', marginBottom: 32 }}>
-        <div style={{ fontSize: 28, fontWeight: 700, color: C.text, marginBottom: 8 }}>HOME-TALK</div>
-        <div style={{ fontSize: 14, color: C.textLight }}>부모님 집 상태를 언제 어디서나</div>
-      </div>
-      <form onSubmit={handleSubmit} style={{ background: C.card, borderRadius: 16, padding: 24, boxShadow: '0 2px 12px rgba(42,95,127,0.08)' }}>
-        <div style={{ display: 'flex', marginBottom: 20, borderRadius: 10, background: C.bg, padding: 4 }}>
-          <button type="button" onClick={() => setMode('signin')} style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer', background: mode === 'signin' ? C.card : 'transparent', color: mode === 'signin' ? C.primary : C.textLight }}>로그인</button>
-          <button type="button" onClick={() => setMode('signup')} style={{ flex: 1, padding: '10px 0', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer', background: mode === 'signup' ? C.card : 'transparent', color: mode === 'signup' ? C.primary : C.textLight }}>회원가입</button>
+    <div className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-center bg-gradient-to-b from-brand-50 to-[#f7f8fa] px-6 font-sans">
+      <div className="mb-8 text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-400 text-2xl shadow-lg shadow-brand-500/20">
+          🏡
         </div>
-        <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>이메일</label>
-        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-          style={{ width: '100%', padding: '12px 14px', marginTop: 6, marginBottom: 16, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 14, outline: 'none' }} />
-        <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>비밀번호</label>
-        <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
-          style={{ width: '100%', padding: '12px 14px', marginTop: 6, marginBottom: 20, borderRadius: 10, border: `1px solid ${C.border}`, fontSize: 14, outline: 'none' }} />
-        {error && <div style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>{error}</div>}
-        {info && <div style={{ color: C.success, fontSize: 13, marginBottom: 12 }}>{info}</div>}
-        <button type="submit" disabled={loading}
-          style={{ width: '100%', padding: 14, border: 'none', borderRadius: 12, background: C.primary, color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+        <div className="text-2xl font-bold tracking-tight text-ink">HOME-TALK</div>
+        <div className="mt-1.5 text-sm text-ink-light">로그인 또는 회원가입 후 이용해주세요.</div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="animate-fade-in rounded-2xl border border-black/5 bg-white p-6 shadow-xl shadow-black/[0.03]">
+        <div className="mb-6 flex rounded-xl bg-[#f2f4f6] p-1">
+          <button
+            type="button"
+            onClick={() => setMode('signin')}
+            className={`flex-1 rounded-lg border-none py-2.5 text-sm font-semibold transition-all ${
+              mode === 'signin' ? 'bg-white text-brand-500 shadow-sm' : 'bg-transparent text-ink-light'
+            }`}
+          >
+            로그인
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('signup')}
+            className={`flex-1 rounded-lg border-none py-2.5 text-sm font-semibold transition-all ${
+              mode === 'signup' ? 'bg-white text-brand-500 shadow-sm' : 'bg-transparent text-ink-light'
+            }`}
+          >
+            회원가입
+          </button>
+        </div>
+
+        <label className="mb-1.5 block text-[13px] font-semibold text-ink">이메일</label>
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className={`${inputClass} mb-4`}
+        />
+
+        <label className="mb-1.5 block text-[13px] font-semibold text-ink">비밀번호</label>
+        <input
+          type="password"
+          required
+          minLength={6}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className={inputClass}
+        />
+
+        {mode === 'signin' && (
+          <div className="mt-2 text-right">
+            <button
+              type="button"
+              onClick={() => setShowForgotPassword(true)}
+              className="border-none bg-transparent p-0 text-[13px] font-semibold text-brand-500"
+            >
+              비밀번호를 잊으셨나요?
+            </button>
+          </div>
+        )}
+
+        {error && <div className="mt-4 text-[13px] text-danger">{error}</div>}
+        {info && <div className="mt-4 text-[13px] text-success">{info}</div>}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="mt-5 w-full rounded-xl border-none bg-brand-500 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand-500/25 transition-opacity disabled:opacity-70"
+        >
           {loading ? '처리 중...' : mode === 'signin' ? '로그인' : '가입하기'}
         </button>
       </form>
+
+      {showForgotPassword && <ForgotPasswordModal onClose={() => setShowForgotPassword(false)} />}
+    </div>
+  );
+}
+
+function ForgotPasswordModal({ onClose }) {
+  const { resetPasswordForEmail } = useAuth();
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!EMAIL_RE.test(email)) {
+      setError('올바른 이메일 형식을 입력해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    await resetPasswordForEmail(email).catch(() => {});
+    setSubmitting(false);
+    // 계정 존재 여부가 노출되지 않도록 성공/실패와 관계없이 동일한 안내를 표시
+    setSent(true);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-5 backdrop-blur-sm">
+      <div className="w-full max-w-[360px] animate-fade-in rounded-2xl bg-white p-6 shadow-2xl">
+        {sent ? (
+          <>
+            <div className="mb-2 text-[17px] font-bold text-ink">📧 메일을 확인해주세요</div>
+            <div className="mb-5 text-sm text-ink-light">
+              입력하신 이메일로 재설정 링크를 보냈습니다. 메일함을 확인해주세요.
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full rounded-xl border-none bg-brand-500 py-3.5 text-sm font-bold text-white"
+            >
+              확인
+            </button>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="mb-1.5 text-[17px] font-bold text-ink">비밀번호 재설정</div>
+            <div className="mb-4 text-[13px] text-ink-light">
+              가입하신 이메일을 입력하시면 재설정 링크를 보내드려요.
+            </div>
+
+            <label className="mb-1.5 block text-[13px] font-semibold text-ink">이메일</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className={`${inputClass} mb-3.5`}
+            />
+
+            {error && <div className="mb-3.5 text-[13px] text-danger">{error}</div>}
+
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-xl border border-black/10 bg-transparent py-3.5 text-sm font-semibold text-ink"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="flex-1 rounded-xl border-none bg-brand-500 py-3.5 text-sm font-bold text-white disabled:opacity-70"
+              >
+                {submitting ? '전송 중...' : '재설정 메일 보내기'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

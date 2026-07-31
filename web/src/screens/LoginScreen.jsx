@@ -21,9 +21,11 @@ export default function LoginScreen() {
         const { error } = await signIn(email, password);
         if (error) throw error;
       } else {
-        const { error } = await signUp(email, password);
+        const { data, error } = await signUp(email, password);
         if (error) throw error;
-        setInfo('가입 확인 이메일을 보냈습니다. 메일함을 확인해주세요.');
+        if (!data.session) {
+          setInfo('가입 확인 이메일을 보냈습니다. 메일함을 확인해주세요.');
+        }
       }
     } catch (err) {
       setError(err.message || '오류가 발생했습니다.');

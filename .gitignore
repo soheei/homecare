@@ -39,3 +39,7 @@ uploads/
 
 # Debug
 debug.log
+
+# Claude Code skills (local only)
+.agents/
+skills-lock.json

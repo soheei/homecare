@@ -60,8 +60,7 @@ export default function SettingsScreen() {
       </SettingsSection>
 
       <SettingsSection title="👤 계정">
-        <SettingsItem icon="🔑" bg={BG.info} title="로그인 관리" desc="Supabase Auth • 이메일 로그인" arrow />
-        <SettingsItem icon="🔒" bg={BG.success} title="보안 설정" desc="비밀번호 변경, 2단계 인증" arrow />
+        <SettingsItem icon="🔒" bg={BG.success} title="보안 설정" desc="비밀번호 변경" arrow />
         <SettingsItem icon="📱" bg={BG.warning} title="연결된 디바이스" desc={deviceCount === null ? '조회 중...' : `${deviceCount}대 연결됨`} arrow />
       </SettingsSection>
 

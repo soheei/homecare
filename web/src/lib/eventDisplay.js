@@ -9,9 +9,9 @@ export const EVENT_ICON = {
 };
 
 export const RISK_FROM_LEVEL = {
-  danger: { key: 'high', label: '높음', badgeBg: '#FFD6E0', badgeColor: '#C81E4E', border: '#EF476F' },
-  warning: { key: 'mid', label: '중간', badgeBg: '#FFE8D1', badgeColor: '#B5651D', border: '#F4A261' },
-  normal: { key: 'low', label: '낮음', badgeBg: '#D1E7F8', badgeColor: '#1B5A8A', border: '#06D6A0' }
+  danger: { key: 'high', label: '높음', badgeBg: '#F3DCE1', badgeColor: '#A93357', border: '#D94F6E' },
+  warning: { key: 'mid', label: '중간', badgeBg: '#F2E4D3', badgeColor: '#93601F', border: '#D98A3D' },
+  normal: { key: 'low', label: '낮음', badgeBg: '#DCE6EC', badgeColor: '#245166', border: '#0FAE82' }
 };
 
 export function formatRelativeTime(isoString) {

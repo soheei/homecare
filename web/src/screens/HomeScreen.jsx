@@ -49,25 +49,24 @@ export default function HomeScreen() {
   const initial = user?.email?.[0]?.toUpperCase() || '?';
 
   const cards = [
-    { icon: '📷', label: '카메라', value: `${onlineDevices}대 온라인`, bg: 'bg-brand-100', valueColor: 'text-ink' },
-    { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-sky-100', valueColor: 'text-ink' },
-    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-rose-100' : 'bg-amber-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' },
-    { icon: '✅', label: '시스템 상태', value: '정상', bg: 'bg-emerald-100', valueColor: 'text-success' }
+    { icon: '📷', label: '카메라', value: `${onlineDevices}대 온라인`, bg: 'bg-brand-500/8', valueColor: 'text-ink' },
+    { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
+    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' },
+    { icon: '✅', label: '시스템 상태', value: '정상', bg: 'bg-success/12', valueColor: 'text-success' }
   ];
 
   return (
     <div>
-      <div className="relative overflow-hidden bg-gradient-to-br from-brand-500 to-brand-400 px-5 pb-6 pt-7 text-white">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
-        <div className="pointer-events-none absolute -left-6 bottom-0 h-24 w-24 rounded-full bg-white/10 blur-xl" />
+      <div className="grain-surface relative overflow-hidden bg-brand-600 px-5 pb-6 pt-7 text-white">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-brand-300/20 blur-2xl" />
 
         <div className="relative flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-lg font-bold ring-1 ring-white/30">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 ring-white/30">
             {initial}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[22px] font-bold leading-tight">{greeting()}</div>
-            <div className="truncate text-[13px] opacity-90">{user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요</div>
+            <div className="truncate text-[22px] font-bold tracking-tight leading-tight">{greeting()}</div>
+            <div className="truncate text-[13px] opacity-80">{user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요</div>
           </div>
         </div>
       </div>
@@ -76,17 +75,17 @@ export default function HomeScreen() {
         {cards.map((c) => (
           <div
             key={c.label}
-            className="rounded-2xl border border-black/5 bg-white p-4 shadow-lg shadow-black/[0.05] transition-transform hover:-translate-y-0.5"
+            className="rounded-2xl border border-black/5 bg-white p-4 shadow-lg shadow-brand-900/[0.06] transition-transform hover:-translate-y-0.5"
           >
             <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
             <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
-            <div className={`text-lg font-bold ${c.valueColor}`}>{c.value}</div>
+            <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
           </div>
         ))}
       </div>
 
       <div className="mx-5 mb-3 mt-8 flex items-center justify-between">
-        <div className="text-lg font-bold text-ink">최근 이벤트</div>
+        <div className="text-lg font-bold tracking-tight text-ink">최근 이벤트</div>
         <div className="text-xs font-semibold text-ink-light">최근 3건</div>
       </div>
       <div className="px-5">
@@ -102,7 +101,7 @@ export default function HomeScreen() {
           return (
             <div
               key={e.id}
-              className="mb-3 flex items-center gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/[0.03] transition-transform hover:-translate-y-0.5"
+              className="mb-3 flex items-center gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-brand-900/[0.04] transition-transform hover:-translate-y-0.5"
             >
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>
                 {disp.icon}

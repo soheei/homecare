@@ -42,14 +42,14 @@ export default function LoginScreen() {
   return (
     <div className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-center bg-gradient-to-b from-brand-50 to-[#f7f8fa] px-6 font-sans">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-400 text-2xl shadow-lg shadow-brand-500/20">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-2xl shadow-lg shadow-brand-900/20">
           🏡
         </div>
         <div className="text-2xl font-bold tracking-tight text-ink">HOME-TALK</div>
         <div className="mt-1.5 text-sm text-ink-light">로그인 또는 회원가입 후 이용해주세요.</div>
       </div>
 
-      <form onSubmit={handleSubmit} className="animate-fade-in rounded-2xl border border-black/5 bg-white p-6 shadow-xl shadow-black/[0.03]">
+      <form onSubmit={handleSubmit} className="animate-fade-in rounded-2xl border border-black/5 bg-white p-6 shadow-xl shadow-brand-900/[0.05]">
         <div className="mb-6 flex rounded-xl bg-[#f2f4f6] p-1">
           <button
             type="button"
@@ -108,7 +108,7 @@ export default function LoginScreen() {
         <button
           type="submit"
           disabled={loading}
-          className="mt-5 w-full rounded-xl border-none bg-brand-500 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand-500/25 transition-opacity disabled:opacity-70"
+          className="mt-5 w-full rounded-xl border-none bg-brand-600 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand-900/25 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
         >
           {loading ? '처리 중...' : mode === 'signin' ? '로그인' : '가입하기'}
         </button>
@@ -153,7 +153,7 @@ function ForgotPasswordModal({ onClose }) {
             </div>
             <button
               onClick={onClose}
-              className="w-full rounded-xl border-none bg-brand-500 py-3.5 text-sm font-bold text-white"
+              className="w-full rounded-xl border-none bg-brand-600 py-3.5 text-sm font-bold text-white transition-transform active:scale-[0.98]"
             >
               확인
             </button>
@@ -187,7 +187,7 @@ function ForgotPasswordModal({ onClose }) {
               <button
                 type="submit"
                 disabled={submitting}
-                className="flex-1 rounded-xl border-none bg-brand-500 py-3.5 text-sm font-bold text-white disabled:opacity-70"
+                className="flex-1 rounded-xl border-none bg-brand-600 py-3.5 text-sm font-bold text-white transition-transform active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
               >
                 {submitting ? '전송 중...' : '재설정 메일 보내기'}
               </button>

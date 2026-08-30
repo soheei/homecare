@@ -1,23 +1,24 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", sans-serif;
+  --font-sans: "PretendardVariable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  --color-brand-50: #eff8fb;
-  --color-brand-100: #dbeff5;
-  --color-brand-200: #b3dfea;
-  --color-brand-300: #7fc5da;
-  --color-brand-400: #4a8fb8;
-  --color-brand-500: #2a5f7f;
-  --color-brand-600: #234f6a;
-  --color-brand-700: #1c3f55;
+  --color-brand-50: #eff6f8;
+  --color-brand-100: #dbebef;
+  --color-brand-200: #aed2dd;
+  --color-brand-300: #74aec0;
+  --color-brand-400: #3d7b93;
+  --color-brand-500: #245166;
+  --color-brand-600: #1a3c4d;
+  --color-brand-700: #132c39;
+  --color-brand-900: #0b1a22;
 
-  --color-ink: #1f2937;
-  --color-ink-light: #6b7280;
+  --color-ink: #1c2530;
+  --color-ink-light: #6c7684;
 
-  --color-success: #06d6a0;
-  --color-warning: #f4a261;
-  --color-danger: #ef476f;
+  --color-success: #0fae82;
+  --color-warning: #d98a3d;
+  --color-danger: #d94f6e;
 }
 
 * {
@@ -26,16 +27,55 @@
 
 html {
   scrollbar-gutter: stable;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
-  background: #f7f8fa;
+  background: #f6f7f8;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 input {
   font-family: inherit;
+}
+
+::selection {
+  background: var(--color-brand-200);
+  color: var(--color-brand-700);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle film-grain texture so flat surfaces don't read as sterile/AI-flat */
+.grain-surface {
+  position: relative;
+  isolation: isolate;
+}
+
+.grain-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+}
+
+.grain-surface > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes fade-in {

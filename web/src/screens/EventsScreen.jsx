@@ -39,9 +39,9 @@ export default function EventsScreen() {
 
   return (
     <div>
-      <div className="bg-gradient-to-br from-brand-500 to-brand-400 px-5 pb-6 pt-6 text-white">
-        <div className="text-2xl font-bold">이벤트</div>
-        <div className="mt-1 text-sm opacity-85">감지된 활동을 한눈에 확인하세요</div>
+      <div className="grain-surface bg-brand-600 px-5 pb-6 pt-6 text-white">
+        <div className="text-2xl font-bold tracking-tight">이벤트</div>
+        <div className="mt-1 text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
       </div>
 
       <div className="sticky top-0 z-[5] flex gap-2 overflow-x-auto border-b border-black/5 bg-white/90 px-5 py-3.5 backdrop-blur-lg">
@@ -51,8 +51,8 @@ export default function EventsScreen() {
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-semibold transition-all ${
-                active ? 'bg-brand-500 text-white shadow-md shadow-brand-500/25' : 'bg-[#f2f4f6] text-ink hover:bg-[#e9ecef]'
+              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-semibold transition-all active:scale-95 ${
+                active ? 'bg-brand-600 text-white shadow-md shadow-brand-900/25' : 'bg-[#f2f4f6] text-ink hover:bg-[#e9ecef]'
               }`}
             >
               {f.label}
@@ -75,7 +75,7 @@ export default function EventsScreen() {
           return (
             <div
               key={e.id}
-              className="mb-3 flex gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-black/[0.03] transition-transform hover:-translate-y-0.5"
+              className="mb-3 flex gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-brand-900/[0.04] transition-transform hover:-translate-y-0.5"
               style={{ borderLeft: `4px solid ${risk.border}` }}
             >
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>

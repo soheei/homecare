@@ -48,7 +48,7 @@ export default function ChatScreen() {
   return (
     <div className="flex min-h-[calc(100vh-56px)] flex-col">
       <div className="sticky top-0 z-[5] flex items-center gap-3 border-b border-black/5 bg-white/90 px-5 py-4 backdrop-blur-lg">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-400 text-xl text-white">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-xl text-white">
           🤖
         </div>
         <div>
@@ -61,15 +61,15 @@ export default function ChatScreen() {
         {messages.map((m, i) => (
           <div key={i} className={`flex items-end gap-2 ${m.role === 'user' ? 'flex-row-reverse self-end' : 'self-start'}`}>
             {m.role === 'ai' && (
-              <div className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-400 text-xs text-white">
+              <div className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs text-white">
                 🤖
               </div>
             )}
             <div
               className={`max-w-[240px] whitespace-pre-wrap rounded-[18px] px-4 py-3.5 text-[15px] leading-relaxed ${
                 m.role === 'user'
-                  ? 'rounded-br-md bg-brand-500 text-white shadow-md shadow-brand-500/20'
-                  : 'rounded-bl-md border border-black/5 bg-white text-ink shadow-sm shadow-black/[0.03]'
+                  ? 'rounded-br-md bg-brand-600 text-white shadow-md shadow-brand-900/20'
+                  : 'rounded-bl-md border border-black/5 bg-white text-ink shadow-sm shadow-brand-900/[0.04]'
               }`}
             >
               <div>{m.text}</div>
@@ -79,10 +79,10 @@ export default function ChatScreen() {
         ))}
         {sending && (
           <div className="flex items-center gap-2 self-start">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-400 text-xs text-white">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs text-white">
               🤖
             </div>
-            <div className="flex gap-1 rounded-full border border-black/5 bg-white px-4 py-3 shadow-sm shadow-black/[0.03]">
+            <div className="flex gap-1 rounded-full border border-black/5 bg-white px-4 py-3 shadow-sm shadow-brand-900/[0.04]">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-light [animation-delay:-0.3s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-light [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-light" />
@@ -98,7 +98,7 @@ export default function ChatScreen() {
             <button
               key={q.label}
               onClick={() => send(q.label)}
-              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-black/10 bg-white px-4 py-2.5 text-[13px] font-medium text-ink transition-colors hover:border-brand-300 hover:bg-brand-50"
+              className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-black/10 bg-white px-4 py-2.5 text-[13px] font-medium text-ink transition-all hover:border-brand-300 hover:bg-brand-50 active:scale-95"
             >
               <span>{q.icon}</span>
               <span>{q.label}</span>
@@ -118,7 +118,7 @@ export default function ChatScreen() {
           <button
             onClick={() => send(input)}
             aria-label="전송"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-none bg-brand-500 text-base text-white shadow-md shadow-brand-500/25"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-none bg-brand-600 text-base text-white shadow-md shadow-brand-900/25 transition-transform active:scale-90"
           >
             ➤
           </button>

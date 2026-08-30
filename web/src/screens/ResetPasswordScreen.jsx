@@ -73,14 +73,14 @@ export default function ResetPasswordScreen() {
   return (
     <div className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-center bg-gradient-to-b from-brand-50 to-[#f7f8fa] px-6 font-sans">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-brand-400 text-2xl shadow-lg shadow-brand-500/20">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 text-2xl shadow-lg shadow-brand-900/20">
           🔑
         </div>
         <div className="text-2xl font-bold tracking-tight text-ink">HOME-TALK</div>
         <div className="mt-1.5 text-sm text-ink-light">새 비밀번호 설정</div>
       </div>
 
-      <div className="animate-fade-in rounded-2xl border border-black/5 bg-white p-6 shadow-xl shadow-black/[0.03]">
+      <div className="animate-fade-in rounded-2xl border border-black/5 bg-white p-6 shadow-xl shadow-brand-900/[0.05]">
         {success ? (
           <div className="text-center">
             <div className="mb-2 text-[17px] font-bold text-ink">✅ 변경 완료</div>
@@ -118,7 +118,7 @@ export default function ResetPasswordScreen() {
             <button
               type="submit"
               disabled={submitting}
-              className="mt-5 w-full rounded-xl border-none bg-brand-500 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand-500/25 transition-opacity disabled:opacity-70"
+              className="mt-5 w-full rounded-xl border-none bg-brand-600 py-3.5 text-[15px] font-bold text-white shadow-lg shadow-brand-900/25 transition-all active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
             >
               {submitting ? '변경 중...' : '비밀번호 변경'}
             </button>

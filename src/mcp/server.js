@@ -5,6 +5,7 @@
 
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const config = require('../config');
 const logger = require('../utils/logger');
@@ -31,12 +32,12 @@ const tools = [
 ];
 
 // 도구 목록 요청 핸들러
-server.setRequestHandler('tools/list', async () => {
+server.setRequestHandler(ListToolsRequestSchema, async () => {
   return { tools };
 });
 
 // 도구 호출 핸들러
-server.setRequestHandler('tools/call', async (request) => {
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   logger.info(`[MCP] Tool called: ${name}`);

@@ -19,12 +19,14 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # MCP 서버 (별도 실행 시)
+  # MCP 서버 (stdio 기반 — backend는 도구를 인프로세스로 직접 호출하므로 이 서비스는 사용 안 함.
+  # 외부 MCP 클라이언트(예: Claude Desktop)가 stdin/stdout에 직접 붙어야 동작하므로
+  # 상시 데몬으로 띄우지 말고 필요할 때만 `docker compose run --rm -i mcp`로 실행할 것)
   mcp:
     build: .
     container_name: homecare-mcp
@@ -32,8 +34,11 @@ services:
     environment:
       - NODE_ENV=production
       - MCP_SERVER_PORT=3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-    restart: unless-stopped
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    restart: "no"
+    profiles: ["mcp-manual"]
     depends_on:
       - backend

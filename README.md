@@ -31,6 +31,31 @@ HomeCare는 AI가 집 안 상황을 분석하고 자연어로 대화할 수 있�
                         └─────────────────┘
 ```
 
+## 🌐 배포
+
+### 프론트엔드
+- **Production**: https://homecare-9sr8.vercel.app/
+- **Local Dev**: http://localhost:5173/
+
+### 백엔드
+- Docker Compose로 라즈베리파이(Debian 13, aarch64)에 배포됨
+- `homecare-backend` 컨테이너: `0.0.0.0:3000`, `/health`로 상태 확인 가능
+- `homecare-mcp`는 상시 서비스로 띄우지 않음 (아래 "알려진 이슈" 참고)
+
+### 배포 방법 (Docker)
+
+```bash
+cd /home/alarmi/homecare
+cp .env.example .env   # 값 채우기
+docker compose up -d --build backend
+```
+
+### 알려진 이슈 / 수정 이력
+
+1. **MCP SDK setRequestHandler 오류** — `@modelcontextprotocol/sdk` v1.29.0부터 `setRequestHandler`에 문자열(`'tools/list'`) 대신 Zod 스키마(`ListToolsRequestSchema`, `CallToolRequestSchema`)를 넘겨야 함. `src/mcp/server.js`에서 수정 완료.
+2. **mcp 서비스 상시 실행 불가** — `src/mcp/server.js`는 `StdioServerTransport`를 사용하는 stdio 기반 MCP 서버로, 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작함. 컨테이너로 데몬처럼 띄우면 stdin이 즉시 EOF 되어 종료 → 무한 재시작 루프 발생. 게다가 실제 채팅 기능(`src/services/claude.service.js`)은 MCP 도구를 인프로세스로 직접 호출하므로 이 서버가 필요하지도 않음. `docker-compose.yml`에서 `profiles: ["mcp-manual"]`로 분리해 기본 `docker compose up`에는 포함되지 않도록 처리. 필요할 때만 `docker compose run --rm -i mcp`로 수동 실행.
+3. **헬스체크 IPv6 문제** — 컨테이너 내부에서 `localhost`가 IPv6(`::1`)로 먼저 풀리는데 앱은 `0.0.0.0`(IPv4)에만 바인딩되어 healthcheck가 실패(`unhealthy`)하던 문제. `docker-compose.yml` healthcheck의 `localhost`를 `127.0.0.1`로 변경해 해결.
+
 ## 🚀 시작하기
 
 ### 요구사항

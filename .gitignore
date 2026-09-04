@@ -44,3 +44,16 @@ debug.log
 .agents/
 .claude/skills/
 skills-lock.json
+
+# yamnet/ — Python 오디오 분류 파이프라인 (Plan.md 참고)
+# ESC-50: 2000개 wav(1.4G) + 자체 .git 보유(nested repo) + CC BY-NC 라이선스(비상용) — 커밋 대상 아님
+yamnet/ESC-50/
+# media/: 개인 녹음 샘플(권한 700) — 오디오 원본은 커밋하지 않음
+yamnet/media/
+# 실행할 때마다 바뀌는 로그 산출물
+yamnet/output.txt
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

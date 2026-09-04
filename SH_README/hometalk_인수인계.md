@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-08-30 (Tailscale Funnel로 백엔드 외부 공개 URL 추가, git 인증 정보 반영)
+> 최근 수정일시: 2026-09-04 (Vercel↔백엔드 연결 문제 진단: CORS 해결, VITE_API_URL 미설정은 남은 일로 이동)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare Backend — 라즈베리파이 서버 배포/인프라
@@ -64,4 +64,4 @@ tailscale funnel --https=443 off   # 끄고 싶을 때
 - Node.js 18 deprecated 경고 — `node:20-alpine`으로 업그레이드 고려
 - MCP stdio 서버(`src/mcp/server.js`)는 현재 구조상 실사용 안 됨. 향후 외부 MCP 클라이언트 연동이 필요해지면 별도 검토 필요
 - Tailscale Funnel은 라즈베리파이 재부팅 시 꺼질 수 있음 — 부팅 시 자동 재시작되게 systemd 서비스화 필요 (미완료)
-- Vercel 프론트엔드가 실제로 `https://alarmi.tail3c4e8f.ts.net`을 API base URL로 쓰도록 설정됐는지 아직 미확인
+- **Vercel 프론트엔드가 `VITE_API_URL`을 안 쓰고 있음이 확인됨 (2026-09-04)** — 배포된 JS 번들에 `http://localhost:3000`이 baked-in 되어 있어 실제 API 호출이 실패함. Vercel 프로젝트 Settings → Environment Variables에 `VITE_API_URL=https://alarmi.tail3c4e8f.ts.net` 추가 후 재배포 필요 (이번 세션은 대시보드 접근 권한이 없어 서버 쪽 CORS만 처리, 상세는 `hometalk_진행일지.md` 2026-09-04 항목 참고)

@@ -1,52 +1,15 @@
 import os
+import sys
 import numpy as np
 import soundfile as sf
-import tensorflow_hub as hub
-from scipy.signal import resample_poly
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(SCRIPT_DIR), "core"))
+
+from yamnet_core import load_yamnet, load_class_names, preprocess, infer  # noqa: E402
 
 
-MEDIA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
-
-
-def load_class_names(model):
-    class_map_path = model.class_map_path().numpy()
-
-    class_names = []
-
-    with open(class_map_path, "r") as f:
-        for line in f:
-            line = line.strip()
-
-            if line:
-                class_names.append(line)
-
-    return class_names
-
-
-def convert_to_16khz_mono(audio, sample_rate):
-
-    # Stereo -> Mono
-    if audio.ndim > 1:
-        audio = np.mean(audio, axis=1)
-
-    audio = audio.astype(np.float32)
-
-    # Resample to 16 kHz
-    if sample_rate != 16000:
-
-        print(
-            "Resampling:",
-            sample_rate,
-            "Hz -> 16000 Hz"
-        )
-
-        audio = resample_poly(
-            audio,
-            16000,
-            sample_rate
-        )
-
-    return audio
+MEDIA_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "media")
 
 
 def classify_audio(model, class_names, file_path):
@@ -66,11 +29,11 @@ def classify_audio(model, class_names, file_path):
             "seconds"
         )
 
+        if sample_rate != 16000:
+            print("Resampling:", sample_rate, "Hz -> 16000 Hz")
+
         # Convert audio to 16 kHz mono
-        audio = convert_to_16khz_mono(
-            audio,
-            sample_rate
-        )
+        audio = preprocess(audio, sample_rate)
 
         print("Converted sample rate: 16000 Hz")
         print(
@@ -79,12 +42,11 @@ def classify_audio(model, class_names, file_path):
             "seconds"
         )
 
-        # YAMNet inference
-        scores, embeddings, spectrogram = model(audio)
+        # YAMNet inference (프레임별 원본 출력)
+        scores, embeddings, spectrogram = infer(model, audio)
 
-        scores = scores.numpy()
-
-        # Average scores from all frames
+        # Average scores from all frames (CLI 요약 출력용 — 프레임별 원본은
+        # event_rules.py 쪽에서 필요할 때 infer()를 직접 호출해서 사용한다)
         mean_scores = np.mean(scores, axis=0)
 
         # Get Top 5 results
@@ -111,9 +73,7 @@ def main():
 
     print("Loading YAMNet...")
 
-    model = hub.load(
-        "https://tfhub.dev/google/yamnet/1"
-    )
+    model = load_yamnet()
 
     print("YAMNet loaded.")
 

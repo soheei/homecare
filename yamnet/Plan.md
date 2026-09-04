@@ -312,19 +312,23 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
 ├── 참고.md              # 참고 A 원본 (수정 안 함)
 ├── Plan.md              # 이 문서
 ├── README.md            # 기존 mediatest.py 설명서
-├── mediatest.py         # 기존: 폴더 내 파일 일괄 분류 (라벨링만 수행, 참고용/레거시)
+├── yamnet_core.py       # 완료 (1단계): load_yamnet()/load_class_names()/preprocess()/infer()
+│                         #        — 프레임별 원본 scores/embedding 반환, 다른 스크립트가 재사용
+├── mediatest.py         # 기존: 폴더 내 파일 일괄 분류, yamnet_core.py 함수로 리팩터링됨
 ├── media/               # 자체 수집 샘플 (glass-break, baby-crying, door-knock, fire-alarm)
 ├── ESC-50/              # clone 완료: 평가/기준선 데이터셋
 │   ├── audio/           # 2000개 wav
 │   └── meta/esc50.csv   # filename, fold, target, category 매핑
 ├── yamnet_class_map.csv # 완료: 공식 class map 저장본 (오프라인 index 검증용)
 ├── category_map.py      # 완료: 키워드 그룹 ↔ YAMNet class index 매핑 (검증 스크립트 포함)
+├── event_rules.py        # 완료 (3단계): 후처리 규칙 — threshold/majority_vote/
+│                         #        combo_cooccurrence/combo_sequential/duration/
+│                         #        frequency_count/meta_absence/log_only (§2.3)
+├── evaluate.py           # 완료 (4단계): ESC-50 fold 1~4로 threshold 스윕, fold 5 holdout으로
+│                         #        precision/recall 측정. household_activity_log 분리 발견 포함
 │
 # 앞으로 추가할 것들
-├── event_rules.py        # (신규) 후처리 규칙: 임계값 / N-프레임 다수결 / 클래스 조합+시간창 (§2.3)
 ├── notification_policy.py # (신규) 위험도별 알림 방식 + 쿨다운 로직 (§2.4)
-├── evaluate.py           # (신규) ESC-50 fold 기반으로 카테고리별 precision/recall 측정,
-│                         #        참고 A 방식(fold 1~3/4/5 분리)도 재사용
 ├── novelty_detector.py   # (신규, 백로그) 참고 A: score/embedding delta 계산 — 보조 안전망용
 └── stream_pipeline.py    # (신규) 오디오 입력 → 메인 로직 → (선택) 백로그 novelty 로그
                           #        → 이벤트 payload 출력까지 연결하는 엔드투엔드 스크립트
@@ -334,9 +338,14 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
 
 ## 6. 구현 단계 (TODO, 우선순위 재조정)
 
-- [ ] **1단계 — 기반 함수 분리**: `mediatest.py`의 로드/전처리/추론 로직을 재사용 가능한
-      함수로 분리 (`load_yamnet()`, `preprocess(audio, sr)`, `infer(model, audio)` → scores,
-      embedding 반환)
+- [x] **1단계 — 기반 함수 분리** (2026-09-04 완료): `mediatest.py`의 로드/전처리/추론 로직을
+      `yamnet_core.py`(신규)로 분리 — `load_yamnet()`, `load_class_names(model)`,
+      `preprocess(audio, sr)`, `infer(model, audio)` → scores/embedding/spectrogram을
+      **프레임별 원본**(mean-pooling 안 함) 그대로 반환. `mediatest.py`는 이 함수들을 import해서
+      쓰도록 리팩터링, CLI 출력용 mean-pooling은 `classify_audio()`에 남김. 리팩터링 후
+      `python mediatest.py` 실행 결과가 기존 `output.txt`와 완전히 동일함을 확인
+      (회귀 없음). 이제 `event_rules.py`가 필요로 하는 프레임 단위 scores 행렬을
+      `infer()`가 바로 제공하므로 4단계(`evaluate.py`)에서 재사용 가능.
 - [x] **2단계 — `category_map.py` 작성** (2026-09-04 완료): §3-1 마스터 테이블을 `SoundCategory`
       dataclass 리스트로 코드화, `yamnet_class_map.csv`로 전체 index 검증 완료.
       **검증 중 오류 발견 및 수정**: 원문의 Glass index `35`는 실제로 "Whistling"이었음 —
@@ -354,9 +363,43 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
       locked+즉시알림 정책에 맞춰 단일 클래스만 넘어도 트리거(min_groups=1)하되 다중 클래스
       동시 상승은 참고 정보로만 남김. threshold/window 수치는 전부 placeholder — 4단계
       evaluate.py에서 ESC-50 fold 4로 실측 튜닝 필요 (미확정 상태 유지, §9에 추가 예정).
-- [ ] **4단계 — 평가 데이터 준비 및 검증(`evaluate.py`)**: §3 매칭표 기준으로 ESC-50에서
-      카테고리별 clip 추출 → fold 1~3(임계값 튜닝용 정상 기준선), fold 4(임계값 결정),
-      fold 5(최종 precision/recall 평가)로 분리해 카테고리별 성능 측정
+- [x] **4단계 — 평가 데이터 준비 및 검증(`evaluate.py`)** (2026-09-04 완료): §3 매칭표 기준
+      ESC-50 32개 카테고리(1,280 클립) 추론. 참고 A의 fold 분리 정신을 재사용하되 kNN 메모리가
+      아닌 threshold sweep 방식으로 조정 — fold 1~4로 threshold 그리드(0.10~0.90) 중 F1 최대값
+      선택, fold 5는 holdout으로 한 번만 precision/recall 측정 (튜닝에 안 씀). negative는
+      ESC-50 전체가 아니라 §3에서 매핑한 카테고리들끼리만 (좁은 의미의 혼동 측정).
+
+      **1차 결과**: `glass_impact`(threshold=0.2) precision=0.875/recall=0.875/F1=0.875,
+      `fire_alarm_siren`(0.5) 0.846/0.688/0.759, `baby_person_distress`(0.45) 1.0/0.5/0.667,
+      `door_visitor`(0.35) 0.6/0.75/0.667, `door_security`(0.35) 0.7/0.438/0.538.
+      `health_signal`/`ambient_log`는 rule_type이 log_only/frequency_count라 항상
+      triggered=False라서 대신 탐지율만 집계 (`health_signal` 85%, `ambient_log` **19.3%**).
+      `animal`은 threshold=0.1(그리드 하한)에서도 recall 0.273로 낮게 나왔으나, **사용자 결정
+      (2026-09-04): 동물 소리는 분류 정확도를 높일 필요 없음** — 이미 "낮음 위험도, 기본 OFF"
+      카테고리라 추가 튜닝/class_ids 보강 작업 대상에서 제외.
+
+      **구조적 발견 → `ambient_log`/`household_activity_log` 분리로 해결**: `ambient_log`의
+      class_ids(`Television`/`Music`/`Speech`, §2.7 원안)와 §3 ESC-50 매칭표가 예시로 든
+      "생활 소음"(vacuum_cleaner/keyboard_typing/brushing_teeth/toilet_flush 등 가전·행동
+      소음)이 서로 다른 걸 가리키는 정의 불일치였음. **사용자 결정: `ambient_log`는 원안
+      (TV/Music/Speech) 유지, 가전·행동 소음은 `household_activity_log`로 신규 분리**
+      (class_ids: Vacuum cleaner(371)/Typing(378)/Computer keyboard(380)/Toothbrush(369)/
+      Electric toothbrush(370)/Toilet flush(368)/Clapping(58)/Laughter(13)/Chewing,
+      mastication(49)/Sink filling or washing(365)/Walk,footsteps(48) — `category_map.py`
+      반영 완료). washing_machine/mouse_click/can_opening은 대응하는 전용 YAMNet 클래스가
+      없어 제외 (Fall/Gas와 같은 커버리지 공백).
+
+      재평가 결과: `household_activity_log` 탐지율 **70.9%**(19.3% → 대폭 개선, 정의만
+      바로잡아도 실제 탐지율이 훨씬 정확하게 나타남을 확인). `ambient_log`는 ESC-50에
+      TV/Music/Speech 카테고리 자체가 없어 평가 불가로 UNSUPPORTED 처리.
+
+      재평가 과정에서 negative pool 구성이 바뀌며 다른 카테고리 threshold도 함께 흔들림
+      (`glass_impact` 0.2→0.1, precision 0.875→0.615/recall 0.875→1.0; `door_security` F1
+      0.538→0.452) — **fold당 positive 8개(holdout)/32개(튜닝)로 표본이 작아 threshold
+      선택이 negative 구성 변화에 민감**하다는 한계 확인 (§9에 기록).
+
+      `kitchen_risk`/`long_silence`/`fall_suspect`는 ESC-50 5초 단일 클립 구조상 평가 불가
+      (duration/meta_absence/combo_sequential 규칙 특성상 — §9에 기록).
 - [ ] **5단계 — `notification_policy.py`**: §2.4 위험도별 알림 방식 + 쿨다운 구현
       (locked 카테고리는 "완전 무음" 설정 자체를 막는 가드 포함)
 - [ ] **6단계 — 엔드투엔드 파이프라인(`stream_pipeline.py`)**: 파일/스트림 입력 → 메인 로직 →
@@ -419,10 +462,30 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
 - `animal` 카테고리의 "기본 OFF"를 `sound_categories`/`user_category_settings` 스키마 중 어디서
   표현할지 — 마스터 스키마(§2.6)에는 `enabled` 필드가 없음 (`category_map.py` 구현 중 발견,
   백엔드 스키마 설계 시 확인 필요)
-- **`event_rules.py`의 threshold/window_frames/min_duration_sec 등 전부 placeholder** —
-  ESC-50 fold 4(정상음, §3-1)로 카테고리별 오탐 0건 기준 실측 튜닝 필요 (4단계 evaluate.py에서
-  수행). 특히 `glass_impact`의 그룹 분할(Glass·Crack vs Shatter·Breaking)과 `fall_suspect`의
-  순차 window_frames=6은 실제 ESC-50 `glass_breaking`/합성 낙상 스트림으로 검증된 적 없음.
+- **event_rules.py threshold 실측 튜닝 완료(2026-09-04, 4단계)**: `glass_impact`=0.2,
+  `fire_alarm_siren`=0.5, `baby_person_distress`=0.45, `door_visitor`=0.35, `door_security`=0.35
+  (ESC-50 fold 1~4 기준, 상세는 §6 4단계 항목 참고). **아직 `event_rules.py`
+  CATEGORY_RULE_CONFIG의 실제 기본값에는 반영 안 함** — 반영 여부/시점 결정 필요.
+  `window_frames`/`min_duration_sec` 등은 이번 스윕 대상이 아니었음 — 여전히 placeholder.
+  `glass_impact`의 그룹 분할(Glass·Crack vs Shatter·Breaking)은 fold5 결과(F1 0.875)로 보아
+  타당해 보이나, `fall_suspect`의 순차 window_frames=6은 ESC-50에 해당 시퀀스 샘플이 없어
+  (§6 4단계) 여전히 검증된 적 없음.
+- ~~`ambient_log`의 class_ids 정의 재검토 필요~~ → **해결(2026-09-04)**: `ambient_log`는
+  원안(TV/Music/Speech) 유지, 가전·행동 소음은 `household_activity_log`로 분리 신설
+  (재평가 탐지율 70.9%). `ambient_log` 자체는 ESC-50에 대응 카테고리가 없어 평가 불가로 남음.
+- **threshold 튜닝이 negative pool 구성에 민감** (household_activity_log 분리 재평가 중
+  발견): fold5 holdout이 카테고리당 8개뿐이라, 평가에 포함하는 카테고리 집합이 바뀌면
+  다른 카테고리의 "최적" threshold도 함께 흔들림 (예: `glass_impact` 0.2→0.1). 카테고리
+  구성을 바꿀 때마다 전체 재튜닝이 필요하다는 뜻 — 표본을 늘리거나(자체 샘플 추가 수집)
+  더 안정적인 튜닝 기준(예: threshold 후보 중 F1 동률이면 더 보수적인 쪽 선택)이 필요할 수 있음.
+- ~~§2.1 "2단계 개선안"(transfer learning) 도입 여부~~ → **보류 (2026-09-04, 사용자 결정)**:
+  TF 공식 튜토리얼(`참고/transfer_learning_audio.ipynb`, YAMNet 임베딩+경량 Dense 헤드 지도학습)
+  기준으로 검토한 결과, `fall_suspect`/`kitchen_risk`/`long_silence`/`ambient_log`는 모델을
+  바꿔도 ESC-50에 학습용 샘플 자체가 없어 여전히 막힘(§3 "부족한 부분"과 동일한 병목) —
+  전이학습이 이 구조적 한계를 풀어주지 않음. `door_security`(F1 0.45~0.52)는 AudioSet의
+  Door/Knock 클래스가 footsteps/clapping/typing과 자주 혼동되는 게 원인으로 보여 파일럿
+  후보로 남겨두되, 지금은 착수하지 않고 현재 방향(§4 클래스 매핑+threshold 규칙)을 그대로
+  유지하기로 함. §6 TODO 로드맵(5~9단계)에도 원래 없던 항목이라 별도로 추가하지 않음.
 
 ---
 

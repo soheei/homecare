@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-08-30 (GitHub 접근 환경 구성 + 백엔드 Docker 최초 배포 + 발견한 문제 4건 해결 + Tailscale Funnel로 백엔드 외부 공개 + DEPLOYMENT.md 작성)
+> 최근 수정일시: 2026-09-04 (Vercel 프론트엔드 "최근 이벤트" 무한 로딩 원인 진단 및 백엔드 CORS 수정)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -37,6 +37,20 @@
 - `homecare-backend`: `0.0.0.0:3000`, docker healthcheck `healthy`
 - `homecare-mcp`: 기본 실행에서 제외됨 (필요시 수동 실행)
 - 관련 내용은 `README.md`의 "🌐 배포" / "알려진 이슈" 섹션에도 반영함
+
+---
+
+## 2026-09-04
+
+### Vercel 프론트엔드 "최근 이벤트" 무한 로딩 문제 진단
+- 사용자가 https://homecare-9sr8.vercel.app/ 홈 화면에서 "최근 이벤트"가 계속 "불러오는 중..."에 멈춰있다고 제보
+- 라즈베리파이 백엔드 자체는 정상이었음 — `docker ps`로 `homecare-backend` healthy 확인, `curl localhost:3000/health` 및 `curl https://alarmi.tail3c4e8f.ts.net/health` 둘 다 200 정상 응답
+- 원인 2건 확인:
+  1. **Vercel 빌드에 `VITE_API_URL` 미설정** — 배포된 JS 번들(`/assets/index-*.js`)을 직접 받아 문자열 검색해보니 API 호출 주소가 `http://localhost:3000`으로 baked-in 되어 있었음. Vite는 빌드 시점에 `import.meta.env.VITE_API_URL`을 치환하는데, Vercel 프로젝트에 이 환경변수가 없어 [web/src/lib/api.js](../web/src/lib/api.js)의 fallback 값(`http://localhost:3000`)이 그대로 박힘. 이 주소는 방문자 자신의 PC를 가리키므로 당연히 응답이 없음. → **미해결, Vercel 대시보드에서 직접 설정 필요** (아래 "남은 일" 참고)
+  2. **백엔드 CORS가 Vercel 도메인 미허용** — `curl -H "Origin: https://homecare-9sr8.vercel.app" .../api/events`로 확인해보니 `Access-Control-Allow-Origin` 헤더가 없었음. `src/config/index.js`의 `ALLOWED_ORIGINS` 환경변수(`.env`)에 이 도메인이 빠져있었음. → **해결함**: `.env`의 `ALLOWED_ORIGINS`에 `https://homecare-9sr8.vercel.app` 추가 (수정 전 백업: `.env.bak.*`), `docker-compose up -d --build backend`로 재배포. 재배포 후 동일 curl로 `access-control-allow-origin: https://homecare-9sr8.vercel.app` 헤더 확인 완료.
+
+### 남은 일
+- Vercel 프로젝트(Settings → Environment Variables)에 `VITE_API_URL=https://alarmi.tail3c4e8f.ts.net` 추가 후 재배포 필요 — CLI/대시보드 접근 권한이 없어 이번 세션에서는 서버(백엔드) 쪽만 처리함. 이게 반영되기 전까지는 프론트엔드가 여전히 백엔드에 연결 못함.
 
 ### Git 커밋/푸시 (README, docker-compose.yml, src/mcp/server.js, CLAUDE.md, SH_README/)
 - 로컬 저장소에 `user.name`/`user.email` 미설정 상태라 첫 커밋 실패 → `git config user.name "soheei"`, `git config user.email "soheei@users.noreply.github.com"`로 저장소 로컬 설정

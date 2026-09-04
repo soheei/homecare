@@ -299,6 +299,10 @@ CATEGORY_RULE_CONFIG = {
         fn=rule_log_only,
         kwargs=dict(class_ids=_cat_class_ids("ambient_log"), threshold=0.3),
     ),
+    "household_activity_log": dict(
+        fn=rule_log_only,
+        kwargs=dict(class_ids=_cat_class_ids("household_activity_log"), threshold=0.3),
+    ),
 }
 
 

@@ -9,6 +9,12 @@ verify_against_class_map()을 통해 실제 검증했다.
 - Glass의 index는 35가 아니라 435. 35는 "Whistling"이었음 (오타로 추정, 수정함).
 - Smoke detector, smoke alarm(393)이 fire_alarm_siren에 빠져있어 추가.
 - Breaking(464)이 glass_impact에 빠져있어 추가 (Crack(434)과 별개 클래스로 존재).
+
+2026-09-04 4단계(evaluate.py) 평가 중 발견: `ambient_log`(TV/Music/Speech, §2.7 원안)와
+Plan.md §3 ESC-50 매칭표가 예시로 든 "생활 소음"(가전제품·생활행동 소음)이 서로 다른 걸
+가리키고 있었음 — 사용자 결정으로 `ambient_log`는 원안(TV/Music/Speech)대로 유지하고,
+가전제품·생활행동 소음은 `household_activity_log`로 분리 신설. washing_machine/mouse_click/
+can_opening에 대응하는 전용 YAMNet 클래스는 없어(Fall/Gas와 같은 커버리지 공백) 제외.
 """
 
 from dataclasses import dataclass, field
@@ -19,6 +25,7 @@ CLASS_NAMES = {
     0: "Speech",
     6: "Shout",
     11: "Screaming",
+    13: "Laughter",
     19: "Crying, sobbing",
     20: "Baby cry, infant cry",
     33: "Groan",
@@ -27,6 +34,8 @@ CLASS_NAMES = {
     42: "Cough",
     44: "Sneeze",
     48: "Walk, footsteps",
+    49: "Chewing, mastication",
+    58: "Clapping",
     70: "Bark",
     78: "Meow",
     132: "Music",
@@ -38,6 +47,13 @@ CLASS_NAMES = {
     358: "Dishes, pots, and pans",
     362: "Microwave oven",
     364: "Water tap, faucet",
+    365: "Sink (filling or washing)",
+    368: "Toilet flush",
+    369: "Toothbrush",
+    370: "Electric toothbrush",
+    371: "Vacuum cleaner",
+    378: "Typing",
+    380: "Computer keyboard",
     382: "Alarm",
     390: "Siren",
     393: "Smoke detector, smoke alarm",
@@ -161,7 +177,23 @@ SOUND_CATEGORIES: List[SoundCategory] = [
         default_risk_level="로그전용",
         locked=False,
         rule_type="log_only",
-        notes="알림 대상 아님 — 오탐 디버깅용 로그만 남김",
+        notes="알림 대상 아님 — 오탐 디버깅용 로그만 남김. 배경음 컨텍스트(TV/음악/대화)로만 "
+              "쓰고, 가전제품·생활행동 소음은 household_activity_log 참고 (2026-09-04 분리)",
+    ),
+    SoundCategory(
+        category_id="household_activity_log",
+        label="생활 소음(가전/행동, 로그용)",
+        class_ids=[371, 378, 380, 369, 370, 368, 58, 13, 49, 365, 48],
+        # Vacuum cleaner, Typing, Computer keyboard, Toothbrush, Electric toothbrush,
+        # Toilet flush, Clapping, Laughter, Chewing/mastication, Sink(filling/washing),
+        # Walk/footsteps
+        default_risk_level="로그전용",
+        locked=False,
+        rule_type="log_only",
+        notes="2026-09-04 ambient_log에서 분리 신설 — §3 ESC-50 매칭표의 '생활 소음'(가전·행동)"
+              " 커버리지 대응. washing_machine/mouse_click/can_opening은 대응하는 전용 YAMNet "
+              "클래스가 없어 제외 (Fall/Gas와 같은 커버리지 공백, §9 참고). "
+              "Sink(filling/washing)는 washing_machine의 느슨한 대리 신호일 뿐 정확한 매칭 아님.",
     ),
 ]
 

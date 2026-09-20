@@ -16,6 +16,9 @@ const logger = require('./utils/logger');
 
 const app = express();
 
+// 클라우드(Cloud Run 등) 프록시 1단 뒤에서 실제 클라이언트 IP를 쓰도록 (rate limit 정확도)
+app.set('trust proxy', 1);
+
 // ===========================================
 // Security Middlewares
 // ===========================================

@@ -1,0 +1,21 @@
+# 비밀값/환경파일은 이미지에 넣지 않는다 (배포 환경에서 환경변수·Secret으로 주입)
+.env
+.env.*
+!.env.example
+
+# 백엔드 실행에 필요 없는 것들
+node_modules
+.git
+.gitignore
+.claude
+.agents
+logs
+tests
+web
+yamnet
+SH_README
+database
+*.md
+postman_collection.json
+test-mcp.js
+skills-lock.json

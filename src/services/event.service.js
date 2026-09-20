@@ -88,11 +88,11 @@ const createEvent = async (eventData) => {
 
   } catch (error) {
     logger.error('[EventService] Error creating event:', error);
-    return {
-      id: `temp_${Date.now()}`,
-      ...eventData,
-      createdAt: new Date().toISOString()
-    };
+    // 저장 실패를 성공처럼 숨기지 않는다 — 엣지 디바이스가 5xx를 보고 재시도할 수 있어야 함.
+    // (중앙 에러 핸들러가 PGRST 코드를 400으로 바꾸므로 statusCode를 명시. 상세 원인은 로그에만 남김)
+    const saveError = new Error('Failed to save event');
+    saveError.statusCode = 500;
+    throw saveError;
   }
 };
 

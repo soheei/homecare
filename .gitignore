@@ -59,3 +59,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# edge/ — 전송 대기 큐(SQLite)와 첨부 임시 저장소 (런타임 데이터)
+edge/data/

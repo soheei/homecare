@@ -36,10 +36,15 @@ CREATE TABLE IF NOT EXISTS events (
   danger_level TEXT DEFAULT 'normal' CHECK (danger_level IN ('normal', 'warning', 'danger')),
   image_url TEXT,
   audio_url TEXT,
+  video_url TEXT,
   metadata JSONB DEFAULT '{}',
   timestamp TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 기존 DB 보정: video_url은 나중에 추가된 컬럼이라 이미 만들어진 테이블에는 없을 수 있음
+-- (event.controller.js가 video_url을 저장하므로 없으면 이벤트 저장 실패)
+ALTER TABLE events ADD COLUMN IF NOT EXISTS video_url TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_events_device_id    ON events(device_id);
 CREATE INDEX IF NOT EXISTS idx_events_type         ON events(type);

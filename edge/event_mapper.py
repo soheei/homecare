@@ -9,8 +9,8 @@ yamnet/core/category_map.py의 default_risk_level(높음/중간/낮음/…)을 �
   높음 → danger, 중간 → warning, 낮음 → normal, 정보성/로그전용 → 전송 안 함
 
 ※ 이 표는 기본안이다 (확정 아님, 팀 결정 필요). 바꾸려면 SPECS만 수정하면 된다.
-  - fall_suspect / baby_person_distress: Plan.md §2.4는 각각 '중간' / '낮음'으로 적혀 있으나
-    category_map.py의 현재 값은 둘 다 '높음'이라 코드 쪽 값을 따랐다.
+  - fall_suspect / baby_person_distress: Plan.md §2.4 초안은 각각 '중간' / '낮음'이었지만
+    §9에 따라 2026-09-04에 '높음'으로 확정됐고 category_map.py도 '높음'이라 그 값을 따랐다.
   - 쿨다운: Plan.md §2.4는 '높음'을 쿨다운 없이 매번 알린다고 했으나, 같은 소리가 연속 프레임에서
     중복 이벤트로 쌓이는 것을 막기 위해 10초 하한만 뒀다.
 YOLO 등 다른 감지기는 category_id를 여기에 추가하면 같은 경로로 전송된다.

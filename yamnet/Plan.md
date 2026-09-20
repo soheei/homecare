@@ -4,6 +4,10 @@
 > 전체 음성 분류 파이프라인을 구현한다. homecare 백엔드 전송/DB 스키마/UI는 이 파이프라인의
 > 출력을 소비하는 별도 작업으로, 여기서는 설계 참고용으로만 다루고 실제 구현은 homecare
 > 저장소 쪽에서 진행한다.
+>
+> **최근 수정일시: 2026-09-20** — 백엔드 전송 경로가 `homecare/edge/`에 구현됨(큐+재시도+쿨다운, Pi→Render 실전송 검증 완료).
+> 그 결과 §5 폴더 구조를 현재 파일 배치(`core/`, `verification/`)로 갱신하고, §6 5·6·9단계와 §11 다음 액션에
+> 진행 상황을 반영했다. 나머지(설계 원문, 실험 결과)는 그대로 보존. 엣지 쪽 상세는 [../edge/README.md](../edge/README.md).
 
 ---
 
@@ -309,29 +313,36 @@ Police car(317), Fire engine(319), Civil defense siren(391)) — 실내 마이�
 
 ```
 homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동 (git mv)
-├── 참고.md              # 참고 A 원본 (수정 안 함)
 ├── Plan.md              # 이 문서
-├── README.md            # 기존 mediatest.py 설명서
-├── yamnet_core.py       # 완료 (1단계): load_yamnet()/load_class_names()/preprocess()/infer()
-│                         #        — 프레임별 원본 scores/embedding 반환, 다른 스크립트가 재사용
-├── mediatest.py         # 기존: 폴더 내 파일 일괄 분류, yamnet_core.py 함수로 리팩터링됨
+├── README.md            # mediatest.py 설명서
+├── core/                # 운영에서도 쓰는 공통 코드 (2026-09 커밋에서 yamnet/ 바로 아래에서 이동)
+│   ├── yamnet_core.py       # 완료 (1단계): load_yamnet()/load_class_names()/preprocess()/infer()
+│   │                        #        — 프레임별 원본 scores/embedding 반환, 다른 스크립트가 재사용
+│   ├── yamnet_class_map.csv # 완료: 공식 class map 저장본 (오프라인 index 검증용)
+│   ├── category_map.py      # 완료: 키워드 그룹 ↔ YAMNet class index 매핑 (검증 스크립트 포함)
+│   └── event_rules.py       # 완료 (3단계): 후처리 규칙 — threshold/majority_vote/
+│                            #        combo_cooccurrence/combo_sequential/duration/
+│                            #        frequency_count/meta_absence/log_only (§2.3)
+├── verification/        # ESC-50 기반 평가·실험 스크립트
+│   ├── mediatest.py         # 폴더 내 파일 일괄 분류 CLI (core/yamnet_core.py 사용)
+│   ├── evaluate.py          # 완료 (4단계): ESC-50 fold 1~4로 threshold 스윕, fold 5 holdout으로
+│   │                        #        precision/recall 측정. household_activity_log 분리 발견 포함
+│   └── (threshold F1/F2 분석·그래프, fold 회전 holdout, FP/FN 사례 추출 등)
+│
+│  # 아래는 git에 올리지 않는 로컬 전용 (.gitignore)
 ├── media/               # 자체 수집 샘플 (glass-break, baby-crying, door-knock, fire-alarm)
-├── ESC-50/              # clone 완료: 평가/기준선 데이터셋
-│   ├── audio/           # 2000개 wav
-│   └── meta/esc50.csv   # filename, fold, target, category 매핑
-├── yamnet_class_map.csv # 완료: 공식 class map 저장본 (오프라인 index 검증용)
-├── category_map.py      # 완료: 키워드 그룹 ↔ YAMNet class index 매핑 (검증 스크립트 포함)
-├── event_rules.py        # 완료 (3단계): 후처리 규칙 — threshold/majority_vote/
-│                         #        combo_cooccurrence/combo_sequential/duration/
-│                         #        frequency_count/meta_absence/log_only (§2.3)
-├── evaluate.py           # 완료 (4단계): ESC-50 fold 1~4로 threshold 스윕, fold 5 holdout으로
-│                         #        precision/recall 측정. household_activity_log 분리 발견 포함
+├── ESC-50/              # 평가/기준선 데이터셋 (audio/ 2000개 wav, meta/esc50.csv)
+├── output/              # 실행 산출물 (로그, CSV, 그래프)
+└── 참고/                # 참고 A 원문(참고.md) 등 참고 자료 (원본 참고.md는 git에서 제거됨)
+
+homecare/edge/            # 2026-09-20 신규: 감지 결과 → 백엔드 전송 (운영 코드, README 참고)
+├── emit.py, event_mapper.py, cooldown.py, outbox.py, sender.py, config.py   # 완료 (전송 경로)
+├── send_test_event.py, tests/                                              # 전송 점검·단위 테스트
 │
 # 앞으로 추가할 것들
-├── notification_policy.py # (신규) 위험도별 알림 방식 + 쿨다운 로직 (§2.4)
-├── novelty_detector.py   # (신규, 백로그) 참고 A: score/embedding delta 계산 — 보조 안전망용
-└── stream_pipeline.py    # (신규) 오디오 입력 → 메인 로직 → (선택) 백로그 novelty 로그
-                          #        → 이벤트 payload 출력까지 연결하는 엔드투엔드 스크립트
+├── stream_pipeline.py    # (신규, 6단계) 마이크 입력 → core/ 추론·판정 → edge.emit()까지 연결하는 엔드투엔드 스크립트
+yamnet/notification_policy.py # (신규, 5단계) 위험도별 알림 방식 + locked 가드 (쿨다운은 edge/cooldown.py에 일부 구현)
+yamnet/novelty_detector.py    # (신규, 백로그) 참고 A: score/embedding delta 계산 — 보조 안전망용
 ```
 
 ---
@@ -402,14 +413,25 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
       (duration/meta_absence/combo_sequential 규칙 특성상 — §9에 기록).
 - [ ] **5단계 — `notification_policy.py`**: §2.4 위험도별 알림 방식 + 쿨다운 구현
       (locked 카테고리는 "완전 무음" 설정 자체를 막는 가드 포함)
+      **부분 진행 (2026-09-20)**: 카테고리별 쿨다운(메모리)은 `edge/cooldown.py` + `edge/event_mapper.py`에
+      구현됨(높음 10초 하한, 낮음 5분 등). 위험도→백엔드 `dangerLevel` 변환도 같은 곳(높음→danger,
+      중간→warning, 낮음→normal, 정보성/로그전용은 미전송). locked 무음 방지 가드·사용자별 override는 미구현.
 - [ ] **6단계 — 엔드투엔드 파이프라인(`stream_pipeline.py`)**: 파일/스트림 입력 → 메인 로직 →
       알림 정책 → 이벤트 payload(JSON) 출력까지 연결
+      **위치는 `edge/stream_pipeline.py`로 정함 (2026-09-20)**, 출력은 payload 출력이 아니라
+      `edge.emit.EventEmitter.emit()` 호출로 백엔드 전송까지 연결. 아직 미구현 — Pi에서 마이크 캡처와
+      TensorFlow(또는 TFLite) 설치 가능 여부 **확인 필요**.
 - [ ] **7단계 — 라즈베리파이 실측**: 처리 속도(RTF)와 전력 소비를 라즈베리파이에서 직접 측정
 - [ ] **8단계 (백로그) — `novelty_detector.py`**: 참고 A의 delta 기반 이상 탐지를 보조
       안전망으로 추가 (알림 트리거 아님, 로그 전용으로 시작)
 - [ ] **9단계 (이후 별도 작업, homecare 백엔드) — 연동**: `stream_pipeline.py` 출력 payload를
       기존 `POST /api/events`(X-Device-Id/X-Device-Secret 인증, multipart)로 전송,
       `sound_categories`/`user_category_settings` 테이블 설계는 백엔드 쪽에서 진행
+      **부분 완료 (2026-09-20)**: 전송 경로는 `edge/`에 구현·검증 완료(로컬 SQLite 큐, 지수 백오프 재시도,
+      multipart 첨부, Pi→Render 실전송으로 Supabase `events` 저장 확인). 백엔드는 저장 실패 시 500을
+      반환하도록 바뀜. **미착수**: `sound_categories`/`user_category_settings` 테이블·사용자 override.
+      (이벤트 `device_id`는 `devices` 테이블 id여야 하고, 응답 유실 후 재시도 시 중복 저장 가능성이 있어
+      `metadata.event_uid`를 넣어 둠 — 백엔드에 중복 제거는 없음.)
 
 ---
 
@@ -498,7 +520,8 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
 
 ## 11. 다음 액션
 
-**2단계(`category_map.py`)부터 시작**하는 것을 제안. 이유: 참고 B의 키워드 그룹 매핑이 이미
-구체적으로 정리돼 있고, ESC-50에서 대부분 카테고리(§3)를 바로 검증할 수 있는 샘플을 확보한
-상태라 가장 빠르게 실측 가능한 단계이기 때문. 참고 A의 novelty detector는 8단계 백로그로
-미룸. 순서·우선순위에 이견 있으면 조정.
+(2026-09-20 갱신) 1~4단계와 백엔드 전송 경로(9단계 일부)는 완료. 다음은 **6단계 —
+`edge/stream_pipeline.py`**(마이크 → YAMNet → `event_rules` → `emit()`)와 그 전제인 **7단계 Pi 실측**
+(Pi의 Python 버전에서 TensorFlow 설치 가능 여부, 안 되면 TFLite 대안, 처리 속도/전력)이다.
+함께 처리할 것: `event_rules.py`에 threshold 튜닝값 반영(§9), 판정 전후 3~5초 오디오 클립 첨부,
+부팅 자동 실행(systemd). 참고 A의 novelty detector는 8단계 백로그 유지. 순서·우선순위에 이견 있으면 조정.

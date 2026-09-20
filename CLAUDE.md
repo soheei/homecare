@@ -4,13 +4,14 @@
 - **새 창/새 세션에서 이 저장소로 서버 배포·인프라 작업을 시작할 때는, 답변하기 전에 먼저 `SH_README/` 폴더의 문서를 읽는다**:
   1. `SH_README/hometalk_인수인계.md` — 현재 배포 상태(프론트/백엔드 URL, 접근 정보, 운영 명령어, 알려진 이슈) 요약. 최신 상태로 유지됨.
   2. `SH_README/hometalk_진행일지.md` — 위 작업의 날짜별 실제 진행 로그(무엇을 했고 어떤 문제를 발견·수정했는지).
-  3. `SH_README/DEPLOYMENT.md` — 실행 명령어 전체 목록, 서버 URL(Frontend/Backend/MCP), Raspberry Pi 접속 정보, 환경변수 이름 목록을 한 번에 보는 참조 문서.
-- 이 두 문서가 현재 라즈베리파이 서버 배포 상태의 최신 정보를 담고 있으므로, 코드만 보고 판단하지 말고 반드시 함께 확인할 것.
-- 두 문서 모두 상단에 "최근 수정일시"를 명시한다 — **가장 최근 일시가 적힌 쪽을 우선시할 것**.
+  3. `SH_README/DEPLOYMENT.md` — 실행 명령어 전체 목록, 서버 URL(Frontend/Backend/MCP), Raspberry Pi(엣지) 접속·실행 정보, 환경변수 이름 목록을 한 번에 보는 참조 문서.
+- 이 문서들이 현재 배포 상태(백엔드=Render, 프론트=Vercel, 엣지=라즈베리파이)의 최신 정보를 담고 있으므로, 코드만 보고 판단하지 말고 반드시 함께 확인할 것. (2026-09-20 Pi 초기화 이후 백엔드는 Pi가 아니라 Render에서 돈다 — 과거 Pi/Docker/Tailscale Funnel 기록은 진행일지에만 남아 있음.)
+- 세 문서 모두 상단에 "최근 수정일시"를 명시한다 — **가장 최근 일시가 적힌 쪽을 우선시할 것**.
 
 ## Project Overview
 - 이 저장소는 홈캠 영상/이벤트를 AI(Claude)가 분석해 자연어로 브리핑해주는 지능형 홈 모니터링 시스템 "HomeCare"의 백엔드 + 웹 프론트엔드. 대상 사용자는 원격지 보호자(가족)로, "오늘 누가 왔어?" 같은 질문에 답하거나 낙상·비명 등 위험 신호를 감지해 알린다.
-- 주요 언어/프레임워크: Node.js + Express(백엔드), Anthropic Claude API(`@anthropic-ai/sdk`), MCP(`@modelcontextprotocol/sdk`), Supabase(DB), React 19 + Vite + Tailwind(웹 프론트엔드), Docker/Docker Compose(배포).
+- 주요 언어/프레임워크: Node.js + Express(백엔드), Anthropic Claude API(`@anthropic-ai/sdk`), MCP(`@modelcontextprotocol/sdk`), Supabase(DB), React 19 + Vite + Tailwind(웹 프론트엔드), Docker(백엔드 이미지, Render가 Dockerfile로 빌드), Python(엣지: YAMNet 오디오 분류 + 이벤트 전송).
+- 배포 구성(2026-09-20 기준): 백엔드 = Render Web Service(https://homecare-9kcu.onrender.com, `main` push 시 자동 배포), 프론트 = Vercel, DB = Supabase, 엣지 = 라즈베리파이(`edge/` 코드가 `POST /api/events`로 전송). 환경변수 값은 Render 대시보드/Pi의 `edge/.env`에만 있다.
 - 핵심 코드 위치:
   - 백엔드 진입점: `src/index.js` → `src/app.js`(Express 앱 설정)
   - 라우트/컨트롤러/서비스: `src/routes/`, `src/controllers/`, `src/services/` (`claude.service.js`가 Claude API 호출 + MCP 도구 실행 루프의 핵심)
@@ -18,9 +19,11 @@
   - 설정/검증: `src/config/index.js` (필수 환경변수 검증), `src/config/supabase.js`
   - 웹 프론트엔드(실제 배포되는 것): `web/` — Vite + React 19 + Tailwind, Vercel 배포 (https://homecare-9sr8.vercel.app/)
   - 레거시/프로토타입 프론트엔드(package.json 없음, 빌드/배포 안 됨 — **확인 필요**): `frontend/`
-  - DB 스키마: `database/schema.sql` (Supabase PostgreSQL)
-  - 배포 설정: `Dockerfile`, `docker-compose.yml` (mcp 서비스는 `profiles: ["mcp-manual"]`로 기본 실행에서 제외됨)
-- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `setup.js`), Jest 사용 (`jest.config.js`).
+  - DB 스키마: `database/schema.sql` (Supabase PostgreSQL). **주의**: 맨 아래에 개발용 샘플 데이터 INSERT가 있어 파일 전체를 운영 DB에서 실행하면 가짜 이벤트/기기가 들어간다.
+  - 엣지(라즈베리파이) 전송 코드: `edge/` — 감지기가 `EventEmitter.emit()`만 호출하면 쿨다운 → SQLite 큐(`edge/data/`) → sender가 `POST /api/events`로 전송(재시도 포함). 카테고리→`type`/`dangerLevel` 변환표는 `edge/event_mapper.py`. 마이크→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`)과 YOLO 연동은 **아직 없음**.
+  - 오디오 분류 실험/설계: `yamnet/` (`core/` = 모델 로딩·카테고리·판정 규칙, `verification/` = ESC-50 평가 스크립트, 설계는 `yamnet/Plan.md`)
+  - 배포 설정: `Dockerfile`(Node 20, Render가 사용), `docker-compose.yml`(과거 Pi 배포용, 현재 배포 경로 아님. mcp 서비스는 `profiles: ["mcp-manual"]`로 기본 실행에서 제외됨)
+- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/2건 통과 상태(인증 401로 보임, 원인 미확인 — 새 변경과 무관하게 기존부터 실패). 엣지는 `python -m unittest discover -s edge/tests -t .`(15개).
 
 ## Common Commands
 - 설치: `npm install` (백엔드), `cd web && npm install` (프론트엔드)
@@ -30,7 +33,8 @@
 - 타입 체크: 별도 설정 없음(순수 JS, 백엔드/프론트 모두) — **확인 필요**(프론트는 `@types/react` 등 devDependency는 있으나 tsconfig 없음)
 - 유닛 테스트: `npm test` (Jest)
 - 빌드: 백엔드는 별도 빌드 없음(Node 직접 실행). 프론트엔드는 `cd web && npm run build` (Vite, Vercel이 자동 빌드)
-- Docker 배포: `docker compose up -d --build backend` (Debian trixie 서버 apt 저장소엔 `docker compose` 플러그인이 없어 `docker-compose`(하이픈) 명령 사용 — 상세는 `SH_README/hometalk_인수인계.md` 참고)
+- 백엔드 배포: `main`에 push하면 Render가 자동 재배포한다(별도 명령 없음). 상태 확인은 `curl https://homecare-9kcu.onrender.com/health` — 응답의 `environment`가 반드시 `production`이어야 한다. (과거의 `docker-compose up -d --build backend`는 Pi 시절 방식 — 상세는 `SH_README/`)
+- 엣지(Pi): `python3 -m venv .venv && source .venv/bin/activate && pip install -r edge/requirements.txt` (시스템 pip은 PEP 668로 막힘). 전송 경로 점검: `python -m edge.send_test_event`.
 
 ## Working Rules
 - `src/services/claude.service.js`가 MCP 도구 목록(`MCP_TOOLS`)과 핸들러 맵(`MCP_HANDLERS`)을 직접 관리하므로, `src/mcp/tools/`에 새 도구를 추가할 때는 이 파일도 함께 갱신해야 실제로 Claude가 호출할 수 있다.
@@ -55,10 +59,13 @@
 - API 공개 인터페이스(라우트 경로, 응답 스키마)는 명시적으로 바꾸라는 요청이 없는 한 유지한다.
 
 ## Security
-- `.env`, `secrets/` 아래 파일을 읽거나 출력하지 않는다.
+- `.env`(루트, `web/.env`, `edge/.env` 포함), `secrets/` 아래 파일을 읽거나 출력하지 않는다.
 - 토큰, 키, 개인 정보(ANTHROPIC_API_KEY, SUPABASE_SERVICE_ROLE_KEY, EDGE_DEVICE_SECRET 등)는 응답에 포함하지 않는다.
 - 외부 서비스에 접근하는 명령은 항상 먼저 물어본다.
 - 서버 로컬 경로(예: `/home/alarmi/...`)처럼 특정 사용자 계정에 하드코딩된 절대경로를 코드에 커밋하지 말 것.
 
 ## 실수 내용
-- (아직 기록된 항목 없음 — 이 저장소에서 반복될 만한 실수가 생기면 여기에 날짜와 함께 추가할 것)
+- (2026-09-20) **Render 환경변수에 `NODE_ENV=development`를 넣으면 인증이 통째로 우회된다.** `auth.middleware.js`가 development에서 토큰 검사를 건너뛰고 더미 유저로 통과시킨다 — 로컬 `.env`를 통째로 복사해 붙여넣다 발생. 배포 후엔 `/health`의 `environment`가 `production`인지, 토큰 없이 `/api/chat/history`가 401인지 반드시 확인할 것.
+- (2026-09-20) **`events.id`와 `devices.id`를 혼동하지 말 것.** 엣지의 `HOMECARE_DEVICE_ID`(= `X-Device-Id`)는 Supabase **`devices`** 테이블의 행 id여야 한다. `events` 행의 id를 넣으면 `events.device_id` 외래키 위반으로 저장이 실패한다.
+- (2026-09-20) 이벤트 저장이 실패해도 예전에는 `temp_` ID로 201 성공을 응답했다(`event.service.js`, 현재는 500으로 수정됨). API 응답만 보고 저장됐다고 판단하지 말고 응답 `id`가 UUID인지 / Render 로그에 `Error creating event`가 없는지 확인할 것.
+- (2026-09-20) `database/schema.sql`을 바꿨다고 운영 DB가 바뀌는 것이 아니다. `video_url` 컬럼처럼 코드는 쓰는데 운영 DB엔 없는 경우가 실제로 있었으니, 스키마 변경은 Supabase SQL Editor에서 따로 적용해야 한다(파일 전체 실행은 샘플 데이터가 섞이므로 필요한 `ALTER`만 실행).

@@ -1,5 +1,18 @@
 # mediatest.py 설명서
 
+> 최근 수정일시: 2026-09-20 (파일 이동/함수 분리 반영: `mediatest.py`는 `verification/`, 공통 함수는 `core/`)
+> 이 문서는 샘플 오디오를 일괄 분류해보는 CLI(`verification/mediatest.py`)만 설명합니다.
+> 전체 설계·진행 단계는 [Plan.md](Plan.md), 감지 결과를 백엔드로 보내는 코드는 [../edge/README.md](../edge/README.md)를 참고하세요.
+
+## 폴더 구성
+
+| 경로 | 내용 |
+|---|---|
+| `core/` | 운영에서도 쓰는 공통 코드 — `yamnet_core.py`(모델 로드·전처리·추론), `category_map.py`(카테고리↔클래스 매핑), `event_rules.py`(판정 규칙), `yamnet_class_map.csv` |
+| `verification/` | ESC-50 기반 평가·실험 스크립트 (`mediatest.py`, `evaluate.py`, 임계값 F1/F2 분석 등) |
+| `Plan.md` | 통합 구현 계획과 진행 상황 |
+| `media/`, `ESC-50/`, `output/`, `참고/` | 로컬 전용 데이터(샘플 녹음, 데이터셋, 산출물). git에 올리지 않음 |
+
 `mediatest.py`는 구글의 사전학습 오디오 분류 모델인 **YAMNet**을 사용해서,
 `media/` 폴더에 있는 오디오 파일들이 각각 어떤 소리(유리 깨지는 소리, 아기 울음소리, 문 두드리는 소리 등)인지
 자동으로 분류하고 결과를 출력하는 스크립트입니다.
@@ -38,16 +51,19 @@ YAMNet result:
 ## 2. 코드 구조 (함수별 설명)
 
 ### `MEDIA_DIR`
-분류할 오디오 파일들이 들어있는 폴더 경로. 스크립트 위치 기준 상대경로(`media/`)로 계산됩니다.
-이 폴더 안의 파일들이 분석 대상이 됩니다.
+분류할 오디오 파일들이 들어있는 폴더 경로. 스크립트(`verification/`)의 상위 폴더 기준 `yamnet/media/`로 계산됩니다.
+이 폴더 안의 파일들이 분석 대상이 됩니다. (`media/`는 git에 없으므로 직접 샘플을 넣어야 합니다.)
 
-### `load_class_names(model)`
+> 아래 `load_class_names`, `convert_to_16khz_mono`(현재 이름 `preprocess`)는 리팩터링으로
+> `mediatest.py`가 아니라 **`core/yamnet_core.py`**로 옮겨졌고, `mediatest.py`가 이를 import해서 씁니다.
+
+### `load_class_names(model)` — `core/yamnet_core.py`
 YAMNet 모델 안에는 "0번은 Speech, 1번은 Music, ..." 처럼 인덱스와 소리 이름을 매핑한
 CSV 파일(`class_map_path`)이 내장되어 있습니다. 이 함수는 그 파일을 열어서
 클래스 이름들을 리스트로 반환합니다. (나중에 모델이 뱉는 숫자 인덱스를 사람이 읽을 수 있는
 이름으로 바꾸는 데 사용됩니다.)
 
-### `convert_to_16khz_mono(audio, sample_rate)`
+### `preprocess(audio, sample_rate)` — `core/yamnet_core.py` (구 `convert_to_16khz_mono`)
 YAMNet은 **16kHz, 모노(1채널)** 오디오만 입력으로 받을 수 있습니다. 실제 오디오 파일은
 샘플레이트나 채널 수가 제각각이므로 이를 표준 형식으로 변환하는 전처리 함수입니다.
 
@@ -88,10 +104,11 @@ YAMNet은 **16kHz, 모노(1채널)** 오디오만 입력으로 받을 수 있습
 ## 4. 실행 방법
 
 ```bash
-python mediatest.py
+python verification/mediatest.py     # yamnet/ 폴더에서 (경로는 스크립트 위치 기준이라 어디서 실행해도 됨)
 ```
 
-필요한 패키지가 없다면 먼저 설치합니다.
+필요한 패키지가 없다면 먼저 설치합니다. (라즈베리파이(aarch64, Debian)에서는 시스템 pip이 막혀 있으니
+가상환경 `python3 -m venv .venv` 안에 설치하세요. TensorFlow가 Pi의 Python 버전에서 설치되는지는 **확인 필요**.)
 
 ```bash
 pip install numpy soundfile tensorflow tensorflow_hub scipy

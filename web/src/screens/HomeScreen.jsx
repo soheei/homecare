@@ -20,6 +20,10 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [briefing, setBriefing] = useState(null);
+  const [briefingStatus, setBriefingStatus] = useState('empty'); // empty | loading | done | error
+  const [briefingError, setBriefingError] = useState('');
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -44,6 +48,19 @@ export default function HomeScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const generateBriefing = async () => {
+    setBriefingStatus('loading');
+    setBriefingError('');
+    try {
+      const data = await api.chat.getDailySummary();
+      setBriefing(data);
+      setBriefingStatus('done');
+    } catch (err) {
+      setBriefingError(err.message || '브리핑을 만들지 못했어요.');
+      setBriefingStatus('error');
+    }
+  };
 
   const cameraDevice = devices.find((d) => d.type === 'camera');
   const micDevice = devices.find((d) => d.type === 'microphone');
@@ -86,6 +103,85 @@ export default function HomeScreen() {
             <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
           </div>
         ))}
+      </div>
+
+      <div className="px-5 pt-5">
+        <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">
+          <div className="flex items-start gap-3 px-[18px] pt-[18px]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-400/10 text-[19px]">📋</div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[15px] font-bold text-ink">오늘의 브리핑</span>
+                <span className="rounded-[6px] bg-brand-100 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-brand-500">AI</span>
+              </div>
+              {briefingStatus === 'done' && briefing && (
+                <div className="mt-0.5 text-xs text-ink-light">
+                  {new Date(briefing.timestamp).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })} 생성 · 이벤트 {briefing.eventCount}건 기반
+                </div>
+              )}
+            </div>
+            {briefingStatus === 'done' && (
+              <button
+                type="button"
+                onClick={generateBriefing}
+                aria-label="브리핑 다시 만들기"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
+              >
+                ↻
+              </button>
+            )}
+          </div>
+
+          {briefingStatus === 'empty' && (
+            <div className="px-[18px] pb-[22px] pt-2 text-center">
+              <p className="mx-0 mb-4 mt-1 text-[13px] leading-relaxed text-ink-light">
+                아직 오늘의 브리핑이 없어요.<br />버튼을 누르면 AI가 오늘 하루를 요약해드려요.
+              </p>
+              <button
+                type="button"
+                onClick={generateBriefing}
+                className="rounded-xl border-none bg-brand-600 px-[18px] py-2.5 text-[13px] font-bold text-white transition-transform active:scale-[0.98]"
+              >
+                지금 브리핑 만들기
+              </button>
+            </div>
+          )}
+
+          {briefingStatus === 'loading' && (
+            <div className="px-[18px] pb-5 pt-1.5">
+              <div className="mb-3.5 flex items-center gap-2">
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-100 border-t-brand-400" />
+                <span className="text-[13px] text-ink-light">오늘 하루를 정리하고 있어요…</span>
+              </div>
+              <div className="mb-2 h-2.5 w-full rounded-full bg-brand-50" />
+              <div className="mb-2 h-2.5 w-[92%] rounded-full bg-brand-50" />
+              <div className="h-2.5 w-[65%] rounded-full bg-brand-50" />
+            </div>
+          )}
+
+          {briefingStatus === 'done' && briefing && (
+            <div className="px-[18px] pb-5 pt-3.5">
+              <p className="m-0 whitespace-pre-line text-sm leading-relaxed text-ink">{briefing.summary}</p>
+            </div>
+          )}
+
+          {briefingStatus === 'error' && (
+            <div className="px-[18px] pb-5 pt-1.5">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="text-[15px]">⚠️</span>
+                <span className="text-[13px] font-semibold text-danger">브리핑을 만들지 못했어요</span>
+              </div>
+              <p className="mb-3.5 text-[13px] leading-relaxed text-ink-light">{briefingError}</p>
+              <button
+                type="button"
+                onClick={generateBriefing}
+                className="rounded-xl border border-danger/35 bg-danger/12 px-4 py-2.5 text-[13px] font-bold text-danger"
+              >
+                다시 시도
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mx-5 mb-3 mt-8 flex items-center justify-between">

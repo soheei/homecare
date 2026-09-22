@@ -167,22 +167,32 @@ class StreamPipeline:
         for result in event_rules.evaluate_all(self._score_history):
             if not result.triggered:
                 continue
-            score = float(self._score_history[-1, class_ids_for(result.category_id)].max())
+            latest = self._score_history[-1]
+            score = float(latest[class_ids_for(result.category_id)].max())
+            top5 = self._top_labels(latest, k=5)
+            # Plan.md §8: YAMNet top label 신뢰도가 낮으므로 "확정된 사실"이 아니라 참고용으로 metadata에 보존
             uid = self.emitter.emit(
                 result.category_id,
                 source="yamnet",
                 score=score,
-                extra={"trigger_times_sec": result.trigger_times_sec()[-5:]},
+                extra={"trigger_times_sec": result.trigger_times_sec()[-5:], "top5": top5},
             )
             if uid:
-                log.info("이벤트 판정 category=%s score=%.3f uid=%s", result.category_id, score, uid)
+                log.info(
+                    "이벤트 판정 category=%s score=%.3f top5=%s uid=%s (전송 대기열에 저장됨, 아직 백엔드로 안 나감)",
+                    result.category_id, score, top5, uid,
+                )
+
+    def _top_labels(self, frame_scores: np.ndarray, k: int = 5) -> List[str]:
+        if not self.class_names:
+            return []
+        top = np.argsort(frame_scores)[::-1][:k]
+        return [f"{self.class_names[i]}:{frame_scores[i]:.2f}" for i in top]
 
     def _log_top_frame(self, frame_scores: np.ndarray) -> None:
-        if not self.class_names or not log.isEnabledFor(logging.DEBUG):
+        if not log.isEnabledFor(logging.DEBUG):
             return
-        top = np.argsort(frame_scores)[::-1][:3]
-        labels = ", ".join(f"{self.class_names[i]}:{frame_scores[i]:.2f}" for i in top)
-        log.debug("프레임 top3: %s", labels)
+        log.debug("프레임 top3: %s", ", ".join(self._top_labels(frame_scores, k=3)))
 
     def run(self) -> None:
         for chunk in self.source.frames():

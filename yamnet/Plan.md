@@ -426,8 +426,9 @@ yamnet/novelty_detector.py    # (신규, 백로그) 참고 A: score/embedding de
       설계해서 TensorFlow/sounddevice 없이도(`edge/tests/test_stream_pipeline.py`) 버퍼링·판정·emit
       연결 로직을 검증함 — 실제 YAMNet 추론/마이크 자체는 Pi에서 처음 확인. 추론 런타임은 TensorFlow 유지로
       결정(TFLite 전환은 Pi에서 TF 설치 실패 시에만 검토), 마이크 캡처는 `sounddevice` 채택(사용자 승인).
-      **Pi에서 확인 필요**: TensorFlow 설치 가능 여부, 마이크 인식(`arecord -l`)·기본 샘플레이트(16kHz
-      미지원 시 `--samplerate`로 조정), 실시간 처리 성능.
+      ~~Pi에서 TensorFlow 설치 가능 여부~~ → **해결 (2026-09-22)**: venv 안에서 TensorFlow 2.21.0 정상 설치 확인.
+      **Pi에서 확인 필요**: 마이크 인식(`arecord -l`)·기본 샘플레이트(16kHz 미지원 시 `--samplerate`로
+      조정), 실시간 처리 성능.
 - [ ] **7단계 — 라즈베리파이 실측**: 처리 속도(RTF)와 전력 소비를 라즈베리파이에서 직접 측정
 - [ ] **8단계 (백로그) — `novelty_detector.py`**: 참고 A의 delta 기반 이상 탐지를 보조
       안전망으로 추가 (알림 트리거 아님, 로그 전용으로 시작)

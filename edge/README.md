@@ -98,7 +98,8 @@ python -m edge.stream_pipeline --device <번호>
 - [x] **마이크 → YAMNet → 판정 → `emit()` 파이프라인** (`edge/stream_pipeline.py`, 2026-09-22)
   - 오디오 캡처: `sounddevice` 채택 (사용자 승인). 추론 런타임: TensorFlow 유지(Pi 설치 실패 시 TFLite 검토)
   - `edge/tests/test_stream_pipeline.py`로 버퍼링·판정·emit 연결 로직 검증(가짜 추론 함수 주입, TF/sounddevice 불필요)
-  - **Pi에서 확인 필요**: 마이크 인식(`arecord -l`), TensorFlow 설치 가능 여부, 기본 샘플레이트가 16kHz가 아니면 `--samplerate`로 조정, 실제 소리로 이벤트가 잡히는지
+  - ~~Pi에서 TensorFlow 설치 가능 여부~~ → **해결 (2026-09-22)**: `pip install -r edge/requirements.txt`로 Pi에서 TensorFlow 2.21.0 정상 설치 확인 (venv 안에서)
+  - **Pi에서 확인 필요**: 마이크 인식(`arecord -l`), 기본 샘플레이트가 16kHz가 아니면 `--samplerate`로 조정, 실제 소리로 이벤트가 잡히는지
 - [ ] `yamnet/core/event_rules.py`에 threshold 튜닝값 반영 (Plan.md §9: 실측값은 나왔지만 `CATEGORY_RULE_CONFIG`엔 아직 미반영)
 - [ ] 판정 전후 3~5초 오디오 클립을 저장해 `audio_path`로 첨부 (Storage `events` 버킷 확인 후)
 - [ ] 부팅 시 자동 실행 (systemd 서비스, 실행 경로는 `.venv/bin/python`)

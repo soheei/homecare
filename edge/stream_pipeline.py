@@ -66,7 +66,7 @@ class AudioSource:
 class MicSource(AudioSource):
     """sounddevice로 마이크를 열어 실시간 캡처."""
 
-    def __init__(self, hop_samples: int, samplerate: int = TARGET_SAMPLE_RATE, device=None):
+    def __init__(self, hop_samples: int, samplerate: int = TARGET_SAMPLE_RATE, device=None, channels: Optional[int] = None):
         import sounddevice as sd  # 마이크를 실제로 열 때만 필요
 
         self._sd = sd
@@ -75,17 +75,25 @@ class MicSource(AudioSource):
         # 장치가 16kHz 캡처를 지원하지 않으면 --samplerate로 다른 값을 캡처한 뒤 여기서 16kHz로 리샘플
         self.capture_hop = int(round(hop_samples * samplerate / TARGET_SAMPLE_RATE))
         self.device = device
+        # Seeed 2-Mic HAT처럼 raw ALSA(hw:) 장치는 모노(channels=1) 오픈을 거부하고
+        # 하드웨어가 노출하는 채널 수로만 열리는 경우가 있어, 기본은 장치가 보고하는
+        # max_input_channels로 열고 콜백에서 평균 내 모노로 합친다.
+        if channels is None:
+            info = sd.query_devices(device) if device is not None else sd.query_devices(kind="input")
+            channels = max(1, int(info["max_input_channels"]))
+        self.channels = channels
         self._q: "queue.Queue[np.ndarray]" = queue.Queue()
 
     def _callback(self, indata, frames, time_info, status):
         if status:
             log.warning("sounddevice status: %s", status)
-        self._q.put(indata[:, 0].copy())
+        chunk = indata[:, 0] if self.channels == 1 else indata.mean(axis=1)
+        self._q.put(chunk.astype(np.float32).copy())
 
     def frames(self):
         with self._sd.InputStream(
             samplerate=self.samplerate,
-            channels=1,
+            channels=self.channels,
             dtype="float32",
             blocksize=self.capture_hop,
             device=self.device,
@@ -191,6 +199,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--fast", action="store_true", help="--wav-file일 때 실시간 대기 없이 최대 속도로 처리")
     p.add_argument("--device", help="sounddevice 입력 장치(인덱스 또는 이름). --list-devices로 확인")
     p.add_argument("--samplerate", type=int, default=TARGET_SAMPLE_RATE, help="마이크 캡처 샘플레이트(장치가 16000Hz를 지원 안 할 때 조정)")
+    p.add_argument("--channels", type=int, default=None, help="마이크 캡처 채널 수(기본: 장치가 보고하는 채널 수 자동 감지 후 모노로 다운믹스)")
     p.add_argument("--list-devices", action="store_true", help="사용 가능한 오디오 입력 장치를 출력하고 종료")
     p.add_argument("--log-level", default="INFO")
     return p
@@ -225,7 +234,7 @@ def main() -> int:
         source: AudioSource = WavFileSource(args.wav_file, hop_samples, realtime=not args.fast)
     else:
         device = int(args.device) if args.device and args.device.isdigit() else args.device
-        source = MicSource(hop_samples, samplerate=args.samplerate, device=device)
+        source = MicSource(hop_samples, samplerate=args.samplerate, device=device, channels=args.channels)
 
     pipeline = StreamPipeline(model, class_names, emitter, source)
     log.info("스트리밍 시작 (Ctrl+C로 종료)")

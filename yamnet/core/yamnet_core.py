@@ -9,6 +9,8 @@ event_rules.py의 규칙 함수들이 프레임 단위 scores 행렬(shape: [num
 필요로 하기 때문 (mean-pooling은 CLI 출력을 위해 mediatest.py 쪽에서 따로 한다).
 """
 
+import csv
+
 import numpy as np
 from scipy.signal import resample_poly
 
@@ -22,16 +24,20 @@ def load_yamnet():
 
 
 def load_class_names(model):
+    """class_map_path()가 가리키는 CSV(index,mid,display_name)에서 display_name만 순서대로 반환.
+
+    반환값의 인덱스가 곧 YAMNet 클래스 인덱스(0~520)와 대응한다 — category_map.py의
+    CLASS_NAMES/class_ids가 참조하는 인덱스와 동일한 체계.
+    """
     class_map_path = model.class_map_path().numpy()
 
     class_names = []
 
-    with open(class_map_path, "r") as f:
-        for line in f:
-            line = line.strip()
+    with open(class_map_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
 
-            if line:
-                class_names.append(line)
+        for row in reader:
+            class_names.append(row["display_name"])
 
     return class_names
 

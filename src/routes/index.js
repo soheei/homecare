@@ -8,6 +8,7 @@ const router = express.Router();
 const chatRoutes = require('./chat.routes');
 const eventRoutes = require('./event.routes');
 const deviceRoutes = require('./device.routes');
+const notificationRoutes = require('./notification.routes');
 
 // API 버전 정보
 router.get('/', (req, res) => {
@@ -18,7 +19,8 @@ router.get('/', (req, res) => {
     endpoints: {
       chat: '/api/chat',
       events: '/api/events',
-      devices: '/api/devices'
+      devices: '/api/devices',
+      notifications: '/api/notifications'
     }
   });
 });
@@ -27,5 +29,6 @@ router.get('/', (req, res) => {
 router.use('/chat', chatRoutes);
 router.use('/events', eventRoutes);
 router.use('/devices', deviceRoutes);
+router.use('/notifications', notificationRoutes);
 
 module.exports = router;

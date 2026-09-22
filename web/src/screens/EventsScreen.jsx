@@ -16,6 +16,7 @@ export default function EventsScreen() {
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +37,19 @@ export default function EventsScreen() {
   const filtered = filter === 'all'
     ? events
     : events.filter((e) => e.danger_level === RISK_TO_LEVEL[filter]);
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('이 이벤트를 삭제하시겠습니까?')) return;
+    setDeletingId(id);
+    try {
+      await api.events.delete(id);
+      setEvents((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      alert(err.message || '이벤트 삭제에 실패했습니다.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div>
@@ -95,6 +109,15 @@ export default function EventsScreen() {
                   {new Date(e.timestamp).toLocaleString('ko-KR')} • {formatRelativeTime(e.timestamp)}
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={() => handleDelete(e.id)}
+                disabled={deletingId === e.id}
+                aria-label="이벤트 삭제"
+                className="h-7 w-7 shrink-0 self-start rounded-full text-lg leading-none text-ink-light transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+              >
+                ×
+              </button>
             </div>
           );
         })}

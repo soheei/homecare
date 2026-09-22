@@ -65,5 +65,24 @@ export const api = {
     requestCapture: (id) =>
       request(`/api/devices/${id}/capture`, { method: 'POST' }),
     delete: (id) => request(`/api/devices/${id}`, { method: 'DELETE' })
+  },
+  notifications: {
+    getPublicKey: () => request('/api/notifications/public-key'),
+    getPreferences: () => request('/api/notifications/preferences'),
+    updatePreferences: (prefs) =>
+      request('/api/notifications/preferences', {
+        method: 'PUT',
+        body: JSON.stringify(prefs)
+      }),
+    subscribe: (subscription) =>
+      request('/api/notifications/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({ subscription })
+      }),
+    unsubscribe: (endpoint) =>
+      request('/api/notifications/unsubscribe', {
+        method: 'POST',
+        body: JSON.stringify({ endpoint })
+      })
   }
 };

@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-20 (Pi 초기화 → 백엔드 Render 이전, 엣지 전송 경로 구축 반영. 옛 Pi/Docker/Tailscale Funnel 내용 삭제)
+> 최근 수정일시: 2026-09-22 (카메라/마이크 온·오프 상태 하트비트 연동 — devices 기기 행 정정, online/offline 판단 로직 수정, 엣지 heartbeat 코드 추가)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -22,7 +22,7 @@
 | 프론트엔드 | Vercel — https://homecare-9sr8.vercel.app/ | 로컬: http://localhost:5173/. `VITE_API_URL`이 Render 주소로 설정·재배포됨(번들에서 확인) |
 | 백엔드 | Render Web Service (Docker 런타임) — https://homecare-9kcu.onrender.com | GitHub `main` push 시 자동 배포, `/health`로 상태 확인 |
 | DB / Storage | Supabase | `events` 테이블에 `video_url` 컬럼 추가됨(2026-09-20) |
-| 엣지 | 라즈베리파이 (`edge/` 코드) | `POST /api/events`로 이벤트 전송, 실전송 검증 완료. 마이크→YAMNet 실시간 파이프라인은 미구현 |
+| 엣지 | 라즈베리파이 (`edge/` 코드) | `POST /api/events`로 이벤트 전송, 실전송 검증 완료. 마이크(ReSpeaker 2-Mic HAT)→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`) 실제 가동 중(실제 "문 소리 감지" 등 이벤트 저장 확인됨, 문서상 "미구현"이던 옛 기록은 삭제). 카메라(Camera Module V3)는 하드웨어 감지만 가능, 영상 분석(YOLO 등)은 미구현 |
 
 - 백엔드는 예전에 Pi의 Docker Compose + Tailscale Funnel로 운영했으나, **Pi 초기화(2026-09-20)로 사라졌고 Render로 이전**했다. `docker-compose.yml`은 남아 있지만 현재 배포 경로가 아니다.
 - MCP stdio 서버(`src/mcp/server.js`)는 배포하지 않는다(런타임에 필요 없음, 상시 데몬으로 불가).
@@ -40,10 +40,36 @@
 
 ## 백엔드 환경변수 (Render, 이름만)
 
-`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET`, `ALLOWED_ORIGINS`(프론트 주소, 끝에 `/` 없이), `LOG_LEVEL=info`.
+`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET`, `ALLOWED_ORIGINS`(프론트 주소, 끝에 `/` 없이), `LOG_LEVEL=info`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`(2026-09-22 웹 푸시 추가, 아래 "웹 푸시 알림" 참고).
 
 - `PORT`는 넣지 않는다(Render가 주입, 앱이 `process.env.PORT`를 읽음).
 - `NODE_ENV`는 `production`이어야 한다(Dockerfile 기본값). **`development`로 덮어쓰면 인증이 우회된다** — 로컬 `.env` 통째 붙여넣기 주의.
+
+## 웹 푸시 알림 (2026-09-22 추가)
+
+설정 화면의 위험/방문자/움직임/소리 알림 토글을 실제 브라우저 푸시로 발송하는 기능(`web-push`/VAPID 방식). 일일 브리핑 자동 발송은 아직 미구현(토글 저장만 됨).
+
+- **배포에 필요한 수동 작업 (아직 안 돼 있으면 알림이 조용히 발송 안 됨 — 에러는 안 남):**
+  1. Supabase SQL Editor에서 `database/schema.sql`의 `push_subscriptions`/`notification_preferences` 테이블 생성 블록만 실행 (파일 전체 실행 금지 — 샘플 데이터 섞임)
+  2. Render 환경변수에 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`(`mailto:...`) 등록. 키가 없으면 백엔드가 로그에 경고만 남기고 발송을 건너뛴다.
+  3. Vercel 환경변수에 `VITE_VAPID_PUBLIC_KEY`(위 `VAPID_PUBLIC_KEY`와 동일 값) 등록 후 Redeploy. 새 VAPID 키 쌍이 필요하면 `npx web-push generate-vapid-keys`로 생성.
+- 관련 코드: `src/services/push.service.js`(발송), `src/services/notification.service.js`(구독/설정 관리 + 이벤트 발생 시 발송 판단), `src/routes/notification.routes.js`, `web/public/sw.js`(서비스워커), `web/src/lib/push.js`(구독 헬퍼).
+- 동작 방식: 이벤트 생성(`event.controller.js`) 성공 시 `notifyEvent()`가 해당 이벤트를 만든 디바이스의 소유자(`devices.user_id`)를 찾아, 그 사용자의 `notification_preferences`에서 이벤트 타입에 해당하는 토글이 켜져 있으면 등록된 모든 구독으로 발송한다.
+
+## 카메라/마이크 온·오프 상태 (2026-09-22 추가)
+
+홈 화면의 "카메라"/"마이크" 카드가 실제 하드웨어 온·오프를 반영하도록 연동했다. 이전엔 `schema.sql`의 가짜 샘플 기기(거실/현관 카메라, `status: online` 하드코딩) 때문에 "카메라 2대 온라인"으로 잘못 표시되고 있었음 — 해당 샘플 기기 2개는 Supabase에서 삭제했다.
+
+- **devices 테이블 실제 구성 (2026-09-22 정정)**: 기존 `raspberry-pi-5`(id 그대로 유지) 행을 실제 역할에 맞게 `type: microphone`, 이름 `ReSpeaker 2-Mic HAT`로 정정. `Camera Module V3`용 기기 행을 새로 등록(`type: camera`). `edge/.env`의 `HOMECARE_DEVICE_ID`(이벤트 전송용, 기존 값 그대로)는 마이크 기기를 가리키고, 새로 추가된 `HOMECARE_CAMERA_DEVICE_ID`는 카메라 기기를 가리킨다.
+- **online/offline 판단**: `devices.status` 컬럼을 그대로 믿지 않고, [device.service.js](../src/services/device.service.js)의 `withComputedStatus()`가 `last_heartbeat`가 60초(`HEARTBEAT_STALE_MS`) 이내인지로 매번 다시 계산한다(하트비트가 끊겨도 `status`가 `online`으로 남아있던 문제 수정).
+- **마이크**: [edge/stream_pipeline.py](../edge/stream_pipeline.py)가 실행되는 동안(`--wav-file` 테스트 모드 제외) 20초 간격으로 자동으로 `POST /api/devices/:id/heartbeat`를 보낸다([edge/heartbeat.py](../edge/heartbeat.py) 공용 헬퍼). 별도 설정 불필요 — 파이프라인 프로세스가 살아있으면 자동으로 "켜짐".
+- **카메라**: 아직 영상 분석 코드가 없어서, [edge/camera_monitor.py](../edge/camera_monitor.py)라는 별도 스크립트가 `rpicam-hello --list-cameras`(또는 `libcamera-hello`)로 하드웨어 인식 여부만 20초마다 확인해 하트비트를 보낸다. **이 스크립트는 Pi에서 상시 실행되도록 별도로 떠 있어야 한다(예: systemd) — 아직 등록 안 함, 실제 Pi 접속해서 진행 필요.**
+  ```bash
+  cd ~/homecare && source .venv/bin/activate
+  python -m edge.camera_monitor              # 상시 실행 (systemd 서비스화 필요)
+  python -m edge.camera_monitor --list-cameras  # 감지 결과만 1회 확인 (디버그용)
+  ```
+- 나중에 실제 카메라 영상 분석 파이프라인이 생기면 `camera_monitor.py`의 하트비트를 그 프로세스로 옮길 것(마이크 쪽과 동일한 패턴).
 
 ## 운영 절차
 
@@ -70,17 +96,20 @@ pip install -r edge/requirements.txt      # 의존성 변경 시
 python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 이벤트"에 [테스트] 이벤트가 보이면 성공)
 ```
 
-- `edge/.env`의 `HOMECARE_DEVICE_ID`는 Supabase **`devices`** 테이블 행의 id여야 한다(`events` id 아님). 현재 등록된 기기 행 이름은 `raspberry-pi-5`.
+- `edge/.env`의 `HOMECARE_DEVICE_ID`는 Supabase **`devices`** 테이블 행의 id여야 한다(`events` id 아님). 현재 등록된 기기: `ReSpeaker 2-Mic HAT`(마이크, `HOMECARE_DEVICE_ID`), `Camera Module V3`(카메라, `HOMECARE_CAMERA_DEVICE_ID`) — 2026-09-22 정정, 옛 이름 `raspberry-pi-5`는 더 이상 안 씀.
 - 전송 실패 이벤트는 `edge/data/`의 SQLite 큐에 남아 다음 실행 때 재시도된다.
 - 상세는 [`../edge/README.md`](../edge/README.md).
 
 ## 알려진 이슈 / 남은 일
 
+- 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.
+- `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
+- **카메라 하트비트(`edge/camera_monitor.py`)가 Pi에서 아직 상시 실행되도록 등록 안 됨** — systemd 서비스화 필요(위 "카메라/마이크 온·오프 상태" 참고). 등록 전까지는 카메라 카드가 계속 "꺼짐"으로 보임.
 - **Anthropic API 크레딧 부족으로 채팅 실패(400)가 확인됨** — 충전 여부와 채팅 응답 **확인 필요**
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
-- 엣지: 마이크→YAMNet→`emit()` 파이프라인(`edge/stream_pipeline.py`) 미구현. Pi에서 TensorFlow 설치 가능 여부·TFLite 대안 **확인 필요**, 부팅 자동 실행(systemd), YOLO 연동(미완성), heartbeat 미구현(`devices.status`가 계속 `offline`)
+- 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부만 확인
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
-- DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`/`devices`에 섞여 있음, 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
+- DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
 - `npm test` 기존 5건 실패(인증 401로 보임) 원인 미확인
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)

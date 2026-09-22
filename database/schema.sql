@@ -178,7 +178,58 @@ CREATE POLICY "Users can insert messages in their conversations"
   );
 
 -- ===========================================
--- 7. 샘플 데이터 (개발용)
+-- 7. Push Subscriptions & Notification Preferences (Web Push)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id TEXT PRIMARY KEY,
+  danger BOOLEAN NOT NULL DEFAULT true,
+  visitor BOOLEAN NOT NULL DEFAULT true,
+  motion BOOLEAN NOT NULL DEFAULT false,
+  sound BOOLEAN NOT NULL DEFAULT true,
+  briefing BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS update_notification_preferences_updated_at ON notification_preferences;
+CREATE TRIGGER update_notification_preferences_updated_at
+  BEFORE UPDATE ON notification_preferences
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own push subscriptions" ON push_subscriptions;
+DROP POLICY IF EXISTS "Service role can do everything on push_subscriptions" ON push_subscriptions;
+
+CREATE POLICY "Users can manage their own push subscriptions"
+  ON push_subscriptions FOR ALL USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Service role can do everything on push_subscriptions"
+  ON push_subscriptions FOR ALL USING (auth.role() = 'service_role');
+
+ALTER TABLE notification_preferences ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own notification preferences" ON notification_preferences;
+DROP POLICY IF EXISTS "Service role can do everything on notification_preferences" ON notification_preferences;
+
+CREATE POLICY "Users can manage their own notification preferences"
+  ON notification_preferences FOR ALL USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Service role can do everything on notification_preferences"
+  ON notification_preferences FOR ALL USING (auth.role() = 'service_role');
+
+-- ===========================================
+-- 8. 샘플 데이터 (개발용)
 -- ===========================================
 INSERT INTO devices (id, user_id, name, type, location, status)
 VALUES

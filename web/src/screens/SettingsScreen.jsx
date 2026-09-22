@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { enablePush, disablePushIfUnused, isPushSupported } from '../lib/push';
 
 const inputClass =
   'w-full rounded-xl border border-black/10 bg-white px-3.5 py-3 text-sm text-ink outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10';
 
-function Toggle({ on, onClick }) {
+function Toggle({ on, onClick, disabled }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`relative h-7 w-12 shrink-0 rounded-full border-none transition-colors ${on ? 'bg-success' : 'bg-[#cbd5e1]'}`}
+      disabled={disabled}
+      className={`relative h-7 w-12 shrink-0 rounded-full border-none transition-colors disabled:opacity-50 ${on ? 'bg-success' : 'bg-[#cbd5e1]'}`}
     >
       <div
         className="absolute top-[3px] h-[22px] w-[22px] rounded-full bg-white shadow transition-all"
@@ -32,17 +34,58 @@ const FAMILY_MEMBERS = [
   { name: '나', role: '관리자 • 모든 권한', initial: '나', online: true }
 ];
 
+// 실제 브라우저 푸시 발송 대상인 알림 종류(백엔드가 이벤트 발생 시 이 값들만 발송함)
+const PUSH_BACKED_KEYS = ['danger', 'visitor', 'motion', 'sound'];
+
 export default function SettingsScreen() {
   const { user, signOut } = useAuth();
   const [toggles, setToggles] = useState(
     Object.fromEntries(NOTIFICATION_ITEMS.map((i) => [i.key, i.defaultOn]))
   );
+  const [savingKey, setSavingKey] = useState(null);
+  const [notice, setNotice] = useState('');
   const [deviceCount, setDeviceCount] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   useEffect(() => {
     api.devices.list().then((d) => setDeviceCount(d.length)).catch(() => setDeviceCount(null));
   }, []);
+
+  useEffect(() => {
+    api.notifications.getPreferences()
+      .then((prefs) => setToggles((t) => ({ ...t, ...prefs })))
+      .catch(() => {});
+  }, []);
+
+  const handleToggle = async (key) => {
+    if (savingKey) return;
+    const nextValue = !toggles[key];
+    const nextToggles = { ...toggles, [key]: nextValue };
+
+    setSavingKey(key);
+    setNotice('');
+
+    try {
+      if (PUSH_BACKED_KEYS.includes(key)) {
+        if (nextValue) {
+          if (!isPushSupported()) {
+            throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다.');
+          }
+          await enablePush();
+        } else {
+          const stillNeeded = PUSH_BACKED_KEYS.some((k) => k !== key && nextToggles[k]);
+          await disablePushIfUnused(stillNeeded);
+        }
+      }
+
+      await api.notifications.updatePreferences(nextToggles);
+      setToggles(nextToggles);
+    } catch (err) {
+      setNotice(err.message || '알림 설정을 변경하지 못했습니다.');
+    } finally {
+      setSavingKey(null);
+    }
+  };
 
   const initial = user?.email?.[0]?.toUpperCase() || '?';
 
@@ -75,9 +118,16 @@ export default function SettingsScreen() {
             bg={item.bg}
             title={item.title}
             desc={item.desc}
-            right={<Toggle on={toggles[item.key]} onClick={() => setToggles((t) => ({ ...t, [item.key]: !t[item.key] }))} />}
+            right={
+              <Toggle
+                on={toggles[item.key]}
+                onClick={() => handleToggle(item.key)}
+                disabled={savingKey === item.key}
+              />
+            }
           />
         ))}
+        {notice && <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-danger">{notice}</div>}
       </SettingsSection>
 
       <SettingsSection title="👤 계정">

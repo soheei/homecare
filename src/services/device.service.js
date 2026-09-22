@@ -8,6 +8,16 @@
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 
+// 하트비트가 이 시간(ms) 안에 안 오면 offline으로 간주 — DB에 저장된 status 컬럼은
+// 한 번 online을 찍으면 하트비트가 끊겨도 그대로 남아있어 신뢰할 수 없음
+const HEARTBEAT_STALE_MS = 60000;
+
+const withComputedStatus = (device) => {
+  const isOnline = !!device.last_heartbeat &&
+    (Date.now() - new Date(device.last_heartbeat).getTime()) < HEARTBEAT_STALE_MS;
+  return { ...device, status: isOnline ? 'online' : 'offline' };
+};
+
 const getDevices = async (userId) => {
   try {
     let query = supabaseAdmin
@@ -22,7 +32,7 @@ const getDevices = async (userId) => {
 
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return (data || []).map(withComputedStatus);
 
   } catch (error) {
     logger.error('[DeviceService] Error fetching devices:', error);
@@ -75,14 +85,8 @@ const getDeviceStatus = async (deviceId) => {
     if (error) throw error;
     if (!data) return null;
 
-    const isOnline = data.last_heartbeat &&
-      (new Date() - new Date(data.last_heartbeat)) < 60000;
-
-    return {
-      ...data,
-      isOnline,
-      status: isOnline ? 'online' : 'offline'
-    };
+    const withStatus = withComputedStatus(data);
+    return { ...withStatus, isOnline: withStatus.status === 'online' };
 
   } catch (error) {
     logger.error('[DeviceService] Error fetching device status:', error);

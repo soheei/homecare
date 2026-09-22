@@ -33,6 +33,13 @@ const config = {
     secret: process.env.EDGE_DEVICE_SECRET
   },
 
+  // Web Push (VAPID)
+  vapid: {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com'
+  },
+
   // Logging
   logLevel: process.env.LOG_LEVEL || 'debug',
 
@@ -59,6 +66,10 @@ const validateConfig = () => {
 
   if (missing.length > 0) {
     console.warn(`⚠️  Warning: Missing environment variables: ${missing.join(', ')}`);
+  }
+
+  if (!config.vapid.publicKey || !config.vapid.privateKey) {
+    console.warn('⚠️  Warning: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY가 없어 푸시 알림 발송이 비활성화됩니다.');
   }
 };
 

@@ -10,6 +10,7 @@
 
 const eventService = require('../services/event.service');
 const storageService = require('../services/storage.service');
+const notificationService = require('../services/notification.service');
 const logger = require('../utils/logger');
 
 /**
@@ -180,6 +181,9 @@ const createEvent = async (req, res, next) => {
     } else if (dangerLevel === 'warning') {
       logger.warn(`[Event] ⚠ WARNING 이벤트: id=${event.id} | ${description}`);
     }
+
+    // 알림 설정을 켠 사용자에게 푸시 발송 (실패해도 이벤트 생성 응답에는 영향 없음)
+    notificationService.notifyEvent(event);
 
     res.status(201).json({
       success: true,

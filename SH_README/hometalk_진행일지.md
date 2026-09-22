@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-20 (Pi 초기화 → 백엔드 Render 이전, 엣지 전송 모듈 추가 및 Pi→백엔드 저장 검증)
+> 최근 수정일시: 2026-09-22 (카메라/마이크 온·오프 상태 하트비트 연동)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -113,7 +113,41 @@
 ### 다음에 확인할 것 (미해결/보류)
 - Anthropic 크레딧 충전 후 웹 채팅 응답 확인, 채팅이 방금 저장된 엣지 이벤트를 언급하는지 확인
 - Render 플랜(무료 유휴 지연) 결정
-- 엣지 2단계: 마이크 입력 → YAMNet → 판정 규칙 → `emit()` 파이프라인 (Pi의 Python 버전에서 TensorFlow 설치 가능 여부 **확인 필요**, TFLite 대안 검토), 부팅 시 자동 실행(systemd, `.venv/bin/python` 사용), YOLO 연동(미완성)
-- 엣지 heartbeat(`POST /api/devices/:id/heartbeat`) 미구현 — `devices.status`가 계속 `offline`
+- ~~엣지 2단계: 마이크 입력 → YAMNet → 판정 규칙 → `emit()` 파이프라인~~ → **(해결됨, 2026-09-22)** `edge/stream_pipeline.py`로 실제 가동 중, 운영 DB에 실제 이벤트 저장 확인. 부팅 시 자동 실행(systemd)은 아직 **확인 필요**. YOLO(카메라 영상 분석)는 여전히 미구현.
+- ~~엣지 heartbeat(`POST /api/devices/:id/heartbeat`) 미구현 — `devices.status`가 계속 `offline`~~ → **(마이크는 해결됨, 2026-09-22)** `stream_pipeline.py`가 자동으로 하트비트 전송. 카메라는 `edge/camera_monitor.py` 작성했으나 Pi에 상시 실행(systemd) 등록 **미완료**.
 - `npm test` 기존 5건 실패(인증 401로 보임) 원인 미확인
 - Pi의 Tailscale 상태(초기화 후 재설치 여부) **확인 필요**
+
+---
+
+## 2026-09-22
+
+### 웹 UI "디자인만 있고 동작 안 하던" 기능 두 가지 연결
+사용자 요청: `https://homecare-9sr8.vercel.app/`의 설정 화면 알림 토글, 이벤트 화면의 이벤트 삭제가 디자인만 있고 실제로 동작하지 않아 수정.
+
+**1) 이벤트 삭제** — 백엔드 `DELETE /api/events/:id`(`event.controller.js`/`event.service.js`)와 프론트 `api.events.delete()`는 이미 구현돼 있었는데 [EventsScreen.jsx](../web/src/screens/EventsScreen.jsx)에 삭제 버튼 자체가 없었음. 카드마다 `×` 버튼 추가 → `window.confirm` 확인 후 삭제 API 호출 → 성공 시 로컬 목록에서 제거.
+
+**2) 알림 설정 → 실제 Web Push 알림** — 기존엔 [SettingsScreen.jsx](../web/src/screens/SettingsScreen.jsx) 토글이 로컬 state만 바꾸고 새로고침하면 초기화됐고, 브라우저 알림/푸시 인프라 자체가 프로젝트에 없었음. 사용자와 범위 협의 후(일일 브리핑 9시 자동 발송은 이번엔 제외, 실시간 위험/방문자/움직임/소리 알림만 구현) 아래와 같이 신설:
+- 백엔드: `web-push` 패키지 추가, VAPID 키 발급(로컬에서 생성만 함 — 커밋 안 함, Render 환경변수로 사용자가 직접 등록해야 함). [src/config/index.js](../src/config/index.js)에 `config.vapid` 추가. [src/services/push.service.js](../src/services/push.service.js)(web-push 래퍼), [src/services/notification.service.js](../src/services/notification.service.js)(구독 저장/조회, 알림 설정 저장/조회, `notifyEvent`), [src/controllers/notification.controller.js](../src/controllers/notification.controller.js), [src/routes/notification.routes.js](../src/routes/notification.routes.js) 신규. `/api/notifications/public-key`, `/preferences`(GET/PUT), `/subscribe`, `/unsubscribe`. [event.controller.js](../src/controllers/event.controller.js)의 `createEvent`에서 저장 성공 후 `notificationService.notifyEvent(event)` 호출(이벤트 생성 응답을 막지 않도록 await 안 함, 내부에서 모든 에러 흡수).
+- DB: `database/schema.sql`에 `push_subscriptions`(구독 endpoint/키), `notification_preferences`(사용자별 토글) 테이블 + RLS 정책 추가. **주의**: 파일 실행이 아니라 Supabase SQL Editor에서 이 두 테이블 관련 `CREATE TABLE`/`ALTER`/정책 블록만 따로 실행해야 함(파일 전체 실행 시 맨 아래 샘플 데이터가 섞임 — 기존 규칙과 동일).
+- 프론트: [web/public/sw.js](../web/public/sw.js) 신규(서비스워커, `push`/`notificationclick` 처리), [web/src/lib/push.js](../web/src/lib/push.js)(권한 요청 + 구독 생성/해제 헬퍼), [main.jsx](../web/src/main.jsx)에서 서비스워커 등록, [api.js](../web/src/lib/api.js)에 `notifications` 네임스페이스 추가. SettingsScreen 토글 클릭 시: 위험/방문자/움직임/소리는 켤 때 `Notification.requestPermission()` → 구독 생성 → 서버 등록, 끌 때(다른 실시간 토글이 모두 꺼져 있으면) 구독 해제. 모든 토글 상태는 `notification_preferences`에 저장되어 새로고침해도 유지됨. 일일 브리핑 토글은 설정만 저장되고 아직 발송 로직은 없음(추후 스케줄러 작업 필요, `PUSH_BACKED_KEYS`에서 제외).
+- 이벤트 생성 시 실제 발송 대상 판단: `events.device_id` → `devices.user_id` → 그 사용자의 `notification_preferences`에서 이벤트 `type`에 해당하는 토글이 켜져 있으면 그 사용자의 모든 `push_subscriptions`로 발송. 만료된 구독(404/410)은 자동 삭제.
+- **배포 시 사용자가 직접 해야 하는 작업 (에이전트가 접근 못 함)**:
+  1. Supabase SQL Editor에서 `push_subscriptions`/`notification_preferences` 생성 SQL 실행
+  2. Render 환경변수에 `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` 추가 (키는 이 세션에서 로컬로 생성했고 코드/문서 어디에도 커밋하지 않음 — 대화 로그에서 값 확인 후 등록)
+  3. Vercel 환경변수에 `VITE_VAPID_PUBLIC_KEY`(위 `VAPID_PUBLIC_KEY`와 동일 값) 추가 후 재배포
+  4. 위 설정 전에는 `pushService.isConfigured()`가 false라 발송은 조용히 스킵됨(에러 아님) — 토글은 저장되지만 실제 알림은 안 옴
+- **확인 필요**: `deleteEvent`가 요청자가 그 이벤트의 소유 디바이스 사용자인지 검사하지 않음(다른 인증 사용자도 삭제 가능) — 이번 작업 범위 밖이라 손대지 않았고 별도 논의 필요.
+- 로컬 검증: 백엔드 `npm test` 기존과 동일하게 5실패/2통과(회귀 없음), `node -e`로 라우트 로딩 확인. 프론트 `cd web && npm run build`/`npm run lint` 통과(이 머신은 npm 옵셔널 디펜던시 버그로 처음엔 rolldown/oxlint 네이티브 바인딩이 안 잡혔고, 해당 플랫폼 패키지를 수동 설치해 확인함 — 코드 문제 아님).
+- 로컬에서 실제로 두 서버(`npm run dev`, `cd web && npm run dev`) 띄워서 사용자가 직접 UI 확인. 이 과정에서 `web/.env`가 아예 없어서 프론트가 Supabase 클라이언트 생성에서 죽는 걸 발견 → 사용자가 값 채워 넣어 해결(파일 내용은 안 읽고 키 이름 존재 여부만 `grep -c`로 확인).
+- 사용자가 홈 화면 스크린샷을 보내며 "카메라 2대 온라인"이 실제 라즈베리파이 상태와 맞는지 확인 요청 → 로컬 백엔드로 운영 Supabase `/api/devices` 직접 조회해서 확인한 결과, 실제 파이(`raspberry-pi-5`)는 `status: offline`(하트비트 호출 자체가 없음)인데 화면의 "2대 온라인"은 `schema.sql`의 가짜 샘플 기기(거실/현관 카메라, `status: online` 하드코딩, 한 번도 갱신 안 됨) 때문이었음을 확인.
+
+### 카메라/마이크 온·오프 상태 하트비트 연동
+사용자 확인: 현재 Pi는 마이크(ReSpeaker 2-Mic HAT) 1개 + 카메라(Camera Module V3) 1개로 구성. "켜짐/꺼짐" 판단 기준은 "실제 분석 파이프라인 동작 여부"로 확정(카메라는 아직 분석 코드가 없어 하드웨어 인식 여부로 임시 대체).
+
+- **devices 정정** (Node 스크립트로 1회 실행, 실행 후 삭제 — 커밋 안 함): 기존 `raspberry-pi-5`(id `0543f49c-1df9-44bb-97d9-61d24cc37905`, 실제로 마이크 이벤트를 보내던 기기)를 `type: microphone`, 이름 `ReSpeaker 2-Mic HAT`로 정정. `Camera Module V3`(`type: camera`) 신규 등록(새 id `2a418d81-5507-441d-b666-0a8029057dad`). 가짜 샘플 기기(거실/현관 카메라, `11111111.../22222222...`) 삭제 — `events.device_id`가 `ON DELETE SET NULL`이라 그 기기를 참조하던 샘플 이벤트는 FK 위반 없이 `device_id`만 null이 됨.
+- **백엔드**: [device.service.js](../src/services/device.service.js)에 `withComputedStatus()`/`HEARTBEAT_STALE_MS`(60초) 추가 — `getDevices`/`getDeviceStatus` 둘 다 DB에 저장된 `status` 컬럼을 안 믿고 `last_heartbeat` 최신 여부로 매번 재계산하도록 통일(기존엔 `getDeviceStatus`만 이렇게 계산하고 목록 조회 `getDevices`는 저장된 값을 그대로 반환해서, 한 번 online 찍히면 하트비트 끊겨도 안 내려가는 문제가 있었음).
+- **엣지**: [edge/heartbeat.py](../edge/heartbeat.py) 공용 헬퍼 신규(주기적으로 `POST /api/devices/:id/heartbeat`, 실패해도 다음 주기에 재시도라 재시도 큐 불필요). [edge/stream_pipeline.py](../edge/stream_pipeline.py)의 `main()`이 파이프라인 실행 중(`--wav-file` 테스트 모드 제외) 20초 간격으로 자동 하트비트 전송하도록 수정. [edge/camera_monitor.py](../edge/camera_monitor.py) 신규 — `rpicam-hello`/`libcamera-hello --list-cameras`로 카메라 인식 여부만 20초마다 확인해서 감지됐을 때만 하트비트 전송(감지 안 되면 그냥 안 보내서 자연스럽게 offline으로 표시됨). `edge/.env.example`에 `HOMECARE_CAMERA_DEVICE_ID`(신규, 카메라 기기 id) 추가.
+- **프론트**: [HomeScreen.jsx](../web/src/screens/HomeScreen.jsx)의 "카메라 N대 온라인"(가짜 샘플 데이터 카운트) 카드를 없애고, 실제 `devices` 목록에서 `type`으로 찾은 카메라/마이크 각각의 상태를 "켜짐/꺼짐/미등록"으로 보여주는 카드 2개로 교체(기존 "시스템 상태" 고정 카드 자리 포함, 2x2 그리드 유지).
+- **로컬 검증**: 로컬 백엔드(운영 Supabase 연결)로 `POST /api/devices/:id/heartbeat` curl 테스트 → `last_heartbeat` 갱신 후 `status: online`으로 정상 전환 확인. `python -m unittest discover -s edge/tests -t .` 18개 통과(회귀 없음). `npm test` 기존과 동일(회귀 없음). `cd web && npm run build` 통과.
+- **아직 안 된 것**: `camera_monitor.py`를 Pi에서 상시 실행되게 만드는 systemd 등록은 이번에 안 함(Pi 직접 접속 필요) — 등록 전까지 카메라 카드는 계속 "꺼짐". `schema.sql`의 devices 샘플 INSERT 블록도 이제 실제 운영 상태와 안 맞으니 다음에 정리 필요(이번엔 실행 안 함, 운영 DB만 직접 수정).

@@ -47,6 +47,7 @@ import event_rules  # noqa: E402
 
 from .config import ConfigError, load_config
 from .emit import EventEmitter
+from . import heartbeat
 
 log = logging.getLogger("edge.stream_pipeline")
 
@@ -54,6 +55,7 @@ WINDOW_SEC = 0.96                       # YAMNet 1프레임 윈도우
 HOP_SEC = event_rules.FRAME_HOP_SEC     # 0.48초 — 새 프레임 생성 주기
 HISTORY_SEC = 3 * 3600                  # long_silence 규칙(3시간 무활동)까지 커버할 점수 히스토리 길이
 MAX_HISTORY_FRAMES = int(HISTORY_SEC / HOP_SEC) + 10
+HEARTBEAT_INTERVAL_SEC = 20.0           # 이 파이프라인이 살아있는 동안 주기적으로 보낼 하트비트 간격
 
 
 class AudioSource:
@@ -239,6 +241,14 @@ def main() -> int:
     emitter = EventEmitter(cfg)
     emitter.start()
 
+    # 마이크 파이프라인이 살아있는 동안(--wav-file 테스트 모드 제외) 하트비트 전송
+    # → 홈 화면의 "마이크 켜짐/꺼짐" 표시가 이 값을 근거로 계산됨(device.service.js HEARTBEAT_STALE_MS)
+    hb_thread = hb_stop = None
+    if not args.wav_file:
+        hb_thread, hb_stop = heartbeat.start_background(
+            cfg.backend_url, cfg.device_id, cfg.device_secret, interval_sec=HEARTBEAT_INTERVAL_SEC
+        )
+
     hop_samples = int(round(HOP_SEC * TARGET_SAMPLE_RATE))
     if args.wav_file:
         source: AudioSource = WavFileSource(args.wav_file, hop_samples, realtime=not args.fast)
@@ -253,6 +263,8 @@ def main() -> int:
     except KeyboardInterrupt:
         log.info("종료 신호 받음")
     finally:
+        if hb_stop:
+            hb_stop.set()
         emitter.stop()
     return 0
 

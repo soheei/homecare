@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-20 (백엔드 Render 이전, 엣지 실행 정보 추가, 옛 Pi/Docker/Tailscale 정보 삭제)
+> 최근 수정일시: 2026-09-22 (카메라/마이크 하트비트 관련 엣지 명령어·환경변수 추가)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -42,7 +42,10 @@
 | `source .venv/bin/activate` | 가상환경 활성화 (새 터미널마다 필요) |
 | `pip install -r edge/requirements.txt` | 의존성 설치 (`requests`) |
 | `python -m edge.send_test_event` | 가짜 이벤트 1건을 백엔드로 전송해 경로 점검. 웹 "최근 이벤트"에 `[테스트] 엣지 전송 확인`이 보이면 성공 |
-| `python -m unittest discover -s edge/tests -t .` | 엣지 단위 테스트(15개), 저장소 루트에서 실행 |
+| `python -m edge.stream_pipeline` | 마이크(ReSpeaker) → YAMNet 실시간 이벤트 감지 실행. 실행 중엔 20초 간격으로 자동 하트비트 전송(홈 화면 "마이크" 상태) |
+| `python -m edge.camera_monitor` | 카메라(Camera Module V3) 하드웨어 인식 여부를 20초마다 확인해 하트비트 전송(홈 화면 "카메라" 상태). 상시 실행되려면 systemd 등록 필요(2026-09-22 기준 미등록) |
+| `python -m edge.camera_monitor --list-cameras` | 카메라 감지 결과만 1회 출력(디버그용) |
+| `python -m unittest discover -s edge/tests -t .` | 엣지 단위 테스트, 저장소 루트에서 실행 |
 
 ### 백엔드 배포 (Render)
 
@@ -107,10 +110,9 @@ RATE_LIMIT_MAX_REQUESTS=
 MCP_SERVER_PORT=
 MCP_SERVER_NAME=
 
-# Firebase (아직 미설정 — .env.example에 주석 처리되어 있음)
-# FIREBASE_PROJECT_ID=
-# FIREBASE_PRIVATE_KEY=
-# FIREBASE_CLIENT_EMAIL=
+VAPID_PUBLIC_KEY=    # 웹 푸시(Web Push). 프론트 VITE_VAPID_PUBLIC_KEY와 동일한 값이어야 함
+VAPID_PRIVATE_KEY=   # 생성: npx web-push generate-vapid-keys
+VAPID_SUBJECT=       # 예: mailto:admin@example.com
 ```
 
 ### Frontend — Vercel Environment Variables (`web/.env.example` 기준)
@@ -119,16 +121,19 @@ MCP_SERVER_NAME=
 VITE_SUPABASE_URL=
 VITE_SUPABASE_ANON_KEY=
 VITE_API_URL=        # Render 백엔드 주소. 값 변경 후 반드시 Redeploy (빌드 시점에 박힘)
+VITE_VAPID_PUBLIC_KEY=  # 백엔드 VAPID_PUBLIC_KEY와 동일한 값
 ```
 
 ### Edge — Pi의 `edge/.env` (`edge/.env.example` 기준)
 
 ```env
-HOMECARE_BACKEND_URL=   # 백엔드 주소 (끝에 / 없이)
-HOMECARE_DEVICE_ID=     # Supabase devices 테이블 행의 id (events 행의 id가 아님)
-EDGE_DEVICE_SECRET=     # Render의 EDGE_DEVICE_SECRET과 같은 값
+HOMECARE_BACKEND_URL=       # 백엔드 주소 (끝에 / 없이)
+HOMECARE_DEVICE_ID=         # Supabase devices 테이블의 마이크(ReSpeaker) 기기 행 id (events 행의 id가 아님)
+EDGE_DEVICE_SECRET=         # Render의 EDGE_DEVICE_SECRET과 같은 값
+HOMECARE_CAMERA_DEVICE_ID=  # Supabase devices 테이블의 카메라(Camera Module V3) 기기 행 id — camera_monitor.py 전용
 
 # 선택
 # EDGE_REQUEST_TIMEOUT=60
 # EDGE_OUTBOX_DIR=
+# HOMECARE_CAMERA_CHECK_INTERVAL_SEC=20
 ```

@@ -45,14 +45,18 @@ export default function HomeScreen() {
     return () => { cancelled = true; };
   }, []);
 
-  const onlineDevices = devices.filter((d) => d.status === 'online').length;
+  const cameraDevice = devices.find((d) => d.type === 'camera');
+  const micDevice = devices.find((d) => d.type === 'microphone');
+  const deviceLabel = (d) => (!d ? '미등록' : d.status === 'online' ? '켜짐' : '꺼짐');
+  const deviceColor = (d) => (d?.status === 'online' ? 'text-success' : 'text-ink-light');
+
   const initial = user?.email?.[0]?.toUpperCase() || '?';
 
   const cards = [
-    { icon: '📷', label: '카메라', value: `${onlineDevices}대 온라인`, bg: 'bg-brand-500/8', valueColor: 'text-ink' },
+    { icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice) },
+    { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
-    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' },
-    { icon: '✅', label: '시스템 상태', value: '정상', bg: 'bg-success/12', valueColor: 'text-success' }
+    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' }
   ];
 
   return (

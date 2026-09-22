@@ -1,0 +1,15 @@
+[Unit]
+Description=HomeCare edge - camera (Camera Module V3) hardware presence monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alarmi
+WorkingDirectory=/home/alarmi/homecare
+ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.camera_monitor
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

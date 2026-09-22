@@ -114,7 +114,7 @@
 - Anthropic 크레딧 충전 후 웹 채팅 응답 확인, 채팅이 방금 저장된 엣지 이벤트를 언급하는지 확인
 - Render 플랜(무료 유휴 지연) 결정
 - ~~엣지 2단계: 마이크 입력 → YAMNet → 판정 규칙 → `emit()` 파이프라인~~ → **(해결됨, 2026-09-22)** `edge/stream_pipeline.py`로 실제 가동 중, 운영 DB에 실제 이벤트 저장 확인. 부팅 시 자동 실행(systemd)은 아직 **확인 필요**. YOLO(카메라 영상 분석)는 여전히 미구현.
-- ~~엣지 heartbeat(`POST /api/devices/:id/heartbeat`) 미구현 — `devices.status`가 계속 `offline`~~ → **(마이크는 해결됨, 2026-09-22)** `stream_pipeline.py`가 자동으로 하트비트 전송. 카메라는 `edge/camera_monitor.py` 작성했으나 Pi에 상시 실행(systemd) 등록 **미완료**.
+- ~~엣지 heartbeat(`POST /api/devices/:id/heartbeat`) 미구현 — `devices.status`가 계속 `offline`~~ → **(해결됨, 2026-09-22)** 마이크는 `stream_pipeline.py`가 자동 전송, 카메라는 `edge/camera_monitor.py`(Pi 실기 감지 성공 확인). 둘 다 24시간 상시 감시가 아니라 사용자가 원할 때만 `systemctl start`로 켜는 방식으로 결정 — systemd unit은 작성했으나 Pi에 설치는 **미완료**.
 - `npm test` 기존 5건 실패(인증 401로 보임) 원인 미확인
 - Pi의 Tailscale 상태(초기화 후 재설치 여부) **확인 필요**
 
@@ -151,3 +151,12 @@
 - **프론트**: [HomeScreen.jsx](../web/src/screens/HomeScreen.jsx)의 "카메라 N대 온라인"(가짜 샘플 데이터 카운트) 카드를 없애고, 실제 `devices` 목록에서 `type`으로 찾은 카메라/마이크 각각의 상태를 "켜짐/꺼짐/미등록"으로 보여주는 카드 2개로 교체(기존 "시스템 상태" 고정 카드 자리 포함, 2x2 그리드 유지).
 - **로컬 검증**: 로컬 백엔드(운영 Supabase 연결)로 `POST /api/devices/:id/heartbeat` curl 테스트 → `last_heartbeat` 갱신 후 `status: online`으로 정상 전환 확인. `python -m unittest discover -s edge/tests -t .` 18개 통과(회귀 없음). `npm test` 기존과 동일(회귀 없음). `cd web && npm run build` 통과.
 - **아직 안 된 것**: `camera_monitor.py`를 Pi에서 상시 실행되게 만드는 systemd 등록은 이번에 안 함(Pi 직접 접속 필요) — 등록 전까지 카메라 카드는 계속 "꺼짐". `schema.sql`의 devices 샘플 INSERT 블록도 이제 실제 운영 상태와 안 맞으니 다음에 정리 필요(이번엔 실행 안 함, 운영 DB만 직접 수정).
+- 사용자가 Pi에서 `python -m edge.camera_monitor` 직접 실행 → 20초 뒤 실제로 `hardware_detected: true` 하트비트가 운영 DB까지 도착하는 것을 로컬 백엔드로 직접 확인(Camera Module V3 인식 정상). `python -m unittest`도 Pi에서 18개 통과. 이 커밋은 사용자가 직접 `git push`함.
+- Vercel/Render가 아직 이 코드로 재배포되지 않아서 배포 사이트에서는 반영 안 됨을 안내(DB는 공유라 하트비트 자체는 이미 쌓이고 있었음). 홈 화면이 마운트 시 1회만 기기 상태를 불러오는 것도 설명(실시간 자동 갱신 아님, 필요하면 폴링 추가 가능).
+
+### systemd 상시 실행 → 수동 on/off로 방침 변경
+사용자 확인: "실시간으로 계속 켜져있을 필요는 없고 내가 동작하고 싶을 때만 킬거야" — 24시간 상시 감시가 아니라 필요할 때만 수동으로 켜고 끄는 운영 방식을 원함. [[homecare-onoff-policy]]
+
+- [edge/systemd/homecare-mic.service](../edge/systemd/homecare-mic.service), [edge/systemd/homecare-camera.service](../edge/systemd/homecare-camera.service) 신규 작성(`User=alarmi`, `WorkingDirectory=/home/alarmi/homecare`, `Restart=on-failure`).
+- [edge/README.md](../edge/README.md)의 안내를 `systemctl enable --now`(부팅 자동시작) 대신 `daemon-reload`만 미리 해두고 필요할 때 `systemctl start`/`stop`으로 수동 on/off 하는 방식으로 수정. `hometalk_인수인계.md`도 같은 방향으로 갱신.
+- 나중에 마음이 바뀌면 `systemctl enable`만 추가하면 부팅 자동시작으로 전환 가능하다고 README에 남겨둠.

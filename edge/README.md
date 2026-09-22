@@ -1,6 +1,6 @@
 # edge/ — 라즈베리파이 이벤트 전송 코드
 
-> 최근 수정일시: 2026-09-22 (`stream_pipeline.py` 작성 — 마이크/파일 → YAMNet → 판정 → emit() 연결, Pi 실기 미검증)
+> 최근 수정일시: 2026-09-22 (카메라/마이크 하트비트 추가 — `heartbeat.py`, `camera_monitor.py`, systemd unit 파일)
 
 라즈베리파이(엣지)에서 감지한 이벤트(소리, 이후 영상)를 **HomeCare 백엔드(`POST /api/events`)로 안전하게 보내는** 코드입니다.
 소리 감지(`stream_pipeline.py` + `yamnet/core/`)는 이 폴더 안에 있고, YOLO 등 영상 감지기는 아직 없습니다. 감지기가 `emitter.emit()`만 호출하면 나머지(변환/쿨다운/큐/재시도)는 이 폴더가 담당합니다.
@@ -36,7 +36,10 @@ Render 백엔드 → Supabase events 테이블
 | `outbox.py` | SQLite 전송 대기 큐 + 첨부 파일 복사본 보관 |
 | `sender.py` | 큐 → 백엔드 전송, 응답 코드별 재시도/폐기 처리 |
 | `config.py` | `edge/.env` 또는 환경변수 로드 (시크릿은 출력되지 않음) |
+| `heartbeat.py` | `POST /api/devices/:id/heartbeat` 주기 전송 공용 헬퍼. `stream_pipeline.py`(마이크)와 `camera_monitor.py`(카메라)가 사용 |
+| `camera_monitor.py` | Camera Module V3(CSI) 하드웨어 인식 여부(`rpicam-hello`/`libcamera-hello --list-cameras`)만 주기 확인해 하트비트 전송 — 영상 분석 파이프라인 자체는 아직 없음 |
 | `send_test_event.py` | 가짜 이벤트 1건을 보내 전송 경로를 점검하는 스크립트 |
+| `systemd/` | `stream_pipeline.py`/`camera_monitor.py`를 Pi 부팅 시 자동 실행·재시작하기 위한 systemd unit 파일 |
 | `tests/` | 단위 테스트 (18개) |
 | `.env.example`, `requirements.txt` | 설정 예시, 의존성(`requests`, `stream_pipeline.py`용 `sounddevice`/`tensorflow` 등) |
 
@@ -63,7 +66,37 @@ python -m edge.send_test_event
 # 5) 마이크 인식 확인 후 (arecord -l), 실시간 파이프라인 실행
 python -m edge.stream_pipeline --list-devices
 python -m edge.stream_pipeline --device <번호>
+
+# 6) 카메라(Camera Module V3) 하드웨어 인식 확인 (edge/.env에 HOMECARE_CAMERA_DEVICE_ID 설정 후)
+python -m edge.camera_monitor --list-cameras   # 1회 확인
+python -m edge.camera_monitor                  # 상시 실행 (아래 systemd로 등록 권장)
 ```
+
+### 필요할 때만 켜고 끄기 (systemd, 자동 시작 아님)
+
+`python -m edge.stream_pipeline`을 터미널에서 직접 실행하면 그 터미널(SSH 세션)을 닫는 순간 같이 죽는다.
+**부팅 시 자동 시작은 필요 없고, 켜고 싶을 때 명령 한 줄로 켜고/끄고 싶을 때 끄는 정도면** 아래처럼 systemd에 등록만 해두고(`enable`은 하지 않음) `start`/`stop`으로 직접 제어하면 된다 — 터미널을 닫아도 그 사이엔 계속 돈다.
+
+```bash
+# 최초 1회만: 등록 (daemon-reload까지만, enable은 하지 않음 → 재부팅해도 저절로 켜지지 않음)
+sudo cp edge/systemd/homecare-mic.service edge/systemd/homecare-camera.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# 켜기 (동작시키고 싶을 때)
+sudo systemctl start homecare-mic.service homecare-camera.service
+
+# 끄기 (그만 쓸 때)
+sudo systemctl stop homecare-mic.service homecare-camera.service
+
+# 상태/로그 확인
+systemctl status homecare-mic.service homecare-camera.service
+journalctl -u homecare-mic.service -f      # 실시간 로그
+journalctl -u homecare-camera.service -f
+```
+
+나중에 마음이 바뀌어 부팅 시 자동으로 켜지길 원하면 그때 `sudo systemctl enable homecare-mic.service homecare-camera.service`만 추가로 실행하면 된다.
+
+unit 파일은 계정/경로를 `alarmi` / `/home/alarmi/homecare`로 고정해 뒀다 — 다른 계정/경로를 쓰면 `User=`, `WorkingDirectory=`, `ExecStart=`를 맞게 수정할 것.
 
 | 환경변수 | 설명 |
 |---|---|
@@ -102,12 +135,13 @@ python -m edge.stream_pipeline --device <번호>
   - **Pi에서 확인 필요**: 마이크 인식(`arecord -l`), 기본 샘플레이트가 16kHz가 아니면 `--samplerate`로 조정, 실제 소리로 이벤트가 잡히는지
 - [ ] `yamnet/core/event_rules.py`에 threshold 튜닝값 반영 (Plan.md §9: 실측값은 나왔지만 `CATEGORY_RULE_CONFIG`엔 아직 미반영)
 - [ ] 판정 전후 3~5초 오디오 클립을 저장해 `audio_path`로 첨부 (Storage `events` 버킷 확인 후)
-- [ ] 부팅 시 자동 실행 (systemd 서비스, 실행 경로는 `.venv/bin/python`)
+- [x] 부팅 시 자동 실행용 systemd unit 작성 (`edge/systemd/homecare-mic.service`, 2026-09-22) — **Pi에 설치/enable은 아직 안 함**, 위 "부팅 시 자동 실행" 참고
 - [ ] Pi 실측: 처리 속도(RTF)와 전력 (Plan.md 7단계)
 
 ### 이후
 - [ ] YOLO 연동 — 감지기 완성 후 `event_mapper.SPECS`에 category 추가하고 `emit(..., image_path=...)` 호출 (YOLO는 현재 미완성)
-- [ ] heartbeat 전송 (`POST /api/devices/:id/heartbeat`) — 지금은 `devices.status`가 계속 `offline`
+- [x] 마이크 하트비트 전송 (`stream_pipeline.py`가 20초 간격 자동 전송, 2026-09-22)
+- [x] 카메라 하드웨어 감지 하트비트 (`camera_monitor.py` 신규, 2026-09-22 — 실제 Pi에서 감지 성공 확인). 영상 분석 파이프라인 자체는 여전히 없음
 - [ ] 알림 정책 가드 (Plan.md 5단계): locked 카테고리 무음 방지 등. 쿨다운 일부는 `cooldown.py`에서 이미 처리
 - [ ] `dead` 이벤트 확인/정리 도구, 큐·첨부 디스크 용량 상한
 - [ ] 중복 이벤트(`event_uid`) 처리를 조회 쪽(백엔드/웹)에 반영할지 결정

@@ -1,0 +1,15 @@
+[Unit]
+Description=HomeCare edge - microphone (ReSpeaker) YAMNet stream pipeline
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alarmi
+WorkingDirectory=/home/alarmi/homecare
+ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.stream_pipeline
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

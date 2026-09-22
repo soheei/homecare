@@ -63,11 +63,12 @@
 - **devices 테이블 실제 구성 (2026-09-22 정정)**: 기존 `raspberry-pi-5`(id 그대로 유지) 행을 실제 역할에 맞게 `type: microphone`, 이름 `ReSpeaker 2-Mic HAT`로 정정. `Camera Module V3`용 기기 행을 새로 등록(`type: camera`). `edge/.env`의 `HOMECARE_DEVICE_ID`(이벤트 전송용, 기존 값 그대로)는 마이크 기기를 가리키고, 새로 추가된 `HOMECARE_CAMERA_DEVICE_ID`는 카메라 기기를 가리킨다.
 - **online/offline 판단**: `devices.status` 컬럼을 그대로 믿지 않고, [device.service.js](../src/services/device.service.js)의 `withComputedStatus()`가 `last_heartbeat`가 60초(`HEARTBEAT_STALE_MS`) 이내인지로 매번 다시 계산한다(하트비트가 끊겨도 `status`가 `online`으로 남아있던 문제 수정).
 - **마이크**: [edge/stream_pipeline.py](../edge/stream_pipeline.py)가 실행되는 동안(`--wav-file` 테스트 모드 제외) 20초 간격으로 자동으로 `POST /api/devices/:id/heartbeat`를 보낸다([edge/heartbeat.py](../edge/heartbeat.py) 공용 헬퍼). 별도 설정 불필요 — 파이프라인 프로세스가 살아있으면 자동으로 "켜짐".
-- **카메라**: 아직 영상 분석 코드가 없어서, [edge/camera_monitor.py](../edge/camera_monitor.py)라는 별도 스크립트가 `rpicam-hello --list-cameras`(또는 `libcamera-hello`)로 하드웨어 인식 여부만 20초마다 확인해 하트비트를 보낸다. **이 스크립트는 Pi에서 상시 실행되도록 별도로 떠 있어야 한다(예: systemd) — 아직 등록 안 함, 실제 Pi 접속해서 진행 필요.**
+- **카메라**: 아직 영상 분석 코드가 없어서, [edge/camera_monitor.py](../edge/camera_monitor.py)라는 별도 스크립트가 `rpicam-hello --list-cameras`(또는 `libcamera-hello`)로 하드웨어 인식 여부만 20초마다 확인해 하트비트를 보낸다.
+- **사용자 방침(2026-09-22)**: 24시간 상시 감시가 아니라 **필요할 때만 켜고 끄는 방식**을 원함 — 그래서 부팅 시 자동 시작(`systemctl enable`)은 하지 않고, [edge/systemd/](../edge/systemd/)에 unit 파일만 등록해 두고 `systemctl start`/`stop`으로 수동 on/off 하도록 함(터미널을 닫아도 켜둔 동안엔 계속 돎). 상세 절차는 [edge/README.md](../edge/README.md)의 "필요할 때만 켜고 끄기" 참고.
   ```bash
-  cd ~/homecare && source .venv/bin/activate
-  python -m edge.camera_monitor              # 상시 실행 (systemd 서비스화 필요)
-  python -m edge.camera_monitor --list-cameras  # 감지 결과만 1회 확인 (디버그용)
+  cd ~/homecare
+  sudo systemctl start homecare-mic.service homecare-camera.service   # 켜기
+  sudo systemctl stop  homecare-mic.service homecare-camera.service   # 끄기
   ```
 - 나중에 실제 카메라 영상 분석 파이프라인이 생기면 `camera_monitor.py`의 하트비트를 그 프로세스로 옮길 것(마이크 쪽과 동일한 패턴).
 
@@ -104,7 +105,7 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.
 - `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
-- **카메라 하트비트(`edge/camera_monitor.py`)가 Pi에서 아직 상시 실행되도록 등록 안 됨** — systemd 서비스화 필요(위 "카메라/마이크 온·오프 상태" 참고). 등록 전까지는 카메라 카드가 계속 "꺼짐"으로 보임.
+- **`edge/systemd/`의 unit 파일이 아직 Pi에 설치 안 됨** — `sudo cp ... /etc/systemd/system/ && sudo systemctl daemon-reload`까지는 해둬야 `systemctl start`로 켤 수 있음(자동 시작은 원하지 않으므로 `enable`은 하지 않음). 설치 전까지는 카메라/마이크 카드가 계속 "꺼짐"으로 보임.
 - **Anthropic API 크레딧 부족으로 채팅 실패(400)가 확인됨** — 충전 여부와 채팅 응답 **확인 필요**
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
 - 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부만 확인

@@ -1,1 +1,9 @@
 requests>=2.31
+
+# stream_pipeline.py(마이크 스트리밍)용 — Pi에서만 필요, send_test_event.py 등 전송 경로 자체는 불필요
+sounddevice>=0.4
+soundfile>=0.12
+numpy>=1.23
+scipy>=1.9
+tensorflow_hub>=0.14
+tensorflow>=2.13  # Pi Python 버전에서 설치 가능한지 확인 필요 (안 되면 TFLite 대안 검토)

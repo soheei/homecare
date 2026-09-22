@@ -1,14 +1,16 @@
 # edge/ — 라즈베리파이 이벤트 전송 코드
 
-> 최근 수정일시: 2026-09-20 (전송 모듈 완성 및 Pi 실전송 검증)
+> 최근 수정일시: 2026-09-22 (`stream_pipeline.py` 작성 — 마이크/파일 → YAMNet → 판정 → emit() 연결, Pi 실기 미검증)
 
 라즈베리파이(엣지)에서 감지한 이벤트(소리, 이후 영상)를 **HomeCare 백엔드(`POST /api/events`)로 안전하게 보내는** 코드입니다.
-감지 자체(YAMNet, YOLO)는 이 폴더가 아니라 감지기가 담당하고, 이 폴더는 "감지 결과를 받아 백엔드로 전달하는 통로"입니다.
+소리 감지(`stream_pipeline.py` + `yamnet/core/`)는 이 폴더 안에 있고, YOLO 등 영상 감지기는 아직 없습니다. 감지기가 `emitter.emit()`만 호출하면 나머지(변환/쿨다운/큐/재시도)는 이 폴더가 담당합니다.
 
 ## 동작 방식
 
 ```
-감지기(YAMNet / YOLO)
+감지기
+  ├─ stream_pipeline.py (완료) — 마이크/파일 → YAMNet 추론 → event_rules 판정
+  └─ YOLO 등 (미구현)
    │  emitter.emit("glass_impact", source="yamnet", score=0.87, audio_path=...)
    ▼
 event_mapper  ── category_id → 백엔드 type / dangerLevel 변환
@@ -27,6 +29,7 @@ Render 백엔드 → Supabase events 테이블
 
 | 파일 | 역할 |
 |---|---|
+| `stream_pipeline.py` | 마이크(또는 wav 파일) → `yamnet/core/` 추론 → `event_rules` 판정 → 트리거되면 `emit()` 호출까지 연결하는 엔드투엔드 스크립트 (Pi 실기 미검증) |
 | `emit.py` | 공통 진입점 `EventEmitter`. 감지기는 `emit()`만 호출하면 됨 |
 | `event_mapper.py` | 카테고리 → 백엔드 `type`/`dangerLevel`/쿨다운 변환표 (수정은 `SPECS`만) |
 | `cooldown.py` | 같은 `(source, category)` 재전송 억제 (메모리, 재시작 시 초기화) |
@@ -34,8 +37,8 @@ Render 백엔드 → Supabase events 테이블
 | `sender.py` | 큐 → 백엔드 전송, 응답 코드별 재시도/폐기 처리 |
 | `config.py` | `edge/.env` 또는 환경변수 로드 (시크릿은 출력되지 않음) |
 | `send_test_event.py` | 가짜 이벤트 1건을 보내 전송 경로를 점검하는 스크립트 |
-| `tests/` | 단위 테스트 (15개) |
-| `.env.example`, `requirements.txt` | 설정 예시, 의존성(`requests`) |
+| `tests/` | 단위 테스트 (18개) |
+| `.env.example`, `requirements.txt` | 설정 예시, 의존성(`requests`, `stream_pipeline.py`용 `sounddevice`/`tensorflow` 등) |
 
 ## Pi에서 사용하기
 
@@ -56,6 +59,10 @@ nano edge/.env
 
 # 4) 전송 경로 점검
 python -m edge.send_test_event
+
+# 5) 마이크 인식 확인 후 (arecord -l), 실시간 파이프라인 실행
+python -m edge.stream_pipeline --list-devices
+python -m edge.stream_pipeline --device <번호>
 ```
 
 | 환경변수 | 설명 |
@@ -88,10 +95,10 @@ python -m edge.send_test_event
 - [x] Pi → Render 백엔드 실전송 검증 (`send_test_event`, 실제 UUID로 저장 확인, 2026-09-20)
 
 ### 다음 (엣지 2단계)
-- [ ] **마이크 → YAMNet → 판정 → `emit()` 파이프라인** (`edge/stream_pipeline.py`)
-  - Pi에서 마이크 인식 확인(`arecord -l`)
-  - 오디오 캡처 라이브러리 선택 — 새 의존성이라 사용자 승인 필요
-  - 추론 런타임 결정: TensorFlow(`tensorflow_hub`) vs TFLite. Pi의 Python 버전(3.13 여부)에서 TensorFlow 설치가 되는지 **확인 필요**
+- [x] **마이크 → YAMNet → 판정 → `emit()` 파이프라인** (`edge/stream_pipeline.py`, 2026-09-22)
+  - 오디오 캡처: `sounddevice` 채택 (사용자 승인). 추론 런타임: TensorFlow 유지(Pi 설치 실패 시 TFLite 검토)
+  - `edge/tests/test_stream_pipeline.py`로 버퍼링·판정·emit 연결 로직 검증(가짜 추론 함수 주입, TF/sounddevice 불필요)
+  - **Pi에서 확인 필요**: 마이크 인식(`arecord -l`), TensorFlow 설치 가능 여부, 기본 샘플레이트가 16kHz가 아니면 `--samplerate`로 조정, 실제 소리로 이벤트가 잡히는지
 - [ ] `yamnet/core/event_rules.py`에 threshold 튜닝값 반영 (Plan.md §9: 실측값은 나왔지만 `CATEGORY_RULE_CONFIG`엔 아직 미반영)
 - [ ] 판정 전후 3~5초 오디오 클립을 저장해 `audio_path`로 첨부 (Storage `events` 버킷 확인 후)
 - [ ] 부팅 시 자동 실행 (systemd 서비스, 실행 경로는 `.venv/bin/python`)

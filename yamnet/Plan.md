@@ -5,9 +5,12 @@
 > 출력을 소비하는 별도 작업으로, 여기서는 설계 참고용으로만 다루고 실제 구현은 homecare
 > 저장소 쪽에서 진행한다.
 >
-> **최근 수정일시: 2026-09-20** — 백엔드 전송 경로가 `homecare/edge/`에 구현됨(큐+재시도+쿨다운, Pi→Render 실전송 검증 완료).
-> 그 결과 §5 폴더 구조를 현재 파일 배치(`core/`, `verification/`)로 갱신하고, §6 5·6·9단계와 §11 다음 액션에
-> 진행 상황을 반영했다. 나머지(설계 원문, 실험 결과)는 그대로 보존. 엣지 쪽 상세는 [../edge/README.md](../edge/README.md).
+> **최근 수정일시: 2026-09-22** — §6 6단계 `edge/stream_pipeline.py`(마이크/파일 → YAMNet → event_rules →
+> emit()) 코드 작성 완료(Pi 실기 미검증). §11 다음 액션 갱신. 엣지 쪽 상세는 [../edge/README.md](../edge/README.md).
+>
+> 이전 수정(2026-09-20): 백엔드 전송 경로가 `homecare/edge/`에 구현됨(큐+재시도+쿨다운, Pi→Render 실전송 검증 완료).
+> 그 결과 §5 폴더 구조를 현재 파일 배치(`core/`, `verification/`)로 갱신하고, §6 5·9단계와 §11 다음 액션에
+> 진행 상황을 반영했다. 나머지(설계 원문, 실험 결과)는 그대로 보존.
 
 ---
 
@@ -338,9 +341,9 @@ homecare/yamnet/          # 2026-09-04부로 homecare 저장소 하위로 이동
 homecare/edge/            # 2026-09-20 신규: 감지 결과 → 백엔드 전송 (운영 코드, README 참고)
 ├── emit.py, event_mapper.py, cooldown.py, outbox.py, sender.py, config.py   # 완료 (전송 경로)
 ├── send_test_event.py, tests/                                              # 전송 점검·단위 테스트
+├── stream_pipeline.py    # (2026-09-22 완료, Pi 실기 미검증) 마이크/파일 입력 → core/ 추론·판정 → edge.emit()
 │
 # 앞으로 추가할 것들
-├── stream_pipeline.py    # (신규, 6단계) 마이크 입력 → core/ 추론·판정 → edge.emit()까지 연결하는 엔드투엔드 스크립트
 yamnet/notification_policy.py # (신규, 5단계) 위험도별 알림 방식 + locked 가드 (쿨다운은 edge/cooldown.py에 일부 구현)
 yamnet/novelty_detector.py    # (신규, 백로그) 참고 A: score/embedding delta 계산 — 보조 안전망용
 ```
@@ -416,11 +419,15 @@ yamnet/novelty_detector.py    # (신규, 백로그) 참고 A: score/embedding de
       **부분 진행 (2026-09-20)**: 카테고리별 쿨다운(메모리)은 `edge/cooldown.py` + `edge/event_mapper.py`에
       구현됨(높음 10초 하한, 낮음 5분 등). 위험도→백엔드 `dangerLevel` 변환도 같은 곳(높음→danger,
       중간→warning, 낮음→normal, 정보성/로그전용은 미전송). locked 무음 방지 가드·사용자별 override는 미구현.
-- [ ] **6단계 — 엔드투엔드 파이프라인(`stream_pipeline.py`)**: 파일/스트림 입력 → 메인 로직 →
-      알림 정책 → 이벤트 payload(JSON) 출력까지 연결
-      **위치는 `edge/stream_pipeline.py`로 정함 (2026-09-20)**, 출력은 payload 출력이 아니라
-      `edge.emit.EventEmitter.emit()` 호출로 백엔드 전송까지 연결. 아직 미구현 — Pi에서 마이크 캡처와
-      TensorFlow(또는 TFLite) 설치 가능 여부 **확인 필요**.
+- [x] **6단계 — 엔드투엔드 파이프라인(`stream_pipeline.py`)** (2026-09-22 코드 작성 완료, Pi 실기 미검증):
+      `edge/stream_pipeline.py`에 마이크(sounddevice) 또는 wav 파일 → `yamnet_core.infer()` →
+      점수 히스토리(최대 3시간, `long_silence` 규칙 커버) → `event_rules.evaluate_all()` →
+      트리거된 카테고리마다 `edge.emit.EventEmitter.emit()` 호출까지 연결. 추론 함수를 주입 가능하게
+      설계해서 TensorFlow/sounddevice 없이도(`edge/tests/test_stream_pipeline.py`) 버퍼링·판정·emit
+      연결 로직을 검증함 — 실제 YAMNet 추론/마이크 자체는 Pi에서 처음 확인. 추론 런타임은 TensorFlow 유지로
+      결정(TFLite 전환은 Pi에서 TF 설치 실패 시에만 검토), 마이크 캡처는 `sounddevice` 채택(사용자 승인).
+      **Pi에서 확인 필요**: TensorFlow 설치 가능 여부, 마이크 인식(`arecord -l`)·기본 샘플레이트(16kHz
+      미지원 시 `--samplerate`로 조정), 실시간 처리 성능.
 - [ ] **7단계 — 라즈베리파이 실측**: 처리 속도(RTF)와 전력 소비를 라즈베리파이에서 직접 측정
 - [ ] **8단계 (백로그) — `novelty_detector.py`**: 참고 A의 delta 기반 이상 탐지를 보조
       안전망으로 추가 (알림 트리거 아님, 로그 전용으로 시작)
@@ -520,8 +527,11 @@ yamnet/novelty_detector.py    # (신규, 백로그) 참고 A: score/embedding de
 
 ## 11. 다음 액션
 
-(2026-09-20 갱신) 1~4단계와 백엔드 전송 경로(9단계 일부)는 완료. 다음은 **6단계 —
-`edge/stream_pipeline.py`**(마이크 → YAMNet → `event_rules` → `emit()`)와 그 전제인 **7단계 Pi 실측**
-(Pi의 Python 버전에서 TensorFlow 설치 가능 여부, 안 되면 TFLite 대안, 처리 속도/전력)이다.
-함께 처리할 것: `event_rules.py`에 threshold 튜닝값 반영(§9), 판정 전후 3~5초 오디오 클립 첨부,
-부팅 자동 실행(systemd). 참고 A의 novelty detector는 8단계 백로그 유지. 순서·우선순위에 이견 있으면 조정.
+(2026-09-22 갱신) 1~4단계, 백엔드 전송 경로(9단계 일부), 6단계(`edge/stream_pipeline.py`) 코드 작성까지
+완료. 다음은 **7단계 — Pi 실측**이다: Pi에서 `pip install -r edge/requirements.txt`로 TensorFlow 설치가
+되는지(안 되면 TFLite 대안 검토), `arecord -l`로 마이크 인식·기본 샘플레이트 확인, `python -m
+edge.stream_pipeline --list-devices`로 장치 확인 후 `python -m edge.stream_pipeline`으로 실제 소리를
+내서 이벤트가 잡히는지, 처리 속도(RTF)와 전력 소비 확인.
+함께 처리할 것: `event_rules.py`에 threshold 튜닝값 반영(§9), 판정 전후 3~5초 오디오 클립 첨부(Storage
+버킷 확인 후), 부팅 자동 실행(systemd, 실행 경로는 `.venv/bin/python -m edge.stream_pipeline`). 참고 A의
+novelty detector는 8단계 백로그 유지. 순서·우선순위에 이견 있으면 조정.

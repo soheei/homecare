@@ -2,15 +2,18 @@ import { supabase } from './supabase';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-async function request(path, options = {}) {
+async function authHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
+async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(await authHeaders()),
       ...options.headers
     }
   });
@@ -18,10 +21,24 @@ async function request(path, options = {}) {
   const body = await res.json().catch(() => null);
 
   if (!res.ok || body?.success === false) {
-    throw new Error(body?.error || `Request failed: ${res.status}`);
+    const err = new Error(body?.error || `Request failed: ${res.status}`);
+    err.status = res.status; // 호출하는 쪽이 상태별로 처리할 수 있게 (예: 409 카메라 꺼짐)
+    throw err;
   }
 
   return body.data;
+}
+
+/** 인증이 필요한 이미지(카메라 캡처 등) — <img src>는 토큰을 못 보내서 fetch 후 Blob으로 */
+async function requestBlob(path) {
+  const res = await fetch(`${API_URL}${path}`, { headers: await authHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const err = new Error(body?.error || `Request failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.blob();
 }
 
 export const api = {
@@ -63,8 +80,11 @@ export const api = {
         body: JSON.stringify(device)
       }),
     getStatus: (id) => request(`/api/devices/${id}/status`),
+    // 라즈베리파이 카메라로 실제 촬영 → { captureId, imageUrl, capturedAt, ... } (촬영이 끝날 때까지 기다림)
     requestCapture: (id) =>
       request(`/api/devices/${id}/capture`, { method: 'POST' }),
+    // imageUrl(/api/devices/:id/captures/:captureId) → Blob
+    getCaptureImage: (imageUrl) => requestBlob(imageUrl),
     delete: (id) => request(`/api/devices/${id}`, { method: 'DELETE' })
   },
   notifications: {

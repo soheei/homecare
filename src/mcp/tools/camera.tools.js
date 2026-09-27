@@ -4,11 +4,14 @@
  *
  * [버그 수정]
  * 3. request_capture, get_latest_capture TODO 구현
+ * 4. (2026-09-27) request_capture: 가짜 이벤트 기록 대신 Pi 카메라로 실제 촬영
  */
 
 const deviceService = require('../../services/device.service');
-const { supabase, supabaseAdmin } = require('../../config/supabase');
+const captureService = require('../../services/capture.service');
+const { supabase } = require('../../config/supabase');
 const logger = require('../../utils/logger');
+const { formatKst } = require('../../utils/date.utils');
 
 // 도구 정의
 const definitions = [
@@ -35,16 +38,15 @@ const definitions = [
   },
   {
     name: 'request_capture',
-    description: '특정 카메라에 즉시 캡처를 요청합니다. 현재 상황을 확인하고 싶을 때 사용합니다.',
+    description: '라즈베리파이 카메라로 지금 이 순간의 화면을 실제로 1장 촬영합니다. "현재 화면 보여줘", "지금 카메라 보여줘", "카메라 확인해줘"처럼 현재 모습을 보고 싶어할 때 사용합니다. 촬영된 사진은 앱이 답변에 자동으로 표시합니다.',
     inputSchema: {
       type: 'object',
       properties: {
         deviceId: {
           type: 'string',
-          description: '캡처를 요청할 디바이스 ID'
+          description: '촬영할 카메라 디바이스 ID (생략시 등록된 카메라 중 켜져 있는 것)'
         }
-      },
-      required: ['deviceId']
+      }
     }
   },
   {
@@ -64,53 +66,8 @@ const definitions = [
 ];
 
 // ============================================================
-// [버그 3 수정] 캡처 관련 DB 헬퍼
+// 캡처 관련 DB 헬퍼
 // ============================================================
-
-/**
- * capture_requests 테이블에 요청 저장
- * (Edge Device가 주기적으로 폴링하여 캡처 실행)
- * - DB에 테이블이 없을 경우 events 테이블로 fallback
- */
-const insertCaptureRequest = async (deviceId) => {
-  // capture_requests 테이블이 있으면 사용, 없으면 events 테이블에 특수 이벤트로 기록
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('capture_requests')
-      .insert([{
-        device_id: deviceId,
-        status: 'pending',
-        requested_at: new Date().toISOString()
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return { source: 'capture_requests', id: data.id };
-  } catch {
-    // fallback: events 테이블에 type='other' 메타 이벤트로 기록
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('events')
-        .insert([{
-          device_id: deviceId,
-          type: 'other',
-          description: '[CAPTURE_REQUEST] 사용자 요청 캡처',
-          danger_level: 'normal',
-          metadata: { capture_request: true, status: 'pending' },
-          timestamp: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return { source: 'events', id: data.id };
-    } catch (fallbackError) {
-      logger.warn('[CameraTools] DB insert failed, returning in-memory request');
-      return { source: 'memory', id: `req_${Date.now()}` };
-    }
-  }
-};
 
 /**
  * 특정 디바이스의 가장 최근 이미지 이벤트 조회
@@ -172,43 +129,29 @@ const handlers = {
   },
 
   // ============================================================
-  // [버그 3 수정] request_capture 구현
-  // Edge Device가 polling 방식으로 캡처 요청을 감지하는 구조
+  // request_capture — Pi 카메라로 실제 촬영 (capture.service.js가 Pi 롱폴링에 요청 전달)
+  // 결과의 imageUrl은 claude.service.js가 답변에 이미지로 붙인다 (모델이 URL을 옮겨 쓰지 않게)
   // ============================================================
-  async request_capture({ deviceId }) {
-    // 1. 디바이스 존재 & 온라인 여부 확인
-    const status = await deviceService.getDeviceStatus(deviceId);
-    if (!status) {
+  async request_capture({ deviceId } = {}) {
+    try {
+      const capture = await captureService.requestCapture(deviceId);
+      logger.info(`[CameraTools] Captured ${capture.captureId} from device ${capture.deviceId}`);
+      return {
+        success: true,
+        captureId: capture.captureId,
+        deviceId: capture.deviceId,
+        deviceName: capture.deviceName,
+        imageUrl: capture.imageUrl,
+        capturedAtKst: formatKst(capture.capturedAt),
+        message: '촬영 완료. 사진은 앱이 답변 위에 자동으로 보여주므로 이미지 링크나 URL은 쓰지 말고, 짧게 안내만 하세요.'
+      };
+    } catch (error) {
+      logger.warn(`[CameraTools] Capture failed: ${error.message}`);
       return {
         success: false,
-        error: `Device not found: ${deviceId}`
+        error: error.message // 사용자용 메시지 (카메라 꺼짐/연결 안 됨/시간 초과 등)
       };
     }
-
-    if (!status.isOnline) {
-      return {
-        success: false,
-        deviceId,
-        deviceName: status.name,
-        error: '디바이스가 오프라인 상태입니다. 캡처를 요청할 수 없습니다.',
-        lastHeartbeat: status.last_heartbeat
-      };
-    }
-
-    // 2. DB에 캡처 요청 기록 (Edge Device가 polling으로 감지)
-    const request = await insertCaptureRequest(deviceId);
-
-    logger.info(`[CameraTools] Capture requested for device ${deviceId}, requestId: ${request.id}`);
-
-    return {
-      success: true,
-      deviceId,
-      deviceName: status.name,
-      deviceLocation: status.location,
-      requestId: request.id,
-      requestedAt: new Date().toISOString(),
-      message: `${status.name}(${status.location})에 캡처 요청을 전송했습니다. 잠시 후 최신 이미지를 확인하세요.`
-    };
   },
 
   // ============================================================

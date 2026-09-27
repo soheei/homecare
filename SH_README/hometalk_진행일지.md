@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-27 저녁 (홈 브리핑 서버 저장·Markdown UI·한국 시간, 이번주 요약 원인 재조사, Claude Desktop MCP 연결 조사)
+> 최근 수정일시: 2026-09-27 밤 (홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리 / 이전: 홈 브리핑 서버 저장·Markdown UI·한국 시간, 이번주 요약 원인 재조사, Claude Desktop MCP 연결)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -273,4 +273,33 @@
 ### Claude Desktop 실제 연결 시도 → 문제 3건
 1. ~~설정 파일 JSON 파싱 오류(`Bad control character ... line 21`)~~ — 토큰을 `.env`에서 복사하며 줄바꿈이 섞여 닫는 따옴표가 다음 줄로 밀림 → 한 줄로 수정. **(해결됨, 사용자 조치)**
 2. ~~`npx -y mcp-remote` 실행 실패(`ERR_MODULE_NOT_FOUND strict-url-sanitise`)~~ — Claude Desktop이 같은 서버를 일반 채팅용과 Cowork/Code용(`shared-pool`)으로 동시에 띄워 두 npx가 같은 `_npx` 캐시에 동시 설치 → `EPERM`으로 파일 누락. → `npm install -g mcp-remote` 후 `command: "mcp-remote"`로 변경. **(해결됨, 사용자 조치)** (Node 20.18.0 < undici 요구 20.18.1 `EBADENGINE` 경고는 동작엔 영향 없었음)
-3. ~~`mcp-remote`가 OAuth 탐색에서 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`으로 종료~~ — mcp-remote는 접속 전 `GET /.well-known/oauth-protected-resource` 등으로 OAuth 여부를 확인하는데, `app.js`의 레거시 `frontend/` SPA 폴백 `app.get('*')`가 이 경로에 `index.html`을 200으로 응답. → 폴백에서 `/.well-known/*`만 제외해 404 JSON을 주도록 수정(폴백 전체 제거는 영향 범위가 커서 보류). `tests/mcp.test.js`에 회귀 테스트 추가(35 통과/5 실패, 실패는 기존). 로컬 임시 서버(3999, 테스트 토큰)에 실제 `mcp-remote`로 접속해 `initialize` → `tools/list` 10개 수신까지 확인. **(해결됨, 2026-09-27 — Render 배포 전. push 후 Claude Desktop 재연결로 운영 확인 필요)**
+3. ~~`mcp-remote`가 OAuth 탐색에서 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`으로 종료~~ — mcp-remote는 접속 전 `GET /.well-known/oauth-protected-resource` 등으로 OAuth 여부를 확인하는데, `app.js`의 레거시 `frontend/` SPA 폴백 `app.get('*')`가 이 경로에 `index.html`을 200으로 응답. → 폴백에서 `/.well-known/*`만 제외해 404 JSON을 주도록 수정(폴백 전체 제거는 영향 범위가 커서 보류). `tests/mcp.test.js`에 회귀 테스트 추가(35 통과/5 실패, 실패는 기존). 로컬 임시 서버(3999, 테스트 토큰)에 실제 `mcp-remote`로 접속해 `initialize` → `tools/list` 10개 수신까지 확인. **(해결됨, 2026-09-27 — 사용자 push `0282664`, 배포 후 HTML 오류 사라짐 확인)**
+4. ~~배포 후에도 `Dynamic Client Registration rejected (404) /register` → SSE `405`~~ — 토큰 불일치 때와 같은 흐름(401 → mcp-remote가 OAuth·SSE로 폴백). PowerShell 직접 요청은 `OK 200`이었으나, 설정 파일 `AUTH_HEADER` 형식을 값 출력 없이 검사해 보니 **`Bearer ` 접두사가 빠져 있었음**(`authenticateMcp`는 `Bearer `로 시작하지 않으면 토큰을 빈 값으로 취급). → 사용자가 `Bearer `를 붙여 수정. **(해결됨, 2026-09-27 — Claude Desktop에서 homecare 도구 정상 동작 확인)**
+- 참고: 폴백 로그 순서(`/register` 404 → `sse-only` 405)가 보이면 거의 항상 토큰/헤더 문제다. 로컬에서 일부러 틀린 토큰으로 같은 로그를 재현함.
+
+### 카메라 사진 촬영 → DB 전송 (`edge/capture_photo.py`)
+- 요청: Pi 카메라로 사진을 찍어 DB에 보내기. 확인해 보니 백엔드 `POST /api/events`가 이미 multipart `image`를 받아 Supabase Storage(`events` 버킷)에 올리고 `image_url`을 저장하고, 엣지 outbox/sender도 첨부 전송을 지원 → **촬영 코드만 없었음**. 백엔드는 수정 안 함(Render 재배포 불필요).
+- 대안 검토: ① `camera_monitor.py`에 합치기(하트비트 데몬과 섞임) ② picamera2(새 의존성, venv 설치 번거로움) ③ **새 1회성 스크립트 + `rpicam-still` 호출**(camera_monitor와 같은 libcamera-apps, 의존성 없음) → ③ 선택.
+- 변경:
+  - `edge/capture_photo.py` 신규: `rpicam-still -n -t 1000 --width 1920 --height 1080 -q 85`(없으면 `libcamera-still`) → `camera_capture` 이벤트로 큐 저장 → 최대 3분 재시도하며 전송. `--no-send`, `--description` 옵션.
+  - 전송 기기 id를 마이크(`HOMECARE_DEVICE_ID`)가 아니라 **카메라(`HOMECARE_CAMERA_DEVICE_ID`)**로, 큐를 `edge/data/camera/`로 분리(공용 큐면 마이크 sender가 사진 이벤트를 마이크 id로 보낼 수 있음).
+  - `edge/event_mapper.py`: `camera_capture`(카메라 사진 촬영, `other`/`normal`, 쿨다운 0) 추가.
+  - `edge/sender.py`: 첨부했는데 응답에 `*_url`이 비면 경고 — 백엔드가 Storage 업로드 실패 시에도 사진 없이 201 저장하기 때문(과거 `temp_` id 문제와 같은 "성공처럼 보이는 실패" 방지).
+- 검증: 엣지 단위 테스트 21개 통과(기존 18 + 신규 3: `libcamera-still` 대체, 카메라 id·분리 큐로 전송, URL 누락 경고). `--help` 실행 확인. **Pi 실기 촬영·전송과 Supabase `events` 버킷 존재/public 여부는 확인 필요**. 커밋 전.
+
+### 마이크/카메라 systemd 켜기·끄기 명령 정리
+- 사용자가 쓰는 명령(둘 다 / 마이크만 / 카메라만의 `start`·`stop`·`is-active`, `status`, `journalctl -u ... -f`)을 인수인계 "카메라/마이크 온·오프 상태"에 정리. `homecare-camera.service`는 하트비트만 돌리고 사진은 찍지 않는다는 점도 명시.
+- unit 파일이 Pi에 설치됐는지(`/etc/systemd/system/` 복사 + `daemon-reload`)는 이번에 직접 확인하지 않음 — **확인 필요**(인수인계 "알려진 이슈"의 미설치 항목은 확인 전까지 유지).
+
+### 현재 화면 캡처 — 홈 카메라 카드 / 채팅 "현재 화면 보여줘"
+- 요청: 홈의 기존 📷 카메라 카드와 채팅 "현재 화면 보여줘"로 라즈베리파이 카메라가 **그 순간 실제로 찍은 사진**을 보여주기.
+- 사전 조사로 확인한 것: ① 백엔드↔Pi는 Pi→백엔드 단방향 HTTP뿐(백엔드가 Pi로 먼저 접속할 방법 없음, WebSocket/SSE/MQTT 없음) ② `POST /api/devices/:id/capture`는 TODO 껍데기(성공만 응답) ③ MCP `request_capture`는 `capture_requests`/`events`에 `[CAPTURE_REQUEST]` 가짜 행을 쓰기만 하고 가져가는 Pi 코드가 없었음 ④ 채팅 메시지는 텍스트(`content`)만 저장, 이미지 렌더링 없음 ⑤ 홈 카메라 카드는 클릭 안 되는 `div`.
+- 대안 검토: Pi로 신호 보내기 — WebSocket/MQTT(새 의존성) / DB 폴링(몇 초 지연 + 테이블 추가) / **HTTP 롱폴링(선택, 기존 기기 인증 재사용·즉시 반응)**. 이미지 — Supabase Storage 공개 URL(집 내부 사진이 URL만으로 공개, 버킷 상태 불확실) / **백엔드 메모리 임시 보관 + 인증 조회(선택, 영구 저장 안 함)**. 채팅 이미지 — 모델이 URL을 쓰게 하기(옮겨 적다 틀릴 수 있음) / **서버가 도구 결과에서 붙이기(선택)**.
+- 변경:
+  - 백엔드: `src/services/capture.service.js` 신규(요청·롱폴링·결과·보관, 같은 카메라 동시 요청 합치기, 타임아웃). `device.controller.js`의 TODO `requestCapture` 구현 + `getCaptureImage`/`pollCaptureRequest`/`submitCaptureResult`, `device.routes.js`에 `GET :id/captures/:captureId`, `GET :id/capture-requests/next`, `POST :id/capture-requests/:requestId`(JPEG만, 10MB). 촬영·조회는 기기 소유자만.
+  - MCP `request_capture`: 실제 촬영으로 교체, `deviceId` 선택. `claude.service.js`: 도구 결과의 `imageUrl`을 답변 앞에 `![현재 카메라 화면](...)`로 붙임, 시스템 프롬프트에 도구 선택 규칙 1줄.
+  - Pi `edge/camera_monitor.py`: 캡처 요청 롱폴링 스레드 + `capture_current_frame()`(기존 `capture_photo.capture()` 재사용, 1280x720, 임시 폴더에서 바로 삭제), 인식 확인과 촬영 사이 lock, 실패 사유(`camera_not_detected`/`capture_failed`) 보고.
+  - 프론트: `HomeScreen.jsx` 카메라 카드를 버튼으로(촬영 중 비활성화) + "현재 카메라 화면" 카드(로딩/성공/꺼짐/실패, 다시 촬영·닫기), `components/CaptureImage.jsx` 신규(토큰 붙여 Blob으로 받음, 비율 유지·최대 60vh, 누르면 전체 화면), `chatBlocks.js`에 캡처 경로 이미지 블록(외부 URL은 이미지로 안 그림), `api.js`에 에러 `status`와 Blob 요청.
+- 발견·수정: 롱폴링 연결 끊김을 `req.on('close')`로 감지하려다, Node 16+에선 GET 본문을 다 읽자마자 발생해 폴링이 바로 끊기는 문제를 코드 작성 중 발견 → `res.on('close')`로 변경, 끊긴 순간 넘기려던 요청은 다음 폴링이 다시 가져가게(`undispatch`).
+- 검증: `tests/capture.test.js` 13건 신규(전체 흐름·소유자만 조회, 꺼짐 409, Pi 미연결 503, 남의 기기 404/카메라 아님 400, 폴링 대기 만료, 동시 요청 촬영 1번, Pi 장치 없음 503, 타임아웃 504, 기기 id 불일치 403/만료 요청 410, MCP 도구 꺼짐/성공, 채팅 답변에 이미지 줄 붙임/실패 시 안 붙임). 전체 48 통과/5 실패(실패 5건은 기존 `chat.test.js` 4 + `app.test.js` 1). 엣지 24개 통과(리스너 3건 추가). 변경 파일 eslint 에러 0, 프론트 oxlint 에러 0·빌드 성공, 채팅 파서 이미지 블록 출력 확인.
+- **실기 검증 미완료**: Render 배포 + Pi `git pull` + `sudo systemctl restart homecare-camera.service` 후 홈 카드·채팅에서 실제 사진 확인 필요(요청된 최종 테스트 1~5는 아직 실제 환경에서 안 해봄). 커밋 전.

@@ -81,6 +81,7 @@ def send_row(session, cfg: Config, outbox: Outbox, row: dict) -> str:
             return _retry(outbox, row, "server returned temp id (not saved)")
         outbox.mark_sent(row)
         log.info("전송 완료 uid=%s id=%s", uid, saved_id)
+        _warn_missing_urls(resp, row)
         return "sent"
 
     detail = f"HTTP {status}: {resp.text[:150]}"
@@ -92,6 +93,18 @@ def send_row(session, cfg: Config, outbox: Outbox, row: dict) -> str:
         log.error("백엔드가 영구 거절 uid=%s (%s)", uid, detail)
         return "dead"
     return _retry(outbox, row, detail)
+
+
+def _warn_missing_urls(resp, row: dict) -> None:
+    """백엔드는 Storage 업로드가 실패해도 파일 URL 없이 201로 저장한다(storage.service.js) — 로그로 드러낸다."""
+    try:
+        data = resp.json().get("data", {}) or {}
+    except ValueError:
+        return
+    for att in row["attachments"]:
+        if not data.get(f"{att['field']}_url"):
+            log.warning("이벤트는 저장됐지만 %s 파일 URL이 비어 있음 — 백엔드 Storage 업로드 실패 의심"
+                        "(Render 로그의 [Storage] 오류, Supabase 'events' 버킷 확인)", att["field"])
 
 
 def _retry(outbox: Outbox, row: dict, error: str) -> str:

@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-27 저녁 (홈 브리핑 서버 저장 `briefings` 테이블 추가, Claude Desktop MCP 연결 방법 정리, stdio 서버 문제 기록)
+> 최근 수정일시: 2026-09-27 밤 (홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처 추가 — Pi 롱폴링·메모리 임시 보관, 카메라 사진 촬영 `edge.capture_photo`, 마이크/카메라 systemd 명령 정리 / 이전: 홈 브리핑 서버 저장, Claude Desktop MCP 연결 방법)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -66,7 +66,8 @@
   - 전제: Render에 `MCP_AUTH_TOKEN`이 설정돼 있어야 함(미설정이면 기동마다 임의 토큰이라 외부 접속 불가). 현재 Render에 설정됐는지 **확인 필요**.
   - Claude Desktop 설정 파일(`claude_desktop_config.json`)에 토큰이 평문으로 들어가므로 공유·커밋 금지.
   - `mcp-remote`는 `npx`가 아니라 **전역 설치(`npm install -g mcp-remote`)**해서 쓴다 — Windows Claude Desktop이 서버를 동시에 두 번 띄워 npx 캐시가 깨짐(2026-09-27 실측).
-  - `/.well-known/*`는 404 JSON이어야 한다(mcp-remote의 OAuth 탐색). `app.js`의 SPA 폴백이 여기에 HTML을 주면 연결이 `"<!DOCTYPE"... is not valid JSON`으로 실패 — 2026-09-27 제외 처리함. 로컬에선 `mcp-remote`로 `tools/list` 10개 수신 확인, 운영(Render)은 **배포 후 확인 필요**. Claude Desktop 로그는 Settings → Developer에서 서버별로 확인.
+  - `/.well-known/*`는 404 JSON이어야 한다(mcp-remote의 OAuth 탐색). `app.js`의 SPA 폴백이 여기에 HTML을 주면 연결이 `"<!DOCTYPE"... is not valid JSON`으로 실패 — 2026-09-27 제외 처리함. **2026-09-27 운영(Render)에서 Claude Desktop 연결·도구 호출 성공 확인.** Claude Desktop 로그는 Settings → Developer에서 서버별로 확인.
+  - `AUTH_HEADER` 값은 반드시 `Bearer <토큰>`(접두사 포함). 접두사가 빠지면 401 → 로그에 `Dynamic Client Registration rejected (404) /register`, `SSE ... (405)`가 찍힌다(OAuth/SSE 문제처럼 보이지만 원인은 헤더).
   - claude.ai 웹의 커스텀 커넥터는 헤더 지정 없이 OAuth를 쓰는 방식이라 현재 Bearer 방식으로는 바로 못 붙는 것으로 보임 — **확인 필요**.
 - **stdio 버전(`npm run mcp`)을 Claude Desktop에 직접 붙이지 말 것** (2026-09-27 확인): ① `server.js`가 `.env`를 로드하지 않아 Supabase 환경변수가 비고(`index.js`만 `dotenv` 호출), ② winston 로거가 stdout에 로그를 써서 MCP JSON-RPC 메시지와 섞인다(`initialize` 응답 앞에 `info: MCP Server ... is running` 줄이 붙는 것 확인). 고치려면 stdio 모드에서 로그를 stderr로 보내고 dotenv를 로드해야 함 — 미수정.
 
@@ -98,10 +99,60 @@
 - **카메라**: 아직 영상 분석 코드가 없어서, [edge/camera_monitor.py](../edge/camera_monitor.py)라는 별도 스크립트가 `rpicam-hello --list-cameras`(또는 `libcamera-hello`)로 하드웨어 인식 여부만 20초마다 확인해 하트비트를 보낸다.
 - **사용자 방침(2026-09-22)**: 24시간 상시 감시가 아니라 **필요할 때만 켜고 끄는 방식**을 원함 — 그래서 부팅 시 자동 시작(`systemctl enable`)은 하지 않고, [edge/systemd/](../edge/systemd/)에 unit 파일만 등록해 두고 `systemctl start`/`stop`으로 수동 on/off 하도록 함(터미널을 닫아도 켜둔 동안엔 계속 돎). 상세 절차는 [edge/README.md](../edge/README.md)의 "필요할 때만 켜고 끄기" 참고.
   ```bash
-  cd ~/homecare
-  sudo systemctl start homecare-mic.service homecare-camera.service   # 켜기
-  sudo systemctl stop  homecare-mic.service homecare-camera.service   # 끄기
+  # 둘 다
+  sudo systemctl start homecare-mic.service homecare-camera.service    # 켜기
+  sudo systemctl stop  homecare-mic.service homecare-camera.service    # 끄기
+  systemctl is-active  homecare-mic.service homecare-camera.service    # 지금 켜져있는지(active)/꺼져있는지(inactive)
+  systemctl status     homecare-mic.service homecare-camera.service    # 잘 도는지 상세 확인
+  journalctl -u homecare-mic.service -f       # 실시간 로그 (Ctrl+C로 빠져나오기)
+  journalctl -u homecare-camera.service -f
+
+  # 마이크만
+  sudo systemctl start homecare-mic.service
+  sudo systemctl stop  homecare-mic.service
+  systemctl is-active  homecare-mic.service
+
+  # 카메라만
+  sudo systemctl start homecare-camera.service
+  sudo systemctl stop  homecare-camera.service
+  systemctl is-active  homecare-camera.service
   ```
+  - `homecare-camera.service`(`camera_monitor.py`)는 카메라 **인식 여부 하트비트** + **앱/채팅의 "현재 화면 보기" 요청 대기**(아래 "현재 화면 캡처")를 함께 돌린다. 이 서비스가 꺼져 있으면 현재 화면 보기는 "카메라가 꺼져 있어…"로 안내된다. 이벤트로 DB에 남기는 수동 촬영은 아래 "카메라 사진 촬영"의 1회성 명령으로 따로 실행.
+
+## 현재 화면 캡처 — 홈 카메라 카드 / 채팅 "현재 화면 보여줘" (2026-09-27 추가)
+
+```
+홈 📷 카메라 카드 ─ POST /api/devices/:id/capture ─┐
+채팅 "현재 화면 보여줘" → Claude → MCP request_capture ─┤→ capture.service.js (메모리)
+                                                        │      ↑ 요청 즉시 전달
+Pi camera_monitor.py ── GET /api/devices/:id/capture-requests/next (롱폴링, 최대 25초 대기) ─┘
+   └ 요청 받으면 rpicam-still 1280x720 촬영 → POST /api/devices/:id/capture-requests/:requestId (JPEG)
+→ 백엔드 응답 { captureId, imageUrl: /api/devices/:id/captures/:captureId, capturedAt }
+→ 프론트가 토큰을 붙여 이미지를 받아 표시 (CaptureImage.jsx, 누르면 확대)
+```
+
+- **통신 방식**: Render에서 Pi로 먼저 접속할 수 없어서(Pi에 공인 주소 없음) Pi가 **HTTP 롱폴링**으로 요청을 기다린다. 기존 기기 인증(`X-Device-Id`/`X-Device-Secret`) 그대로, 새 라이브러리 없음. 폴링은 카메라 기기 id(`HOMECARE_CAMERA_DEVICE_ID`)로만 한다(다른 id면 403).
+- **이미지 보관**: Supabase Storage에 **영구 저장하지 않는다**. 백엔드 메모리에 최근 20장, 6시간만 보관(`capture.service.js`의 `settings`). **서버가 재시작하면**(Render 재배포·유휴 후 재기동) 예전 채팅 속 사진은 "사진 보관 시간이 지나 더 이상 볼 수 없어요"로 표시된다. 이미지 조회는 로그인한 **기기 소유자(`devices.user_id`)만** 가능.
+- **채팅**: MCP 도구 `request_capture`가 실제 촬영(예전엔 `capture_requests`/`events`에 `[CAPTURE_REQUEST]` 가짜 행을 쓰기만 했음 — 제거). `deviceId`는 생략 가능(켜진 카메라 자동 선택). 사진 링크는 모델이 쓰지 않고 `claude.service.js`가 도구 결과에서 꺼내 답변 맨 앞에 `![현재 카메라 화면](/api/devices/.../captures/...)` 줄로 붙인다 → 대화 기록(`messages.content`)에도 그대로 저장, 앱(`chatBlocks.js`)이 이 경로 형식만 이미지 카드로 그림.
+- **판단 순서 / 에러 문구**(사용자에게는 문구만, 원인은 Render 로그 `[Capture]`): 기기 없음/남의 기기 404 → 하트비트 끊김 **409 "카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다."** → Pi 폴링이 40초간 없음 503(카메라 서비스 재시작 안내 — Pi 코드가 구버전일 때도 이것) → Pi가 카메라 장치를 못 찾음 503 / 촬영 실패 502 → 25초 안에 이미지가 안 오면 504.
+- **중복 방지**: 같은 카메라에 진행 중인 요청이 있으면 새 요청은 같은 결과를 받는다(촬영 1번). 프론트는 촬영 중 카드 비활성화, 채팅은 기존처럼 답변 대기 중 전송 불가. Pi는 인식 확인과 촬영이 겹치지 않게 lock.
+- **전제/제약**: 상태가 메모리에 있어서 **Render 인스턴스가 1개일 때만** 동작한다(여러 개로 늘리면 요청과 폴링이 다른 인스턴스로 갈 수 있음). 카메라 서비스가 켜져 있는 동안은 25초마다 롱폴링 요청이 오므로 Render 무료 플랜이 잠들지 않는다(무료 사용 시간 소모).
+- 관련 코드: `src/services/capture.service.js`, `src/controllers/device.controller.js`(`requestCapture`/`getCaptureImage`/`pollCaptureRequest`/`submitCaptureResult`), `src/routes/device.routes.js`, `src/mcp/tools/camera.tools.js`, `src/services/claude.service.js`, `edge/camera_monitor.py`, 프론트 `web/src/screens/HomeScreen.jsx`, `web/src/components/CaptureImage.jsx`, `web/src/lib/chatBlocks.js`, 테스트 `tests/capture.test.js`, `edge/tests/test_edge.py`.
+- **반영 방법**: `main` push → Render 자동 배포 + Vercel 자동 빌드, Pi에서 `git pull` 후 `sudo systemctl restart homecare-camera.service`. Pi 로그에서 `카메라 감지 모니터링 + 현재 화면 캡처 대기 시작`이 보이면 새 코드로 돌고 있는 것.
+
+## 카메라 사진 촬영 → DB 저장 (2026-09-27 추가)
+
+```bash
+cd ~/homecare && source .venv/bin/activate
+python -m edge.capture_photo --no-send               # 촬영만 (edge/data/captures/에 저장, 카메라 점검용)
+python -m edge.capture_photo                         # 촬영 + 전송
+python -m edge.capture_photo --description "현관 확인"
+```
+
+- 흐름: `rpicam-still`(없으면 `libcamera-still`)로 1920×1080 JPG 촬영 → `EventEmitter.emit("camera_capture", image_path=...)` → `POST /api/events` multipart `image` → 백엔드가 Supabase Storage **`events` 버킷**에 업로드하고 `events.image_url`에 공개 URL 저장. 이벤트는 `type: other`, `dangerLevel: normal`. 백엔드는 수정 없음(기존 업로드 기능 사용).
+- 이벤트는 **카메라 기기 id(`HOMECARE_CAMERA_DEVICE_ID`)**로 전송하고, 전송 큐도 `edge/data/camera/`로 마이크(`edge/data/`)와 분리한다 — 같은 큐를 쓰면 마이크 파이프라인의 sender가 사진 이벤트를 마이크 id로 보낼 수 있음.
+- **주의**: 백엔드 `storage.service.js`는 업로드 실패 시 null을 반환해 **사진 없이 201 저장**된다. 그래서 엣지 sender가 "첨부했는데 응답에 `image_url`이 비었음"이면 경고 로그를 찍는다 — 이 경고가 보이면 Render Logs의 `[Storage]` 오류와 Supabase `events` 버킷(존재·public 여부) 확인. 버킷 상태는 **확인 필요**.
+- 원격 촬영(홈 카메라 카드/채팅 "현재 화면 보여줘")은 위 "현재 화면 캡처"로 구현됨(2026-09-27) — 그쪽은 DB에 이벤트로 남기지 않는다.
 - 나중에 실제 카메라 영상 분석 파이프라인이 생기면 `camera_monitor.py`의 하트비트를 그 프로세스로 옮길 것(마이크 쪽과 동일한 패턴).
 
 ## 운영 절차
@@ -142,9 +193,11 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 - 2026-09-27 작업분은 커밋·push됨(`a1559cc`, `cc1ad07`). **Render 배포 후 확인 필요**: `/health`가 `production`, 토큰 없이 `POST /mcp` 401, 웹 채팅 "이번주 요약"이 3건 모두·한국 시간으로 답하는지, 홈 브리핑이 새로고침 후에도 유지되는지(`briefings` 테이블 생성 후).
 - 채팅 "이번주 요약"이 3건 중 1건만·UTC 시각("오전 7시")으로 답한 원인은 **미확정**(로컬 프론트→로컬 백엔드, 새 코드로 동작 중이었음을 확인). 후보: 이전 대화 기록 재사용(대화 기록엔 최종 답변 텍스트만 저장, 도구 결과는 저장 안 됨) / 다른 도구 선택. 새 대화에서 재질문 후 로그의 `[MCP] Tool called:` 도구명으로 판별할 것.
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
-- 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부만 확인
+- 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부 + 수동 사진 촬영(`edge.capture_photo`, 2026-09-27)만
+- `edge.capture_photo` Pi 실기 검증 **미완료**(로컬 단위 테스트만 통과). Supabase Storage `events` 버킷 존재·public 여부 **확인 필요**
+- 현재 화면 캡처(홈/채팅) **실기 검증 미완료** — 로컬 단위/통합 테스트만 통과, Render 배포·Pi `git pull`+카메라 서비스 재시작 후 홈 카드·채팅에서 확인 필요. 홈 화면 마이크 카드가 "미등록"으로 보이는 건 `GET /api/devices`가 로그인 사용자 `user_id`로 거르기 때문으로 추정(마이크 기기의 `user_id`가 다를 가능성) — **확인 필요**
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
-- `npm test` 34 통과 / 5 실패(2026-09-27 기준). 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
+- `npm test` 48 통과 / 5 실패(2026-09-27 밤 기준, `tests/capture.test.js` 13건 추가). 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)

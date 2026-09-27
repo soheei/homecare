@@ -90,6 +90,13 @@ export function AppDataProvider({ children }) {
     delete requested.current.home;
   }, []);
 
+  /** 캡처 결과로 알게 된 기기 상태를 홈 카드에 반영 (홈 데이터는 세션 동안 한 번만 불러오므로) */
+  const setDeviceStatus = useCallback((id, status) => {
+    setHome((prev) => (prev.data
+      ? { ...prev, data: { ...prev.data, devices: prev.data.devices.map((d) => (d.id === id ? { ...d, status } : d)) } }
+      : prev));
+  }, []);
+
   const generateBriefing = useCallback(async () => {
     setBriefing((prev) => ({ ...prev, status: 'loading', error: '' }));
     try {
@@ -101,7 +108,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   return (
-    <AppDataContext.Provider value={{ home, loadHome, eventList, loadEventList, deleteEvent, briefing, generateBriefing }}>
+    <AppDataContext.Provider value={{ home, loadHome, setDeviceStatus, eventList, loadEventList, deleteEvent, briefing, generateBriefing }}>
       {children}
     </AppDataContext.Provider>
   );

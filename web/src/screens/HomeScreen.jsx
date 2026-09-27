@@ -1,8 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EVENT_ICON, formatRelativeTime } from '../lib/eventDisplay';
+import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import { MarkdownBlocks } from '../components/chat/AiMessage';
+import CaptureImage from '../components/CaptureImage';
+
+const CAMERA_OFF_MESSAGE = '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.';
 
 function greeting() {
   const h = new Date().getHours();
@@ -15,7 +19,10 @@ function greeting() {
 export default function HomeScreen() {
   const { user } = useAuth();
   // 데이터/브리핑은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
-  const { home, loadHome, briefing: briefingState, generateBriefing } = useAppData();
+  const { home, loadHome, setDeviceStatus, briefing: briefingState, generateBriefing } = useAppData();
+  // 현재 카메라 화면: idle | loading | done | off | error
+  const [capture, setCapture] = useState({ status: 'idle', data: null, error: '' });
+  const capturingRef = useRef(false); // 연속 클릭 시 중복 요청 방지 (state 반영 전 두 번째 클릭까지 막음)
 
   // 이미 불러온 상태면 loadHome()은 아무것도 하지 않음
   useEffect(() => {
@@ -40,8 +47,41 @@ export default function HomeScreen() {
 
   const initial = user?.email?.[0]?.toUpperCase() || '?';
 
+  /** 카메라 카드 클릭 → 라즈베리파이 카메라로 지금 1장 촬영 (상태 판단은 서버가 최신 하트비트로 함) */
+  const captureNow = async () => {
+    if (capturingRef.current) return;
+    if (!cameraDevice) {
+      setCapture({ status: 'error', data: null, error: '등록된 카메라가 없어요.' });
+      return;
+    }
+    capturingRef.current = true;
+    setCapture((prev) => ({ ...prev, status: 'loading', error: '' }));
+    try {
+      const data = await api.devices.requestCapture(cameraDevice.id);
+      setCapture({ status: 'done', data, error: '' });
+      setDeviceStatus(cameraDevice.id, 'online');
+    } catch (err) {
+      console.warn('[Home] capture failed:', err);
+      if (err.status === 409) {
+        setCapture({ status: 'off', data: null, error: err.message || CAMERA_OFF_MESSAGE });
+        setDeviceStatus(cameraDevice.id, 'offline');
+      } else {
+        // 서버가 준 사용자용 문구(연결 안 됨/시간 초과/장치 없음 등), 네트워크 오류면 기본 문구
+        const friendly = err.status ? err.message : '현재 카메라 화면을 가져오지 못했어요. 카메라 연결 상태를 확인해주세요.';
+        setCapture({ status: 'error', data: null, error: friendly });
+      }
+    } finally {
+      capturingRef.current = false;
+    }
+  };
+
+  const capturing = capture.status === 'loading';
+
   const cards = [
-    { icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice) },
+    {
+      icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice),
+      onClick: captureNow, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›'
+    },
     { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
     { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' }
@@ -64,17 +104,92 @@ export default function HomeScreen() {
       </div>
 
       <div className="relative z-10 grid grid-cols-2 gap-3 px-5 pt-5">
-        {cards.map((c) => (
-          <div
-            key={c.label}
-            className="rounded-2xl border border-black/5 bg-white p-4 shadow-lg shadow-brand-900/[0.06] transition-transform hover:-translate-y-0.5"
-          >
-            <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
-            <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
-            <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
-          </div>
-        ))}
+        {cards.map((c) => {
+          const cardClass = 'rounded-2xl border border-black/5 bg-white p-4 text-left shadow-lg shadow-brand-900/[0.06] transition-transform hover:-translate-y-0.5';
+          const body = (
+            <>
+              <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
+              <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
+              <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
+              {c.hint && <div className="mt-1 text-[11px] font-semibold text-brand-500">{c.hint}</div>}
+            </>
+          );
+          // 카메라 카드는 누르면 현재 화면 캡처 (촬영 중엔 비활성화)
+          return c.onClick ? (
+            <button
+              key={c.label}
+              type="button"
+              onClick={c.onClick}
+              disabled={capturing}
+              aria-label="카메라 현재 화면 보기"
+              className={`${cardClass} cursor-pointer active:scale-[0.98] disabled:cursor-wait disabled:opacity-70`}
+            >
+              {body}
+            </button>
+          ) : (
+            <div key={c.label} className={cardClass}>{body}</div>
+          );
+        })}
       </div>
+
+      {capture.status !== 'idle' && (
+        <div className="px-5 pt-5">
+          <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">
+            <div className="flex items-center gap-3 px-[18px] pb-3 pt-[18px]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500/8 text-[19px]">📷</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-bold text-ink">현재 카메라 화면</div>
+                {capture.status === 'done' && capture.data && (
+                  <div className="mt-0.5 text-xs text-ink-light">
+                    {new Date(capture.data.capturedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} 촬영
+                  </div>
+                )}
+              </div>
+              {capture.status !== 'loading' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={captureNow}
+                    aria-label="다시 촬영"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
+                  >
+                    ↻
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCapture({ status: 'idle', data: null, error: '' })}
+                    aria-label="닫기"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div className="px-[18px] pb-[18px]">
+              {capture.status === 'loading' && (
+                <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-2xl bg-brand-50">
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-100 border-t-brand-400" />
+                  <span className="text-[13px] text-ink-light">현재 화면을 불러오는 중...</span>
+                </div>
+              )}
+              {capture.status === 'done' && capture.data && <CaptureImage src={capture.data.imageUrl} />}
+              {capture.status === 'off' && (
+                <div className="rounded-xl bg-brand-50 px-4 py-3.5 text-[13px] leading-relaxed text-ink-light">
+                  📴 {capture.error}
+                </div>
+              )}
+              {capture.status === 'error' && (
+                <div className="flex items-start gap-2 rounded-xl border border-danger/20 bg-danger/[0.06] px-4 py-3.5">
+                  <span className="text-[15px]">⚠️</span>
+                  <span className="text-[13px] leading-relaxed text-danger">{capture.error}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="px-5 pt-5">
         <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">

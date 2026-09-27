@@ -23,7 +23,7 @@
   - 엣지(라즈베리파이) 전송 코드: `edge/` — 감지기가 `EventEmitter.emit()`만 호출하면 쿨다운 → SQLite 큐(`edge/data/`) → sender가 `POST /api/events`로 전송(재시도 포함). 카테고리→`type`/`dangerLevel` 변환표는 `edge/event_mapper.py`. 마이크→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`)과 YOLO 연동은 **아직 없음**.
   - 오디오 분류 실험/설계: `yamnet/` (`core/` = 모델 로딩·카테고리·판정 규칙, `verification/` = ESC-50 평가 스크립트, 설계는 `yamnet/Plan.md`)
   - 배포 설정: `Dockerfile`(Node 20, Render가 사용), `docker-compose.yml`(과거 Pi 배포용, 현재 배포 경로 아님. mcp 서비스는 `profiles: ["mcp-manual"]`로 기본 실행에서 제외됨)
-- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `chat-history.test.js`, `event-date.test.js`, `mcp.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/35건 통과 — 실패 5건은 기존부터: `chat.test.js` 4건은 토큰 없이 요청해 401(인증은 정상, 테스트가 낡음), `app.test.js` 404 1건은 `app.js`의 레거시 `frontend/` SPA 폴백 때문. 엣지는 `python -m unittest discover -s edge/tests -t .`(15개).
+- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `chat-history.test.js`, `event-date.test.js`, `mcp.test.js`, `capture.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/48건 통과 — 실패 5건은 기존부터: `chat.test.js` 4건은 토큰 없이 요청해 401(인증은 정상, 테스트가 낡음), `app.test.js` 404 1건은 `app.js`의 레거시 `frontend/` SPA 폴백 때문. 엣지는 `python -m unittest discover -s edge/tests -t .`(24개).
 
 ## Common Commands
 - 설치: `npm install` (백엔드), `cd web && npm install` (프론트엔드)

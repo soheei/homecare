@@ -3,6 +3,7 @@
  */
 
 const deviceService = require('../services/device.service');
+const captureService = require('../services/capture.service');
 const logger = require('../utils/logger');
 
 /**
@@ -107,22 +108,115 @@ const updateHeartbeat = async (req, res, next) => {
 };
 
 /**
- * 디바이스에 캡처 요청
+ * 본인 기기인지 확인 (카메라 사진은 집 내부 영상이라 소유자만 촬영/조회)
+ */
+const isOwnDevice = async (deviceId, userId) => {
+  const device = await deviceService.getDeviceStatus(deviceId);
+  return Boolean(device && device.user_id === userId);
+};
+
+/**
+ * 디바이스에 캡처 요청 → Pi가 실제로 촬영한 이미지가 도착할 때까지 기다렸다가 응답
  */
 const requestCapture = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    if (!(await isOwnDevice(id, req.user?.id))) {
+      return res.status(404).json({ success: false, error: captureService.MESSAGES.noCamera });
+    }
+
     logger.info(`[Device] Capture requested for device: ${id}`);
-    // TODO: 실제 디바이스에 캡처 요청 전송
+    const capture = await captureService.requestCapture(id);
 
     res.json({
       success: true,
-      message: 'Capture request sent'
+      data: capture
     });
 
   } catch (error) {
-    logger.error('[Device] Error requesting capture:', error);
+    logger.error('[Device] Error requesting capture:', error.message);
+    next(error);
+  }
+};
+
+/**
+ * 캡처 이미지 조회 (메모리에 잠깐 보관된 것만 — 만료되면 404)
+ */
+const getCaptureImage = async (req, res, next) => {
+  try {
+    const { id, captureId } = req.params;
+    const capture = (await isOwnDevice(id, req.user?.id)) ? captureService.getCapture(id, captureId) : null;
+
+    if (!capture) {
+      return res.status(404).json({ success: false, error: '사진 보관 시간이 지나 더 이상 볼 수 없어요.' });
+    }
+
+    res.set('Content-Type', capture.mimeType);
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(capture.buffer);
+
+  } catch (error) {
+    logger.error('[Device] Error fetching capture image:', error);
+    next(error);
+  }
+};
+
+/**
+ * [Edge] 캡처 요청 롱폴링 — 요청이 생기면 { requestId }, 대기 시간이 지나면 null
+ */
+const pollCaptureRequest = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (req.device?.id !== id) {
+      return res.status(403).json({ success: false, error: 'Device id mismatch' });
+    }
+
+    // req의 'close'는 GET 본문을 다 읽으면 바로 발생하므로 res 쪽으로 연결 끊김을 감지
+    const requestId = await captureService.waitForRequest(id, (cleanup) => res.on('close', cleanup));
+    if (res.destroyed || res.writableEnded) {
+      if (requestId) captureService.undispatch(id, requestId);
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: requestId ? { requestId } : null
+    });
+
+  } catch (error) {
+    logger.error('[Device] Error polling capture request:', error);
+    next(error);
+  }
+};
+
+/**
+ * [Edge] 촬영 결과 제출 — multipart 'image'(JPEG) 또는 JSON { error }
+ */
+const submitCaptureResult = async (req, res, next) => {
+  try {
+    const { id, requestId } = req.params;
+    if (req.device?.id !== id) {
+      return res.status(403).json({ success: false, error: 'Device id mismatch' });
+    }
+
+    const accepted = captureService.completeRequest(id, requestId, {
+      buffer: req.file?.buffer,
+      mimeType: req.file?.mimetype,
+      error: req.body?.error
+    });
+
+    if (!accepted) {
+      return res.status(410).json({ success: false, error: 'Capture request expired' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Capture received'
+    });
+
+  } catch (error) {
+    logger.error('[Device] Error receiving capture result:', error);
     next(error);
   }
 };
@@ -154,5 +248,8 @@ module.exports = {
   getDeviceStatus,
   updateHeartbeat,
   requestCapture,
+  getCaptureImage,
+  pollCaptureRequest,
+  submitCaptureResult,
   deleteDevice
 };

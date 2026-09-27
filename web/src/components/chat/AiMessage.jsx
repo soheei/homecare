@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { parseChatBlocks } from '../../lib/chatBlocks';
 import { TextBlock } from './MarkdownText';
 import { AlertCard, DeviceStatusCard, EventList, ResponsiveTable, StatCard } from './ChatCards';
+import CaptureImage from '../CaptureImage';
 
 /**
  * AI 응답 한 개 렌더링
@@ -15,7 +16,8 @@ const CARD_COMPONENTS = {
   event_list: EventList,
   stats: StatCard,
   alert: AlertCard,
-  table: ResponsiveTable
+  table: ResponsiveTable,
+  image: CaptureImage // 카메라 캡처 사진 (말풍선 밖 독립 카드)
 };
 
 /** 연속된 텍스트 블록은 말풍선 하나로, 카드 블록은 각각 따로 */

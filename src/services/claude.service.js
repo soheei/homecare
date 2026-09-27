@@ -43,6 +43,7 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 - 방문자/초인종/택배 → get_visitor_log (날짜를 지정하지 않으면 최근 7일)
 - 위험 상황 → get_danger_events
 - 오늘 또는 특정 날짜 → get_daily_summary / get_events_by_date (날짜는 아래 현재 날짜 기준으로 계산)
+- "현재 화면 보여줘", "지금 카메라 보여줘", "카메라 확인해줘" 등 지금 모습 → request_capture (실제 촬영, deviceId 생략 가능). 사진은 앱이 답변에 자동으로 붙이므로 이미지 링크/URL은 쓰지 않고 짧게 안내합니다. 실패하면 결과의 error 문장을 그대로 전합니다
 
 답변 형식 (앱이 아래 형식을 카드/경고 UI로 바꿔 보여줍니다):
 - 장치 상태는 표로: | 장치명 | 유형 | 위치 | 상태 |
@@ -69,6 +70,20 @@ const buildSystemPrompt = () => {
 
 // Claude에 전달할 최근 메시지 수
 const HISTORY_LIMIT = 50;
+
+/**
+ * request_capture 도구 결과에서 촬영된 이미지 경로 추출
+ * (모델이 URL을 옮겨 적다 틀리지 않도록 서버가 직접 답변에 붙인다)
+ */
+const extractCaptureImage = (toolName, result) => {
+  if (toolName !== 'request_capture' || result.isError) return null;
+  try {
+    const parsed = JSON.parse(result.content);
+    return parsed?.success && typeof parsed.imageUrl === 'string' ? parsed.imageUrl : null;
+  } catch {
+    return null;
+  }
+};
 
 /**
  * DB에서 대화 히스토리 로드 (호출 전에 isOwnConversation으로 소유자 확인)
@@ -116,6 +131,9 @@ const chat = async ({ message, conversationId, userId }) => {
     // 현재 한국 날짜/시각 포함 (요청마다 새로 계산)
     const systemPrompt = buildSystemPrompt();
 
+    // 이번 답변에서 촬영된 카메라 이미지 (답변 맨 위에 붙임)
+    const captureImages = [];
+
     // 4~5. MCP 서버에 접속해 도구 목록을 받고, Claude의 tool_use 요청을 MCP tools/call로 실행
     const response = await mcpService.withSession(async (mcp) => {
       // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
@@ -148,6 +166,8 @@ const chat = async ({ message, conversationId, userId }) => {
         const toolResults = await Promise.all(
           toolUseBlocks.map(async (toolBlock) => {
             const result = await mcp.callTool(toolBlock.name, toolBlock.input);
+            const imageUrl = extractCaptureImage(toolBlock.name, result);
+            if (imageUrl) captureImages.push(imageUrl);
             return {
               type: 'tool_result',
               tool_use_id: toolBlock.id,
@@ -176,10 +196,15 @@ const chat = async ({ message, conversationId, userId }) => {
     });
 
     // 6. 최종 텍스트 응답 추출
-    const content = response.content
+    const text = response.content
       .filter(block => block.type === 'text')
       .map(block => block.text)
       .join('\n');
+
+    // 촬영 이미지는 Markdown 이미지 줄로 앞에 붙임 → 앱(chatBlocks.js)이 이미지 카드로 그리고, 대화 기록에도 남음
+    const content = [...[...new Set(captureImages)].map(url => `![현재 카메라 화면](${url})`), text]
+      .filter(Boolean)
+      .join('\n\n');
 
     // 7. [버그 1 수정] 유저 메시지 & 어시스턴트 응답 DB에 저장
     await conversationService.saveMessage(convId, 'user', message);

@@ -203,5 +203,118 @@ class EmitterTest(unittest.TestCase):
             self.assertEqual(em.outbox.counts()["pending"], 0)
 
 
+class MissingUrlWarningTest(unittest.TestCase):
+    def test_warns_when_backend_saved_without_image_url(self):
+        tmp = tempfile.mkdtemp()
+        img = Path(tmp) / "p.jpg"
+        img.write_bytes(b"\xff\xd8")
+        cfg = make_cfg(tmp)
+        box = Outbox(cfg.outbox_dir)
+        box.enqueue("u1", {"type": "other", "metadata": {}}, {"image": str(img)})
+        (row,) = box.fetch_due()
+        no_url = FakeResponse(201, {"data": {"id": "real-uuid", "image_url": None}})
+        with self.assertLogs("edge.sender", "WARNING"):
+            self.assertEqual(sender.send_row(FakeSession(no_url), cfg, box, row), "sent")
+
+
+class CaptureListenerTest(unittest.TestCase):
+    """camera_monitor.py의 현재 화면 캡처 요청 처리 (백엔드 롱폴링 → 촬영 → 결과 제출)"""
+
+    class Session:
+        def __init__(self, polls, stop):
+            self.polls = list(polls)
+            self.stop = stop
+            self.posts = []
+
+        def get(self, url, **kw):
+            if len(self.polls) == 1:
+                self.stop.set()  # 마지막 응답 후 루프 종료
+            return self.polls.pop(0)
+
+        def post(self, url, **kw):
+            self.posts.append((url, kw))
+            return FakeResponse(200, {"success": True})
+
+    def run_listener(self, polls, capture_result):
+        import threading
+        from unittest import mock
+        from edge import camera_monitor
+
+        stop = threading.Event()
+        session = self.Session(polls, stop)
+        with mock.patch.object(camera_monitor, "capture_current_frame", return_value=capture_result):
+            camera_monitor.run_capture_listener("http://backend.test", "cam-uuid", "s", stop, session)
+        return session
+
+    def test_uploads_jpeg_for_request(self):
+        s = self.run_listener([FakeResponse(200, {"data": None}), FakeResponse(200, {"data": {"requestId": "r1"}})],
+                              (b"\xff\xd8jpg", None))
+        (url, kw), = s.posts
+        self.assertEqual(url, "http://backend.test/api/devices/cam-uuid/capture-requests/r1")
+        self.assertEqual(kw["files"]["image"][2], "image/jpeg")
+        self.assertEqual(kw["headers"]["X-Device-Id"], "cam-uuid")
+
+    def test_reports_failure_reason(self):
+        s = self.run_listener([FakeResponse(200, {"data": {"requestId": "r2"}})], (None, "camera_not_detected"))
+        (_, kw), = s.posts
+        self.assertEqual(kw["json"], {"error": "camera_not_detected"})
+
+    def test_capture_classifies_missing_camera(self):
+        from unittest import mock
+        from edge import camera_monitor
+        with mock.patch.object(camera_monitor.capture_photo, "capture", return_value=False), \
+                mock.patch.object(camera_monitor, "camera_detected", return_value=False):
+            self.assertEqual(camera_monitor.capture_current_frame(), (None, "camera_not_detected"))
+
+
+class CapturePhotoTest(unittest.TestCase):
+    def test_falls_back_to_libcamera_still(self):
+        from unittest import mock
+        from edge import capture_photo
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "rpicam-still":
+                raise FileNotFoundError
+            Path(cmd[cmd.index("-o") + 1]).write_bytes(b"\xff\xd8jpg")
+            return mock.Mock(returncode=0, stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(capture_photo.subprocess, "run", side_effect=fake_run) as run:
+            out = Path(tmp) / "c" / "a.jpg"
+            self.assertTrue(capture_photo.capture(out, 640, 480))
+            self.assertEqual(run.call_args[0][0][0], "libcamera-still")
+
+    def test_sends_with_camera_device_id_and_separate_outbox(self):
+        from unittest import mock
+        from edge import capture_photo
+
+        tmp = tempfile.mkdtemp()
+        posted = []
+
+        def fake_capture(out, w, h):
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(b"\xff\xd8jpg")
+            return True
+
+        def fake_flush(cfg, outbox, session=None):
+            posted.append(cfg)
+            return {"sent": 1, "retry": 0, "dead": 0}
+
+        env = {"HOMECARE_BACKEND_URL": "http://backend.test", "HOMECARE_DEVICE_ID": "mic-uuid",
+               "EDGE_DEVICE_SECRET": "s", "HOMECARE_CAMERA_DEVICE_ID": "cam-uuid",
+               "EDGE_OUTBOX_DIR": str(Path(tmp) / "data")}
+        with mock.patch.dict("os.environ", env), \
+                mock.patch.object(capture_photo, "capture", side_effect=fake_capture), \
+                mock.patch.object(capture_photo.sender, "flush_once", side_effect=fake_flush):
+            self.assertEqual(capture_photo.main([]), 0)
+
+        cfg = posted[0]
+        self.assertEqual(cfg.device_id, "cam-uuid")
+        self.assertEqual(cfg.outbox_dir, Path(tmp) / "data" / "camera")
+        (row,) = Outbox(cfg.outbox_dir).fetch_due()
+        self.assertEqual(row["attachments"][0]["mime"], "image/jpeg")
+        self.assertEqual(row["payload"]["metadata"]["category_id"], "camera_capture")
+
+
 if __name__ == "__main__":
     unittest.main()

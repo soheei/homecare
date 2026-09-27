@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { useChat } from '../context/ChatContext';
 
 const QUICK_ACTIONS = [
   { icon: '📊', label: '오늘 요약' },
@@ -8,41 +8,20 @@ const QUICK_ACTIONS = [
   { icon: '📷', label: '카메라 상태' }
 ];
 
-function formatTime(date) {
-  const h = date.getHours();
-  const period = h < 12 ? '오전' : '오후';
-  const h12 = h % 12 || 12;
-  return `${period} ${h12}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
 export default function ChatScreen() {
-  const [messages, setMessages] = useState([
-    { role: 'ai', text: '안녕하세요! HOME-TALK AI입니다.\n집에 대해 무엇이든 물어보세요.', time: formatTime(new Date()) }
-  ]);
+  // 메시지/전송 상태는 ChatContext에 있어서 화면을 나갔다 와도 유지됨
+  const { messages, sending, send: sendMessage } = useChat();
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
-  const [conversationId, setConversationId] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const send = async (text) => {
-    const trimmed = text.trim();
-    if (!trimmed || sending) return;
-    setMessages((m) => [...m, { role: 'user', text: trimmed, time: formatTime(new Date()) }]);
+  const send = (text) => {
+    if (!text.trim() || sending) return;
     setInput('');
-    setSending(true);
-    try {
-      const res = await api.chat.sendMessage(trimmed, conversationId);
-      setConversationId(res.conversationId);
-      setMessages((m) => [...m, { role: 'ai', text: res.message, time: formatTime(new Date()) }]);
-    } catch (err) {
-      setMessages((m) => [...m, { role: 'ai', text: `오류가 발생했습니다: ${err.message}`, time: formatTime(new Date()) }]);
-    } finally {
-      setSending(false);
-    }
+    sendMessage(text);
   };
 
   return (

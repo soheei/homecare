@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { useEffect } from 'react';
 import { EVENT_ICON, formatRelativeTime } from '../lib/eventDisplay';
 import { useAuth } from '../context/AuthContext';
+import { useAppData } from '../context/AppDataContext';
 
 function greeting() {
   const h = new Date().getHours();
@@ -13,54 +13,24 @@ function greeting() {
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  const [events, setEvents] = useState([]);
-  const [devices, setDevices] = useState([]);
-  const [dangerCount, setDangerCount] = useState(0);
-  const [todayCount, setTodayCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  // 데이터/브리핑은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
+  const { home, loadHome, briefing: briefingState, generateBriefing } = useAppData();
 
-  const [briefing, setBriefing] = useState(null);
-  const [briefingStatus, setBriefingStatus] = useState('empty'); // empty | loading | done | error
-  const [briefingError, setBriefingError] = useState('');
-
+  // 이미 불러온 상태면 loadHome()은 아무것도 하지 않음
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [eventsData, devicesData] = await Promise.all([
-          api.events.list({ limit: 3 }),
-          api.devices.list()
-        ]);
-        if (cancelled) return;
-        setEvents(eventsData.events || []);
-        setDevices(devicesData || []);
-        const today = new Date().toISOString().split('T')[0];
-        const daily = await api.events.getDailySummary(today);
-        if (cancelled) return;
-        setDangerCount(daily?.dangerEvents?.length ?? 0);
-        setTodayCount(daily?.totalEvents ?? 0);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    loadHome();
+  }, [loadHome]);
 
-  const generateBriefing = async () => {
-    setBriefingStatus('loading');
-    setBriefingError('');
-    try {
-      const data = await api.chat.getDailySummary();
-      setBriefing(data);
-      setBriefingStatus('done');
-    } catch (err) {
-      setBriefingError(err.message || '브리핑을 만들지 못했어요.');
-      setBriefingStatus('error');
-    }
-  };
+  const events = home.data?.events ?? [];
+  const devices = home.data?.devices ?? [];
+  const dangerCount = home.data?.dangerCount ?? 0;
+  const todayCount = home.data?.todayCount ?? 0;
+  const loading = !home.data && (home.status === 'idle' || home.status === 'loading');
+  const error = home.error || home.data?.error || '';
+
+  const briefing = briefingState.data;
+  const briefingStatus = briefingState.status; // empty | loading | done | error
+  const briefingError = briefingState.error;
 
   const cameraDevice = devices.find((d) => d.type === 'camera');
   const micDevice = devices.find((d) => d.type === 'microphone');

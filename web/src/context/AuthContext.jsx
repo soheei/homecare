@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { clearStoredChats } from './ChatContext';
 
 const AuthContext = createContext(null);
 
@@ -14,7 +15,11 @@ export function AuthProvider({ children }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setSession(session)
+      (event, session) => {
+        // 로그아웃(세션 만료 포함) 시 이 탭에 저장된 채팅 내용 삭제
+        if (event === 'SIGNED_OUT') clearStoredChats();
+        setSession(session);
+      }
     );
 
     return () => subscription.unsubscribe();

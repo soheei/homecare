@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { useAppData } from '../context/AppDataContext';
 import { EVENT_ICON, RISK_FROM_LEVEL, formatRelativeTime } from '../lib/eventDisplay';
 
 const FILTERS = [
@@ -12,27 +12,19 @@ const FILTERS = [
 const RISK_TO_LEVEL = { high: 'danger', mid: 'warning', low: 'normal' };
 
 export default function EventsScreen() {
-  const [events, setEvents] = useState([]);
+  // 이벤트 목록은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
+  const { eventList, loadEventList, deleteEvent } = useAppData();
   const [filter, setFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
+  // 이미 불러온 상태면 loadEventList()는 아무것도 하지 않음
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const data = await api.events.list({ limit: 50 });
-        if (!cancelled) setEvents(data.events || []);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    loadEventList();
+  }, [loadEventList]);
+
+  const events = eventList.data ?? [];
+  const loading = !eventList.data && (eventList.status === 'idle' || eventList.status === 'loading');
+  const error = eventList.error;
 
   const filtered = filter === 'all'
     ? events
@@ -42,8 +34,7 @@ export default function EventsScreen() {
     if (!window.confirm('이 이벤트를 삭제하시겠습니까?')) return;
     setDeletingId(id);
     try {
-      await api.events.delete(id);
-      setEvents((prev) => prev.filter((e) => e.id !== id));
+      await deleteEvent(id);
     } catch (err) {
       alert(err.message || '이벤트 삭제에 실패했습니다.');
     } finally {

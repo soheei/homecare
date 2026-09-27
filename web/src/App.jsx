@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AppDataProvider } from './context/AppDataContext';
+import { ChatProvider } from './context/ChatContext';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import ChatScreen from './screens/ChatScreen';
@@ -28,13 +30,21 @@ function AppShell() {
   const screens = [HomeScreen, ChatScreen, EventsScreen, SettingsScreen];
   const ActiveScreen = screens[tab];
 
+  // 화면은 탭마다 unmount되지만, 데이터/채팅 상태는 이 Provider들(로그인 세션 동안 유지)에 있음.
+  // key를 사용자 id로 둬서 다른 계정으로 로그인하면 캐시/채팅이 섞이지 않고 새로 시작됨.
+  const userId = session.user.id;
+
   return (
-    <div className="relative mx-auto min-h-screen max-w-[430px] bg-[#f7f8fa] font-sans">
-      <div className="pb-20">
-        <ActiveScreen />
-      </div>
-      <BottomNav tab={tab} setTab={setTab} />
-    </div>
+    <AppDataProvider key={`data-${userId}`}>
+      <ChatProvider key={`chat-${userId}`} userId={userId}>
+        <div className="relative mx-auto min-h-screen max-w-[430px] bg-[#f7f8fa] font-sans">
+          <div className="pb-20">
+            <ActiveScreen />
+          </div>
+          <BottomNav tab={tab} setTab={setTab} />
+        </div>
+      </ChatProvider>
+    </AppDataProvider>
   );
 }
 

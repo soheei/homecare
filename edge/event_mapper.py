@@ -37,6 +37,7 @@ SPECS = {
     "baby_person_distress":  EventSpec("아기/사람 위급 소리", "sound", "danger", 30),
     # 낮음 (Plan.md §2.4: 5~10분 쿨다운)
     "door_visitor":          EventSpec("초인종/방문", "visitor", "normal", 300),
+    "delivery_suspect":      EventSpec("택배 감지", "visitor", "normal", 300),
     "door_security":         EventSpec("문 소리", "sound", "normal", 300),
     # 중간
     "long_silence":          EventSpec("장시간 무음/무활동", "other", "warning", 3600),

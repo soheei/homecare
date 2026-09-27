@@ -21,10 +21,15 @@ const anthropic = new Anthropic({
 });
 
 // Claude에 전달할 MCP 도구 목록 (버그 2 수정)
+// 도구 정의는 MCP 규격(inputSchema)이라 Anthropic API 규격(input_schema)으로 변환해서 전달
 const MCP_TOOLS = [
   ...eventTools.definitions,
   ...cameraTools.definitions
-];
+].map(({ name, description, inputSchema }) => ({
+  name,
+  description,
+  input_schema: inputSchema
+}));
 
 // 모든 MCP 핸들러 맵 (버그 2 수정)
 const MCP_HANDLERS = {

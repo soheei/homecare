@@ -21,7 +21,8 @@ function loadBlobUrl(src) {
   return blobUrlCache.get(src);
 }
 
-export default function CaptureImage({ src, alt = '현재 카메라 화면', caption }) {
+/** @param {boolean} zoomable - false면 눌러도 확대하지 않음 (이미 모달 안에서 크게 보여줄 때) */
+export default function CaptureImage({ src, alt = '현재 카메라 화면', caption, zoomable = true }) {
   const [state, setState] = useState({ status: 'loading', url: null, error: '' });
   const [zoomed, setZoomed] = useState(false);
 
@@ -63,11 +64,16 @@ export default function CaptureImage({ src, alt = '현재 카메라 화면', cap
           📷 {state.error}
         </div>
       )}
-      {state.status === 'done' && (
+      {/* 원본 비율 유지, 세로로 너무 길어지지 않게 제한 */}
+      {state.status === 'done' && zoomable && (
         <button type="button" onClick={() => setZoomed(true)} aria-label="사진 크게 보기" className="block w-full cursor-zoom-in bg-black">
-          {/* 원본 비율 유지, 세로로 너무 길어지지 않게 제한 */}
           <img src={state.url} alt={alt} className="mx-auto block h-auto max-h-[60vh] w-full object-contain" />
         </button>
+      )}
+      {state.status === 'done' && !zoomable && (
+        <div className="bg-black">
+          <img src={state.url} alt={alt} className="mx-auto block h-auto max-h-[60vh] w-full object-contain" />
+        </div>
       )}
       {caption && <figcaption className="px-3.5 py-2 text-xs text-ink-light">{caption}</figcaption>}
 

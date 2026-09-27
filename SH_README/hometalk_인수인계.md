@@ -128,7 +128,7 @@
 Pi camera_monitor.py ── GET /api/devices/:id/capture-requests/next (롱폴링, 최대 25초 대기) ─┘
    └ 요청 받으면 rpicam-still 1280x720 촬영 → POST /api/devices/:id/capture-requests/:requestId (JPEG)
 → 백엔드 응답 { captureId, imageUrl: /api/devices/:id/captures/:captureId, capturedAt }
-→ 프론트가 토큰을 붙여 이미지를 받아 표시 (CaptureImage.jsx, 누르면 확대)
+→ 프론트가 토큰을 붙여 이미지를 받아 표시 (CaptureImage.jsx — 홈은 "현재 집 상태" 모달 CameraCaptureModal.jsx, 채팅은 메시지 속 이미지 카드·누르면 확대)
 ```
 
 - **통신 방식**: Render에서 Pi로 먼저 접속할 수 없어서(Pi에 공인 주소 없음) Pi가 **HTTP 롱폴링**으로 요청을 기다린다. 기존 기기 인증(`X-Device-Id`/`X-Device-Secret`) 그대로, 새 라이브러리 없음. 폴링은 카메라 기기 id(`HOMECARE_CAMERA_DEVICE_ID`)로만 한다(다른 id면 403).
@@ -137,7 +137,7 @@ Pi camera_monitor.py ── GET /api/devices/:id/capture-requests/next (롱폴�
 - **판단 순서 / 에러 문구**(사용자에게는 문구만, 원인은 Render 로그 `[Capture]`): 기기 없음/남의 기기 404 → 하트비트 끊김 **409 "카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다."** → Pi 폴링이 40초간 없음 503(카메라 서비스 재시작 안내 — Pi 코드가 구버전일 때도 이것) → Pi가 카메라 장치를 못 찾음 503 / 촬영 실패 502 → 25초 안에 이미지가 안 오면 504.
 - **중복 방지**: 같은 카메라에 진행 중인 요청이 있으면 새 요청은 같은 결과를 받는다(촬영 1번). 프론트는 촬영 중 카드 비활성화, 채팅은 기존처럼 답변 대기 중 전송 불가. Pi는 인식 확인과 촬영이 겹치지 않게 lock.
 - **전제/제약**: 상태가 메모리에 있어서 **Render 인스턴스가 1개일 때만** 동작한다(여러 개로 늘리면 요청과 폴링이 다른 인스턴스로 갈 수 있음). 카메라 서비스가 켜져 있는 동안은 25초마다 롱폴링 요청이 오므로 Render 무료 플랜이 잠들지 않는다(무료 사용 시간 소모).
-- 관련 코드: `src/services/capture.service.js`, `src/controllers/device.controller.js`(`requestCapture`/`getCaptureImage`/`pollCaptureRequest`/`submitCaptureResult`), `src/routes/device.routes.js`, `src/mcp/tools/camera.tools.js`, `src/services/claude.service.js`, `edge/camera_monitor.py`, 프론트 `web/src/screens/HomeScreen.jsx`, `web/src/components/CaptureImage.jsx`, `web/src/lib/chatBlocks.js`, 테스트 `tests/capture.test.js`, `edge/tests/test_edge.py`.
+- 관련 코드: `src/services/capture.service.js`, `src/controllers/device.controller.js`(`requestCapture`/`getCaptureImage`/`pollCaptureRequest`/`submitCaptureResult`), `src/routes/device.routes.js`, `src/mcp/tools/camera.tools.js`, `src/services/claude.service.js`, `edge/camera_monitor.py`, 프론트 `web/src/screens/HomeScreen.jsx`, `web/src/components/CameraCaptureModal.jsx`, `web/src/components/CaptureImage.jsx`, `web/src/lib/chatBlocks.js`, 테스트 `tests/capture.test.js`, `edge/tests/test_edge.py`.
 - **반영 방법**: `main` push → Render 자동 배포 + Vercel 자동 빌드, Pi에서 `git pull` 후 `sudo systemctl restart homecare-camera.service`. Pi 로그에서 `카메라 감지 모니터링 + 현재 화면 캡처 대기 시작`이 보이면 새 코드로 돌고 있는 것.
 
 ## 카메라 사진 촬영 → DB 저장 (2026-09-27 추가)
@@ -195,7 +195,7 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
 - 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부 + 수동 사진 촬영(`edge.capture_photo`, 2026-09-27)만
 - `edge.capture_photo` Pi 실기 검증 **미완료**(로컬 단위 테스트만 통과). Supabase Storage `events` 버킷 존재·public 여부 **확인 필요**
-- 현재 화면 캡처(홈/채팅) **실기 검증 미완료** — 로컬 단위/통합 테스트만 통과, Render 배포·Pi `git pull`+카메라 서비스 재시작 후 홈 카드·채팅에서 확인 필요. 홈 화면 마이크 카드가 "미등록"으로 보이는 건 `GET /api/devices`가 로그인 사용자 `user_id`로 거르기 때문으로 추정(마이크 기기의 `user_id`가 다를 가능성) — **확인 필요**
+- 현재 화면 캡처(홈/채팅)는 2026-09-27 배포(`03634f2`) 후 실제 동작 확인됨. 홈 화면 마이크 카드가 "미등록"으로 보이는 건 `GET /api/devices`가 로그인 사용자 `user_id`로 거르기 때문으로 추정(마이크 기기의 `user_id`가 다를 가능성) — **확인 필요**
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**

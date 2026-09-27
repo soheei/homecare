@@ -302,4 +302,4 @@
   - 프론트: `HomeScreen.jsx` 카메라 카드를 버튼으로(촬영 중 비활성화) + "현재 카메라 화면" 카드(로딩/성공/꺼짐/실패, 다시 촬영·닫기), `components/CaptureImage.jsx` 신규(토큰 붙여 Blob으로 받음, 비율 유지·최대 60vh, 누르면 전체 화면), `chatBlocks.js`에 캡처 경로 이미지 블록(외부 URL은 이미지로 안 그림), `api.js`에 에러 `status`와 Blob 요청.
 - 발견·수정: 롱폴링 연결 끊김을 `req.on('close')`로 감지하려다, Node 16+에선 GET 본문을 다 읽자마자 발생해 폴링이 바로 끊기는 문제를 코드 작성 중 발견 → `res.on('close')`로 변경, 끊긴 순간 넘기려던 요청은 다음 폴링이 다시 가져가게(`undispatch`).
 - 검증: `tests/capture.test.js` 13건 신규(전체 흐름·소유자만 조회, 꺼짐 409, Pi 미연결 503, 남의 기기 404/카메라 아님 400, 폴링 대기 만료, 동시 요청 촬영 1번, Pi 장치 없음 503, 타임아웃 504, 기기 id 불일치 403/만료 요청 410, MCP 도구 꺼짐/성공, 채팅 답변에 이미지 줄 붙임/실패 시 안 붙임). 전체 48 통과/5 실패(실패 5건은 기존 `chat.test.js` 4 + `app.test.js` 1). 엣지 24개 통과(리스너 3건 추가). 변경 파일 eslint 에러 0, 프론트 oxlint 에러 0·빌드 성공, 채팅 파서 이미지 블록 출력 확인.
-- **실기 검증 미완료**: Render 배포 + Pi `git pull` + `sudo systemctl restart homecare-camera.service` 후 홈 카드·채팅에서 실제 사진 확인 필요(요청된 최종 테스트 1~5는 아직 실제 환경에서 안 해봄). 커밋 전.
+- ~~**실기 검증 미완료**: Render 배포 + Pi `git pull` + `sudo systemctl restart homecare-camera.service` 후 홈 카드·채팅에서 실제 사진 확인 필요~~ → 사용자 커밋·push(`03634f2 캡쳐`), 배포 후 실제 환경에서 동작 확인(사용자 보고). **(해결됨, 2026-09-27)**

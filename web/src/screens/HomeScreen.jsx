@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EVENT_ICON, formatRelativeTime } from '../lib/eventDisplay';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import { MarkdownBlocks } from '../components/chat/AiMessage';
-import CaptureImage from '../components/CaptureImage';
+import CameraCaptureModal from '../components/CameraCaptureModal';
 
 const CAMERA_OFF_MESSAGE = '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.';
 
@@ -20,8 +20,10 @@ export default function HomeScreen() {
   const { user } = useAuth();
   // 데이터/브리핑은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
   const { home, loadHome, setDeviceStatus, briefing: briefingState, generateBriefing } = useAppData();
-  // 현재 카메라 화면: idle | loading | done | off | error
+  // 현재 카메라 화면: idle | loading | done | off | error — 결과는 "현재 집 상태" 모달로 표시
   const [capture, setCapture] = useState({ status: 'idle', data: null, error: '' });
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const closeCameraModal = useCallback(() => setCameraModalOpen(false), []);
   const capturingRef = useRef(false); // 연속 클릭 시 중복 요청 방지 (state 반영 전 두 번째 클릭까지 막음)
 
   // 이미 불러온 상태면 loadHome()은 아무것도 하지 않음
@@ -77,10 +79,16 @@ export default function HomeScreen() {
 
   const capturing = capture.status === 'loading';
 
+  /** 카메라 카드 → 모달을 먼저 열고(로딩 표시) 촬영 시작. 촬영 중에 다시 열면 진행 중인 결과를 그대로 보여줌 */
+  const openCameraModal = () => {
+    setCameraModalOpen(true);
+    captureNow();
+  };
+
   const cards = [
     {
       icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice),
-      onClick: captureNow, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›'
+      onClick: openCameraModal, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›'
     },
     { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
@@ -132,64 +140,8 @@ export default function HomeScreen() {
         })}
       </div>
 
-      {capture.status !== 'idle' && (
-        <div className="px-5 pt-5">
-          <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">
-            <div className="flex items-center gap-3 px-[18px] pb-3 pt-[18px]">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-500/8 text-[19px]">📷</div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-bold text-ink">현재 카메라 화면</div>
-                {capture.status === 'done' && capture.data && (
-                  <div className="mt-0.5 text-xs text-ink-light">
-                    {new Date(capture.data.capturedAt).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', second: '2-digit' })} 촬영
-                  </div>
-                )}
-              </div>
-              {capture.status !== 'loading' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={captureNow}
-                    aria-label="다시 촬영"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
-                  >
-                    ↻
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCapture({ status: 'idle', data: null, error: '' })}
-                    aria-label="닫기"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
-                  >
-                    ✕
-                  </button>
-                </>
-              )}
-            </div>
-
-            <div className="px-[18px] pb-[18px]">
-              {capture.status === 'loading' && (
-                <div className="flex aspect-video w-full items-center justify-center gap-2 rounded-2xl bg-brand-50">
-                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-100 border-t-brand-400" />
-                  <span className="text-[13px] text-ink-light">현재 화면을 불러오는 중...</span>
-                </div>
-              )}
-              {capture.status === 'done' && capture.data && <CaptureImage src={capture.data.imageUrl} />}
-              {capture.status === 'off' && (
-                <div className="rounded-xl bg-brand-50 px-4 py-3.5 text-[13px] leading-relaxed text-ink-light">
-                  📴 {capture.error}
-                </div>
-              )}
-              {capture.status === 'error' && (
-                <div className="flex items-start gap-2 rounded-xl border border-danger/20 bg-danger/[0.06] px-4 py-3.5">
-                  <span className="text-[15px]">⚠️</span>
-                  <span className="text-[13px] leading-relaxed text-danger">{capture.error}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 캡처 결과는 홈 콘텐츠가 아니라 화면 위 모달로 (평소엔 렌더링 안 함) */}
+      <CameraCaptureModal open={cameraModalOpen} capture={capture} onClose={closeCameraModal} onRetry={captureNow} />
 
       <div className="px-5 pt-5">
         <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">

@@ -229,6 +229,30 @@ CREATE POLICY "Service role can do everything on notification_preferences"
   ON notification_preferences FOR ALL USING (auth.role() = 'service_role');
 
 -- ===========================================
+-- 7-1. Briefings 테이블 (홈 화면 "오늘의 브리핑" — 새로고침해도 마지막 브리핑 유지)
+--      사용자당 1행: 새로 만들면 최신 브리핑으로 덮어씀 (user_id UNIQUE → upsert)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS briefings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL UNIQUE,
+  date DATE NOT NULL,                -- 브리핑 대상 날짜 (한국 날짜)
+  summary TEXT NOT NULL,
+  event_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW() -- 마지막으로 만든 시각
+);
+
+ALTER TABLE briefings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their own briefings" ON briefings;
+DROP POLICY IF EXISTS "Service role can do everything on briefings" ON briefings;
+
+CREATE POLICY "Users can view their own briefings"
+  ON briefings FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Service role can do everything on briefings"
+  ON briefings FOR ALL USING (auth.role() = 'service_role');
+
+-- ===========================================
 -- 8. 샘플 데이터 (개발용)
 -- ===========================================
 INSERT INTO devices (id, user_id, name, type, location, status)

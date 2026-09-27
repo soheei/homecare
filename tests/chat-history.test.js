@@ -6,7 +6,7 @@
  */
 
 // 메모리 가짜 DB (schema.sql의 conversations/messages 컬럼 사용)
-const mockDb = { conversations: [], messages: [] };
+const mockDb = { conversations: [], messages: [], briefings: [], events: [] };
 
 const mockFrom = (table) => {
   let rows = [...mockDb[table]];
@@ -28,6 +28,15 @@ const mockFrom = (table) => {
     insert: (arr) => {
       inserted = arr.map((r, i) => ({ id: `${table}-new-${mockDb[table].length + i}`, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), ...r }));
       mockDb[table].push(...inserted);
+      return q;
+    },
+    // onConflict 컬럼이 같은 행이 있으면 덮어쓰고, 없으면 추가
+    upsert: (arr, { onConflict }) => {
+      arr.forEach((r) => {
+        const existing = mockDb[table].find(row => row[onConflict] === r[onConflict]);
+        if (existing) Object.assign(existing, r);
+        else mockDb[table].push({ id: `${table}-new-${mockDb[table].length}`, ...r });
+      });
       return q;
     },
     update: (p) => { patch = p; return q; },
@@ -207,6 +216,66 @@ describe('채팅 기록 API (사용자별)', () => {
 
   it('로그인 안 하면 401', async () => {
     const res = await request(app).get('/api/chat/history');
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('홈 브리핑 저장/복원 (사용자별)', () => {
+  beforeEach(() => {
+    mockDb.briefings = [
+      { id: 'b-old', user_id: 'user-A', date: '2026-09-26', summary: '어제 브리핑', event_count: 2, created_at: minutes(1) },
+      { id: 'b-other', user_id: 'user-B', date: '2026-09-27', summary: '남의 브리핑', event_count: 5, created_at: minutes(5) }
+    ];
+  });
+
+  it('GET /api/chat/summary/latest: 내 브리핑 중 가장 최근 것', async () => {
+    const res = await request(app).get('/api/chat/summary/latest').set('X-Test-User', 'user-A');
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toEqual({ date: '2026-09-26', summary: '어제 브리핑', eventCount: 2, timestamp: minutes(1) });
+  });
+
+  it('브리핑이 없으면 data: null', async () => {
+    const res = await request(app).get('/api/chat/summary/latest').set('X-Test-User', 'user-C');
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data).toBeNull();
+  });
+
+  it('POST /api/chat/summary로 만든 브리핑이 저장되어 latest로 조회됨', async () => {
+    const created = await request(app).post('/api/chat/summary').set('X-Test-User', 'user-A').send({ date: '2026-09-27' });
+    expect(created.statusCode).toBe(200);
+
+    const saved = mockDb.briefings.find(b => b.user_id === 'user-A' && b.date === '2026-09-27');
+    expect(saved.summary).toBe(created.body.data.summary);
+
+    const res = await request(app).get('/api/chat/summary/latest').set('X-Test-User', 'user-A');
+    expect(res.body.data).toEqual(created.body.data);
+  });
+
+  it('새로 만들면 행이 쌓이지 않고 사용자당 1행을 최신으로 덮어씀 (남의 브리핑은 그대로)', async () => {
+    await request(app).post('/api/chat/summary').set('X-Test-User', 'user-A').send({ date: '2026-09-27' });
+    await request(app).post('/api/chat/summary').set('X-Test-User', 'user-A').send({ date: '2026-09-28' });
+
+    const mine = mockDb.briefings.filter(b => b.user_id === 'user-A');
+    expect(mine).toHaveLength(1);
+    expect(mine[0].date).toBe('2026-09-28');
+    expect(mockDb.briefings.find(b => b.user_id === 'user-B').summary).toBe('남의 브리핑');
+  });
+
+  it('브리핑 생성 시 이벤트 시각을 한국 시간으로 Claude에 전달', async () => {
+    await claudeService.generateDailySummary(
+      [{ timestamp: '2026-09-25T07:00:47Z', type: 'danger', description: '낙상 감지 테스트' }],
+      '2026-09-25'
+    );
+
+    const prompt = mockCreate.mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain('오후 4:00');
+    expect(prompt).not.toContain('07:00:47');
+  });
+
+  it('로그인 안 하면 401', async () => {
+    const res = await request(app).get('/api/chat/summary/latest');
     expect(res.statusCode).toBe(401);
   });
 });

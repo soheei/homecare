@@ -26,6 +26,12 @@ router.get('/history', authenticateUser, chatController.getHistory);
 router.post('/summary', authenticateUser, chatController.getDailySummary);
 
 /**
+ * GET /api/chat/summary/latest
+ * 가장 최근에 만든 하루 요약 리포트 (새로고침 시 복원용)
+ */
+router.get('/summary/latest', authenticateUser, chatController.getLatestSummary);
+
+/**
  * DELETE /api/chat/history/:conversationId
  * 특정 대화 기록 삭제
  */

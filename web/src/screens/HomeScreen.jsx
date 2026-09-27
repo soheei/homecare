@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { EVENT_ICON, formatRelativeTime } from '../lib/eventDisplay';
 import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
+import { MarkdownBlocks } from '../components/chat/AiMessage';
 
 function greeting() {
   const h = new Date().getHours();
@@ -29,7 +30,7 @@ export default function HomeScreen() {
   const error = home.error || home.data?.error || '';
 
   const briefing = briefingState.data;
-  const briefingStatus = briefingState.status; // empty | loading | done | error
+  const briefingStatus = briefingState.status; // restoring | empty | loading | done | error
   const briefingError = briefingState.error;
 
   const cameraDevice = devices.find((d) => d.type === 'camera');
@@ -86,6 +87,9 @@ export default function HomeScreen() {
               </div>
               {briefingStatus === 'done' && briefing && (
                 <div className="mt-0.5 text-xs text-ink-light">
+                  {/* 저장된 브리핑이 오늘 것이 아니면 날짜도 표시 */}
+                  {new Date(briefing.timestamp).toDateString() !== new Date().toDateString() &&
+                    `${new Date(briefing.timestamp).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })} `}
                   {new Date(briefing.timestamp).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })} 생성 · 이벤트 {briefing.eventCount}건 기반
                 </div>
               )}
@@ -101,6 +105,13 @@ export default function HomeScreen() {
               </button>
             )}
           </div>
+
+          {briefingStatus === 'restoring' && (
+            <div className="flex items-center gap-2 px-[18px] pb-5 pt-3">
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-100 border-t-brand-400" />
+              <span className="text-[13px] text-ink-light">마지막 브리핑을 불러오는 중…</span>
+            </div>
+          )}
 
           {briefingStatus === 'empty' && (
             <div className="px-[18px] pb-[22px] pt-2 text-center">
@@ -131,7 +142,8 @@ export default function HomeScreen() {
 
           {briefingStatus === 'done' && briefing && (
             <div className="px-[18px] pb-5 pt-3.5">
-              <p className="m-0 whitespace-pre-line text-sm leading-relaxed text-ink">{briefing.summary}</p>
+              {/* 브리핑은 Markdown → 채팅과 같은 제목/목록/카드 UI로 (맨 앞 # 제목은 카드 제목과 겹쳐서 생략) */}
+              <MarkdownBlocks text={briefing.summary} dropTitle />
             </div>
           )}
 

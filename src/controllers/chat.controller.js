@@ -9,6 +9,7 @@
 const claudeService = require('../services/claude.service');
 const eventService = require('../services/event.service');
 const conversationService = require('../services/conversation.service');
+const briefingService = require('../services/briefing.service');
 const logger = require('../utils/logger');
 const { kstDateString } = require('../utils/date.utils');
 
@@ -113,18 +114,41 @@ const getDailySummary = async (req, res, next) => {
     const events = await eventService.getEventsByDate(targetDate);
     const summary = await claudeService.generateDailySummary(events, targetDate);
 
+    const briefing = {
+      date: targetDate,
+      summary: summary.content,
+      eventCount: events.length,
+      timestamp: new Date().toISOString()
+    };
+
+    // 새로고침/다른 기기에서도 마지막 브리핑을 보여주도록 저장
+    await briefingService.saveBriefing(req.user?.id || 'anonymous', briefing);
+
     res.json({
       success: true,
-      data: {
-        date: targetDate,
-        summary: summary.content,
-        eventCount: events.length,
-        timestamp: new Date().toISOString()
-      }
+      data: briefing
     });
 
   } catch (error) {
     logger.error('[Chat] Error generating daily summary:', error);
+    next(error);
+  }
+};
+
+/**
+ * 가장 최근에 만든 브리핑 조회 (없으면 data: null)
+ */
+const getLatestSummary = async (req, res, next) => {
+  try {
+    const briefing = await briefingService.getLatestBriefing(req.user?.id || 'anonymous');
+
+    res.json({
+      success: true,
+      data: briefing
+    });
+
+  } catch (error) {
+    logger.error('[Chat] Error fetching latest summary:', error);
     next(error);
   }
 };
@@ -162,5 +186,6 @@ module.exports = {
   sendMessage,
   getHistory,
   getDailySummary,
+  getLatestSummary,
   deleteConversation
 };

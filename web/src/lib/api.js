@@ -40,6 +40,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ date })
       }),
+    getLatestSummary: () => request('/api/chat/summary/latest'),
     deleteConversation: (conversationId) =>
       request(`/api/chat/history/${conversationId}`, { method: 'DELETE' })
   },

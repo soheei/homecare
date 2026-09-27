@@ -201,6 +201,17 @@ const chat = async ({ message, conversationId, userId }) => {
 // 기존 유틸 함수들 (변경 없음)
 // ============================================================
 
+// 홈 화면 "오늘의 브리핑" 카드용 — 앱이 Markdown을 제목/목록/경고 카드로 그려서 보여줌
+const BRIEFING_SYSTEM_PROMPT = `당신은 하루 동안의 집 안 상황을 요약하는 AI 어시스턴트입니다.
+원격지 가족이 휴대폰 홈 화면에서 짧게 훑어볼 브리핑을 Markdown으로 씁니다.
+- 첫 줄에 "# 제목"을 쓰지 않습니다 (앱 카드에 이미 "오늘의 브리핑" 제목이 있음)
+- 맨 앞에 한두 문장으로 하루 전체를 요약합니다
+- 섹션은 "## 이모지 제목" (예: ## 🚪 방문, ## 🏃 활동, ## 🔊 소리), 해당 이벤트가 없는 섹션은 생략합니다
+- 이벤트는 "- **오후 2:55** 택배 기사 방문"처럼 시각을 굵게 쓰고 한 줄에 하나씩, 시간순으로 씁니다
+- 시각은 주어진 한국 시간을 그대로 쓰고, 기록에 없는 내용은 추측하지 않습니다
+- 위험·주의가 필요한 일이 있으면 "⚠️ 제목: 내용" 형식의 줄로 따로 알립니다
+- 전체 15줄 이내, HTML은 쓰지 않습니다`;
+
 /**
  * 하루 요약 리포트 생성
  */
@@ -213,7 +224,7 @@ const generateDailySummary = async (events, date) => {
     }
 
     const eventSummary = events.map(e =>
-      `- ${e.timestamp}: ${e.type} - ${e.description}`
+      `- ${formatKst(e.timestamp)}: ${e.type} - ${e.description}` // UTC 그대로 주면 9시간 틀리게 요약함
     ).join('\n');
 
     const prompt = `다음은 ${date}의 집 안 이벤트 기록입니다:\n\n${eventSummary}\n\n위 기록을 바탕으로 하루 요약 리포트를 작성해주세요.`;
@@ -221,7 +232,7 @@ const generateDailySummary = async (events, date) => {
     const response = await anthropic.messages.create({
       model: config.anthropic.model,
       max_tokens: 1024,
-      system: '당신은 하루 동안의 집 안 상황을 요약하는 AI 어시스턴트입니다.',
+      system: BRIEFING_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }]
     });
 

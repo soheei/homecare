@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 
 /**
@@ -43,7 +43,25 @@ async function fetchEventList() {
 export function AppDataProvider({ children }) {
   const [home, setHome] = useState(IDLE);
   const [eventList, setEventList] = useState(IDLE);
-  const [briefing, setBriefing] = useState({ status: 'empty', data: null, error: '' }); // empty | loading | done | error
+  // restoring: 서버에 저장된 마지막 브리핑을 불러오는 중
+  const [briefing, setBriefing] = useState({ status: 'restoring', data: null, error: '' }); // restoring | empty | loading | done | error
+
+  // 새로고침해도 마지막 브리핑이 보이도록 서버에서 복원 (브리핑은 만들 때 서버에 저장됨)
+  useEffect(() => {
+    let cancelled = false;
+    api.chat.getLatestSummary()
+      .then((data) => {
+        if (cancelled) return;
+        setBriefing((prev) => (prev.status !== 'restoring' ? prev : data?.summary
+          ? { status: 'done', data, error: '' }
+          : { status: 'empty', data: null, error: '' }));
+      })
+      .catch(() => {
+        // 복원 실패 시엔 새로 만들 수 있게 빈 상태로
+        if (!cancelled) setBriefing((prev) => (prev.status === 'restoring' ? { status: 'empty', data: null, error: '' } : prev));
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // 이미 불러왔거나 불러오는 중인 리소스 표시 (StrictMode 이중 실행/빠른 탭 전환에도 중복 호출 방지)
   const requested = useRef({});
@@ -75,7 +93,7 @@ export function AppDataProvider({ children }) {
   const generateBriefing = useCallback(async () => {
     setBriefing((prev) => ({ ...prev, status: 'loading', error: '' }));
     try {
-      const data = await api.chat.getDailySummary();
+      const data = await api.chat.getDailySummary(); // 서버가 생성과 동시에 저장
       setBriefing({ status: 'done', data, error: '' });
     } catch (err) {
       setBriefing({ status: 'error', data: null, error: err.message || '브리핑을 만들지 못했어요.' });

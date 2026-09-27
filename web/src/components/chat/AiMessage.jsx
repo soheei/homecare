@@ -49,6 +49,27 @@ function Bubble({ blocks, isLast, time }) {
   );
 }
 
+/**
+ * 말풍선/아바타 없이 블록만 차례로 렌더링 (홈 화면 브리핑 카드처럼 이미 카드 안에 들어가는 곳용)
+ * @param {boolean} dropTitle - 맨 앞의 큰 제목(# ...)을 생략 (카드 제목과 중복될 때)
+ */
+export function MarkdownBlocks({ text, dropTitle = false }) {
+  const blocks = useMemo(() => {
+    const parsed = parseChatBlocks(text);
+    return dropTitle && parsed[0]?.type === 'heading' && parsed[0].level === 1 ? parsed.slice(1) : parsed;
+  }, [text, dropTitle]);
+
+  return (
+    <div className="space-y-2.5 text-sm leading-relaxed text-ink [overflow-wrap:anywhere]">
+      {blocks.map((block, i) => {
+        if (TEXT_TYPES.has(block.type)) return <TextBlock key={i} block={block} />;
+        const Card = CARD_COMPONENTS[block.type];
+        return Card ? <Card key={i} {...block} /> : null;
+      })}
+    </div>
+  );
+}
+
 export default function AiMessage({ text, time }) {
   const segments = useMemo(() => toSegments(parseChatBlocks(text)), [text]);
 

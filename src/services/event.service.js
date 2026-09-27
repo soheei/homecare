@@ -9,6 +9,7 @@
 
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
+const { kstDateString, kstDayRange, formatKst } = require('../utils/date.utils');
 
 const getEvents = async (filters = {}) => {
   try {
@@ -54,14 +55,14 @@ const getEventById = async (id) => {
 
 const getEventsByDate = async (date) => {
   try {
-    const startOfDay = `${date}T00:00:00.000Z`;
-    const endOfDay   = `${date}T23:59:59.999Z`;
+    // 날짜는 한국 기준 하루 (UTC 자정으로 자르면 KST 00~09시 이벤트가 전날로 잡힘)
+    const { start, end } = kstDayRange(date);
 
     const { data, error } = await supabaseAdmin
       .from('events')
       .select('*')
-      .gte('timestamp', startOfDay)
-      .lte('timestamp', endOfDay)
+      .gte('timestamp', start)
+      .lte('timestamp', end)
       .order('timestamp', { ascending: true });
 
     if (error) throw error;
@@ -118,6 +119,7 @@ const getDailySummary = async (date) => {
 
       summary.timeline.push({
         time: event.timestamp,
+        timeKst: formatKst(event.timestamp),
         type: event.type,
         description: event.description
       });
@@ -146,24 +148,34 @@ const getWeeklySummary = async () => {
     if (error) throw error;
 
     const dailySummaries = {};
+    const byType = {};
     (data || []).forEach(event => {
-      const date = event.timestamp.split('T')[0];
+      const date = kstDateString(event.timestamp); // 한국 날짜 기준으로 묶음
       if (!dailySummaries[date]) dailySummaries[date] = { count: 0, types: {} };
       dailySummaries[date].count++;
       if (!dailySummaries[date].types[event.type]) dailySummaries[date].types[event.type] = 0;
       dailySummaries[date].types[event.type]++;
+      byType[event.type] = (byType[event.type] || 0) + 1;
     });
 
     return {
-      startDate: weekAgo.toISOString().split('T')[0],
-      endDate:   today.toISOString().split('T')[0],
+      startDate: kstDateString(weekAgo),
+      endDate:   kstDateString(today),
       totalEvents: (data || []).length,
-      dailySummaries
+      byType,
+      dailySummaries,
+      // 기간 내 모든 이벤트 (요약에서 빠뜨리지 않도록 상세까지 함께 제공, 시각은 한국 시간)
+      events: (data || []).map(event => ({
+        timeKst: formatKst(event.timestamp),
+        type: event.type,
+        description: event.description,
+        dangerLevel: event.danger_level
+      }))
     };
 
   } catch (error) {
     logger.error('[EventService] Error getting weekly summary:', error);
-    return { startDate: '', endDate: '', totalEvents: 0, dailySummaries: {} };
+    return { startDate: '', endDate: '', totalEvents: 0, byType: {}, dailySummaries: {}, events: [] };
   }
 };
 

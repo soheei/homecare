@@ -10,13 +10,38 @@ const toKoreanTime = (date = new Date()) => {
   return new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
 };
 
+const KST = 'Asia/Seoul';
+
 /**
- * 오늘 날짜 문자열 (YYYY-MM-DD)
+ * 한국 날짜 문자열 (YYYY-MM-DD) — 서버 시간대(Render=UTC)와 무관하게 KST 기준
  */
-const getTodayString = () => {
-  const now = toKoreanTime();
-  return now.toISOString().split('T')[0];
+const kstDateString = (date = new Date()) => {
+  return new Date(date).toLocaleDateString('sv-SE', { timeZone: KST });
 };
+
+/**
+ * 한국 날짜(YYYY-MM-DD) 하루의 시작/끝 (DB timestamptz 비교용)
+ */
+const kstDayRange = (dateString) => ({
+  start: `${dateString}T00:00:00.000+09:00`,
+  end: `${dateString}T23:59:59.999+09:00`
+});
+
+/**
+ * 한국 시간 표시 문자열: "9월 25일 (목) 오후 4:00"
+ * (도구 결과에 UTC ISO만 주면 모델이 UTC 시각을 그대로 읽어 9시간 틀리게 답함)
+ */
+const formatKst = (date) => {
+  const d = new Date(date);
+  const md = d.toLocaleDateString('ko-KR', { timeZone: KST, month: 'long', day: 'numeric', weekday: 'short' });
+  const time = d.toLocaleTimeString('ko-KR', { timeZone: KST, hour: 'numeric', minute: '2-digit' });
+  return `${md.replace(/\s*\((.)\)|\s(.)$/, ' ($1$2)')} ${time}`;
+};
+
+/**
+ * 오늘 날짜 문자열 (YYYY-MM-DD, 한국 기준)
+ */
+const getTodayString = () => kstDateString();
 
 /**
  * 시간을 한국어로 포맷팅
@@ -96,6 +121,9 @@ const getDaysAgo = (days) => {
 
 module.exports = {
   toKoreanTime,
+  kstDateString,
+  kstDayRange,
+  formatKst,
   getTodayString,
   formatTimeKorean,
   formatDateKorean,

@@ -193,4 +193,53 @@
 - 공식 대체는 `claude-sonnet-5`였으나 **사용자 결정으로 `claude-haiku-4-5-20251001`(Haiku 4.5)로 변경** — `src/config/index.js`의 `anthropic.model` 한 곳. Haiku 4.5는 thinking이 기본 꺼짐이라 `max_tokens`(채팅 4096, 요약/이미지 1024)는 그대로 둠. `temperature`/`budget_tokens` 등 호환 안 되는 파라미터는 원래 안 씀.
 - `npm test` 11 통과/5 실패(기존과 동일).
 
+
+### MCP 전환 운영 확인 + 채팅이 위험 이벤트를 못 찾는 버그 수정
+- 사용자가 MCP/모델 변경을 푸시한 뒤 Render Logs에서 `[MCP Client] tools/list → 9 tools`, `tools/call get_daily_summary`, `POST /mcp 200`을 확인 — **채팅이 운영에서 실제 MCP 경유로 동작**. (`GET /mcp 405`는 SDK 클라이언트의 SSE 시도를 stateless 서버가 거절한 것으로 정상)
+- 증상: 이벤트 화면에 2일 전 `낙상 감지 테스트`(높음)가 있는데 "최근 7일동안 기록" 질문에 "위험 상황 없음". 로그상 `get_danger_events`의 MCP 응답이 75바이트(빈 배열).
+- ~~원인: `src/mcp/tools/event.tools.js`가 DB 행을 camelCase(`e.dangerLevel`, `e.imageUrl`)로 읽음 — Supabase 행은 snake_case(`danger_level`, `image_url`)라 위험 필터는 항상 빈 결과, 방문자 사진 URL은 항상 누락.~~ → snake_case로 수정, `tests/mcp.test.js`에 실제 DB 형태(snake_case) mock으로 회귀 테스트 2건 추가(수정 전 코드에선 실패 확인). **(해결됨, 2026-09-27 — 배포 전)**
+- ~~**채팅이 이전 맥락을 기억 못 함**: 같은 대화의 두 번째 메시지에서 `Loaded 0 previous messages` — `claude.service.js`의 `loadMessages`가 anon 클라이언트로 `messages`를 읽는데, 사용자가 준 운영 스키마 기준 `messages` SELECT RLS가 `auth.uid()` 조건이라 사용자 JWT 없는 anon 요청은 항상 0건(저장은 admin이라 됨).~~ → `supabaseAdmin`으로 읽도록 수정. **(해결됨, 2026-09-27 — 배포 전)** 같이 수정:
+  - 보안: 클라이언트가 보낸 `conversationId`를 검증 없이 써서(저장은 admin) 남의 대화 ID로 기록을 읽거나 메시지를 끼워 넣을 수 있었음 → `isOwnConversation()`으로 `conversations.user_id` 확인, 아니면 새 대화로 시작.
+  - 오래된 순 정렬 후 `limit(50)`이라 50개 넘는 대화는 처음 50개만 전달되던 문제 → 최신순 50개를 가져와 시간순으로 되돌림.
+  - `tests/chat-history.test.js` 신규 3건(anon은 RLS처럼 빈 결과를 주는 가짜 DB, 수정 전 코드에선 3건 모두 실패 확인). 전체 `npm test` 16 통과/5 실패(실패 5건은 기존).
+- ~~남은 같은 종류 문제: `chat.controller.js`의 `getHistory`(`GET /api/chat/history`)와 `deleteConversation`도 anon 클라이언트로 `conversations`/`messages`를 읽어 RLS에 막힘 → 기록 조회는 항상 빈 결과, 삭제는 항상 404. 게다가 `getHistory?conversationId=`는 소유자 확인이 없었음.~~ → 아래 "채팅 기록" 작업에서 해결. **(해결됨, 2026-09-27 — 배포 전)**
+
+### 채팅 기록 조회/삭제 (Claude 모바일 앱 스타일, 로그인 계정별)
+- 백엔드: `src/services/conversation.service.js` 신규 — 대화 생성/소유자 확인/메시지 조회·저장/목록/삭제를 한 곳에 모음(모두 `supabaseAdmin` + `user_id` 직접 확인). `claude.service.js`와 `chat.controller.js`가 이걸 쓰도록 변경(컨트롤러에서 DB 직접 접근 제거). API 경로/응답 형태는 유지.
+  - `GET /api/chat/history`: 로그인 사용자 대화만, `updated_at` 최근순. `?conversationId=`는 본인 대화가 아니면 404(기존엔 남의 대화 메시지도 조회됐음), 메시지는 전체 시간순(기존 `limit/offset` 페이지 적용은 대화 단위 조회에선 제거).
+  - `DELETE /api/chat/history/:id`: 본인 대화만(아니면 404), messages는 FK CASCADE.
+  - 대화 제목: 기존엔 항상 `null` → 첫 질문 앞 40자 저장. 메시지 저장 시 `conversations.updated_at` 갱신(기존엔 생성 후 갱신 안 돼 최근순 정렬이 안 됐음). **이미 있는 대화는 제목이 null이라 목록에 "제목 없는 대화"로 보임.**
+- 프론트: 채팅 헤더 왼쪽 ☰ → 왼쪽 서랍(`web/src/components/ChatHistoryDrawer.jsx`): 새 채팅, "최근" 목록(현재 대화 강조, 상대시간), 항목별 삭제(확인창), 하단 로그인 계정. 헤더 오른쪽 ✎ = 새 채팅. `ChatContext`에 목록(처음 열 때 1회 로드 후 전송/삭제 시 로컬 갱신)·열기·새 채팅·삭제 추가. 답변 대기 중엔 대화 전환 막음. 채팅 영역 그라데이션 배경 제거(사용자 요청). 추가로 닫힌 서랍의 `shadow-2xl`이 화면 왼쪽 가장자리에 세로 그라데이션 띠처럼 비치던 문제 발견 → 열렸을 때만 그림자.
+- 검증: Jest 신규 7건(목록 사용자별·최근순, 메시지 조회, 남의 대화 조회/삭제 404, 삭제 시 메시지 CASCADE, 제목·updated_at) — 전체 23 통과/5 실패(기존). 브라우저(Edge 헤드리스, mock 백엔드) 채팅 기록 시나리오 22건 + 기존 탭 이동 시나리오 19건 통과, 스크린샷으로 UI 확인. 실제 운영 DB/로그인으로는 **배포 후 확인 필요**.
+- 참고: 사용자가 준 운영 스키마 사본에는 `push_subscriptions`/`notification_preferences` 테이블이 없음 — 운영 DB에 웹 푸시 테이블이 생성됐는지 **확인 필요**(인수인계 "웹 푸시 알림" 수동 작업 1번).
+
+### AI 응답 UI 개선 (Markdown 노출·표 깨짐 → 카드/Badge/Alert)
+- 원인: 프론트에 Markdown 렌더러가 없어 `ChatScreen`이 `{m.text}`를 그대로 출력(`**`, `|`, `-` 노출). 말풍선의 `whitespace-pre-wrap` + `max-w-[240px]`에서 `|------|` 같은 끊을 곳 없는 긴 줄이 말풍선을 뚫어 페이지 전체 가로 스크롤 발생.
+- 라이브러리 추가 없이 구현(블록 분류 우선순위가 필요해 Markdown→HTML 방식 라이브러리로는 어차피 앞단 파서가 필요, 필요한 문법이 적음, HTML 문자열 미사용이라 XSS 없음):
+  - `web/src/lib/chatBlocks.js`: 응답 → 블록 배열. 우선순위 JSON 구조화 데이터 > 장치/이벤트/통계 표·"장치 / 유형 / 위치 / 상태" 줄·⚠️ 경고 > 제목·목록·코드·일반 표 > 문단. 표는 헤더로 분류(장치명+상태 → 장치, 시간+이벤트 → 이벤트, 2열 숫자 → 통계, 그 외 → 세로 배치 표). 카드 바로 앞 제목 줄은 카드 제목으로 합침.
+  - `web/src/components/chat/`: `AiMessage`(텍스트 블록은 말풍선, 구조화 블록은 독립 카드), `MarkdownText`(굵게·기울임·코드·링크, `🔴 오프라인` → Badge), `ChatCards`(StatusBadge, DeviceStatusCard, EventList, StatCard, AlertCard, ResponsiveTable).
+  - 경고(Alert)는 `⚠️/🚨/❗` 또는 `주의:/경고:/위험:`으로 시작하는 줄만 — 일반 문장 속 "오프라인"까지 Alert로 바꾸면 설명문이 전부 경고가 되므로 제외.
+  - 기존 API(`message` 문자열)·DB 저장 형식 유지 → 이전 대화 기록도 같은 UI로 보임. `claude.service.js` 시스템 프롬프트에 표 헤더/⚠️ 형식 규칙 5줄 추가(모델 출력을 파서 형식에 맞춤).
+- 검증: 파서 단위 확인(14개 샘플), 브라우저 375px 모바일 폭에서 요청 테스트 A~D/1~6 + 충돌·JSON·일반 표·코드 14건 모두 의도한 UI, Markdown 기호 노출 없음, 페이지 가로 스크롤 없음(스크린샷 확인). 기존 탭 이동 19건·채팅 기록 22건 회귀 통과. 빌드 번들이 500KB 경고선을 약간 넘음(동작 무관).
+
+### 채팅 "방문자 확인"이 며칠 전 초인종 방문을 못 찾던 문제
+- 증상: 이벤트 화면엔 9/22 `초인종/방문 감지`(엣지 `door_visitor` → `type: visitor`)가 있는데 채팅 "방문자 확인"은 "최근 방문자 기록이 없습니다".
+- ~~원인: `get_visitor_log`가 날짜 생략 시 **오늘(UTC) 하루만** 조회. 도구 설명도 "생략시 오늘"이라 모델이 기간을 넓혀 재조회하지 않음.~~ → 날짜 생략 시 최근 `days`일(기본 7) 방문을 `eventService.getEvents({type:'visitor'})`로 최신순 조회, 날짜 지정 시엔 기존처럼 그날만. 도구 설명 갱신. `tests/mcp.test.js` 회귀 테스트 추가(수정 전 코드에선 실패 확인). 전체 24 통과/5 실패(기존). **(해결됨, 2026-09-27 — 배포 전)**
+- ~~남은 관련 문제: "오늘"·날짜 경계가 UTC 기준, 시스템 프롬프트에 오늘 날짜 없음~~ → 아래에서 해결.
+
+### "이번주 요약" 버튼 + 기간 요약에서 이벤트가 빠지던 문제
+- 채팅 빠른 질문에 "📅 이번주 요약" 추가. MCP 도구 `get_weekly_summary` 신규(`eventService.getWeeklySummary` 사용, 도구 10개).
+- 증상: 7일 방문자 조회 수정 후에도 "방문자 없음", 이번주 요약은 3건 중 1건(낙상)만, 게다가 "9월 25일 **오전 7시**"(실제 오후 4시). 로컬 백엔드 REST로 직접 확인하니 기간 조회·주간 요약 API는 3건을 정확히 반환 → 데이터/쿼리 문제가 아니라 모델 쪽.
+- ~~원인: ① 시스템 프롬프트에 현재 날짜가 없어 "이번 주/오늘" 해석 기준이 없음 → 부분 도구(오늘 요약·위험만)로 총계를 추측 ② 주간 요약이 건수만 있어 상세를 쓰려면 날짜별 추가 호출 필요 ③ 도구가 UTC timestamp만 줘서 모델이 UTC 시각을 그대로 읽음(9시간 오차) ④ 날짜 경계·"오늘"이 UTC 기준(한국 00~09시 이벤트가 전날로) ⑤ `[MCP] Arguments:` 로그가 비어 인자 확인 불가~~ → 수정:
+  - `src/utils/date.utils.js`: `kstDateString`/`kstDayRange`/`formatKst` 추가(서버 시간대 무관 KST), `getTodayString`도 KST로.
+  - `event.service.js`: `getEventsByDate` 한국 날짜 경계, `getWeeklySummary`에 `byType`·`events`(한국 시간 `timeKst` 포함) 추가·날짜 묶음 KST, `getDailySummary` timeline에 `timeKst`.
+  - `event.tools.js`: "오늘" = KST, 모든 이벤트 결과에 `timeKst`. `chat.controller`/`event.controller` 기본 날짜 KST. 프론트 홈의 오늘 날짜도 기기 로컬 날짜로.
+  - `claude.service.js`: 시스템 프롬프트에 요청마다 현재 한국 날짜/시각, 도구 선택 규칙(기간→weekly, 방문→visitor_log, 위험→danger), "결과의 이벤트는 빠짐없이, timeKst 그대로" 규칙.
+  - `createServer.js`: 도구 인자를 `[MCP] Tool called: 이름 {인자}` 한 줄로 로그.
+- 검증: `tests/event-date.test.js` 신규 3건(주간 요약 3건 전부+유형별, UTC 07:00→"오후 4:00", 한국 새벽 이벤트가 한국 날짜로 분류) + 시스템 프롬프트 날짜 포함 확인. 전체 28 통과/5 실패(기존). 실제 Claude 응답은 사용자 로컬 앱에서 **재확인 필요**(모델 응답이라 테스트로 보장 못 함).
+
+### 채팅 화면 진입 시 위→아래 스크롤 애니메이션 제거
+- ~~원인: `ChatScreen`의 `useEffect(() => scrollIntoView({ behavior: 'smooth' }), [messages])` — 그려진 **뒤** 실행돼 첫 프레임은 맨 위, 이어서 smooth 애니메이션. 전역 `html { scroll-behavior: smooth }`도 겹침(채팅은 window 스크롤, 탭 전환마다 재마운트).~~ → `useLayoutEffect`(그리기 전)로 바꾸고, 진입/대화 전환(첫 메시지가 바뀐 경우)은 `behavior: 'instant'`로 즉시 맨 아래, 대화 중 새 메시지는 기존대로 smooth. 전역 CSS는 유지.
+- 검증: 브라우저에서 홈→채팅 클릭 직후 프레임별 scrollY 기록 — 수정 후 첫 프레임부터 맨 아래·40프레임 불변, 새 메시지는 부드럽게(7/7). 수정 전 코드로는 y=0→2→10→24→47… 애니메이션 재현(4/7). 채팅 기록 22건 회귀 통과.
+
 - **배포 후 확인 필요**: 커밋/푸시 전. 푸시 후 Render Logs에 `[MCP Client] tools/call ...`가 찍히는지, 웹 채팅이 실제 이벤트로 답하는지, 토큰 없이 `POST /mcp`가 401인지.

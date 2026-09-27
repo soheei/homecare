@@ -10,6 +10,25 @@ jest.mock('../src/services/device.service', () => ({
   getDeviceStatus: jest.fn()
 }));
 
+// 이벤트 서비스 mock: 실제 Supabase 행과 같은 snake_case 필드 사용
+jest.mock('../src/services/event.service', () => {
+  const rows = [
+    { id: 'ev-danger', type: 'danger', description: '낙상 감지 테스트', danger_level: 'danger', image_url: null, timestamp: '2026-09-25T07:00:47Z' },
+    { id: 'ev-sound', type: 'sound', description: '문 소리 감지', danger_level: 'normal', image_url: null, timestamp: '2026-09-22T07:02:56Z' },
+    { id: 'ev-visitor', type: 'visitor', description: '방문 감지', danger_level: 'normal', image_url: 'https://example.com/v.jpg', timestamp: '2026-09-22T07:02:56Z' }
+  ];
+  return {
+    // 실제 서비스처럼 type 필터 적용 (기간 필터는 고정 날짜 데이터라 생략)
+    getEvents: jest.fn(async ({ type, limit = 20 } = {}) => {
+      const events = rows.filter(r => !type || r.type === type).slice(0, limit);
+      return { events, total: events.length, limit, offset: 0 };
+    }),
+    getEventsByDate: jest.fn().mockResolvedValue(rows),
+    getDailySummary: jest.fn(),
+    getWeeklySummary: jest.fn().mockResolvedValue({ startDate: '2026-09-20', endDate: '2026-09-27', totalEvents: 3, dailySummaries: { '2026-09-22': { count: 2, types: { sound: 1, visitor: 1 } }, '2026-09-25': { count: 1, types: { danger: 1 } } } })
+  };
+});
+
 // Claude API mock: 1차 응답은 tool_use, 2차 응답은 도구 결과를 본 최종 답변
 const mockCreate = jest.fn();
 jest.mock('@anthropic-ai/sdk', () => jest.fn().mockImplementation(() => ({
@@ -75,12 +94,12 @@ describe('MCP Server /mcp', () => {
   });
 
   describe('MCP 프로토콜', () => {
-    it('tools/list로 도구 9개를 반환', async () => {
+    it('tools/list로 도구 10개를 반환', async () => {
       const client = await connectClient();
       const { tools } = await client.listTools();
       await client.close();
 
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(10);
       expect(tools.map(t => t.name)).toEqual(expect.arrayContaining([
         'get_today_events', 'get_danger_events', 'get_device_list'
       ]));
@@ -97,6 +116,56 @@ describe('MCP Server /mcp', () => {
       expect(devices[0].name).toBe('ReSpeaker 2-Mic HAT');
     });
 
+    it('get_danger_events는 DB의 danger_level로 위험 이벤트를 찾음', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_danger_events', arguments: { days: 7 } });
+      await client.close();
+
+      const events = JSON.parse(result.content[0].text);
+      expect(events.map(e => e.id)).toEqual(['ev-danger']);
+    });
+
+    it('get_visitor_log는 날짜 생략 시 오늘만이 아니라 최근 7일 방문을 조회', async () => {
+      const eventService = require('../src/services/event.service');
+      // 5일 전 초인종 방문 (오늘 방문은 없음)
+      const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+      eventService.getEvents.mockImplementationOnce(async ({ type, startDate }) => {
+        expect(type).toBe('visitor');
+        expect(new Date(startDate).getTime()).toBeLessThan(Date.now() - 6.9 * 24 * 60 * 60 * 1000);
+        const events = [{ id: 'ev-door', type: 'visitor', description: '초인종/방문 감지 (신뢰도 0.49)', image_url: null, timestamp: fiveDaysAgo }];
+        return { events, total: 1, limit: 10, offset: 0 };
+      });
+
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_visitor_log', arguments: {} });
+      await client.close();
+
+      const visitors = JSON.parse(result.content[0].text);
+      expect(visitors).toHaveLength(1);
+      expect(visitors[0].description).toBe('초인종/방문 감지 (신뢰도 0.49)');
+    });
+
+    it('get_weekly_summary는 최근 7일 요약(날짜별·유형별 건수)을 반환', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_weekly_summary', arguments: {} });
+      await client.close();
+
+      expect(result.isError).toBeFalsy();
+      const summary = JSON.parse(result.content[0].text);
+      expect(summary.totalEvents).toBe(3);
+      expect(summary.dailySummaries['2026-09-25'].types.danger).toBe(1);
+    });
+
+    it('get_visitor_log는 DB의 image_url을 imageUrl로 반환', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_visitor_log', arguments: { date: '2026-09-22' } });
+      await client.close();
+
+      const visitors = JSON.parse(result.content[0].text);
+      expect(visitors).toHaveLength(1);
+      expect(visitors[0].imageUrl).toBe('https://example.com/v.jpg');
+    });
+
     it('없는 도구 호출은 isError', async () => {
       const client = await connectClient();
       const result = await client.callTool({ name: 'no_such_tool', arguments: {} });
@@ -110,7 +179,7 @@ describe('MCP Server /mcp', () => {
     it('listTools는 Anthropic API 형식(input_schema)으로 변환', async () => {
       const tools = await mcpService.withSession(mcp => mcp.listTools());
 
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(10);
       expect(tools[0]).toHaveProperty('input_schema');
       expect(tools[0]).not.toHaveProperty('inputSchema');
     });
@@ -142,9 +211,14 @@ describe('MCP Server /mcp', () => {
 
       expect(result.content).toBe('마이크가 켜져 있어요.');
 
+      // 시스템 프롬프트에 현재 한국 날짜가 들어가야 "오늘/이번 주"를 해석할 수 있음
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+      expect(mockCreate.mock.calls[0][0].system).toContain('현재 시각');
+      expect(mockCreate.mock.calls[0][0].system).toContain(today);
+
       // 1차 호출: MCP 서버에서 받은 도구 목록이 Anthropic 형식으로 전달됨
       const firstCall = mockCreate.mock.calls[0][0];
-      expect(firstCall.tools).toHaveLength(9);
+      expect(firstCall.tools).toHaveLength(10);
       expect(firstCall.tools[0]).toHaveProperty('input_schema');
 
       // 2차 호출: MCP tools/call 결과가 tool_result로 전달됨

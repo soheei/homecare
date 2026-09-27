@@ -24,7 +24,8 @@ async function fetchHome() {
   };
   // 요약 조회가 실패해도 최근 이벤트/기기는 보여준다 (기존 동작 유지)
   try {
-    const today = new Date().toISOString().split('T')[0];
+    // 사용자 기기 기준 오늘 (toISOString()은 UTC라 한국 00~09시에 전날 날짜가 됨)
+    const today = new Date().toLocaleDateString('sv-SE');
     const daily = await api.events.getDailySummary(today);
     data.dangerCount = daily?.dangerEvents?.length ?? 0;
     data.todayCount = daily?.totalEvents ?? 0;

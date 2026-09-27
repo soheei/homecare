@@ -11,8 +11,9 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const config = require('../config');
 const logger = require('../utils/logger');
-const { supabase, supabaseAdmin } = require('../config/supabase');
 const mcpService = require('./mcp.service');
+const conversationService = require('./conversation.service');
+const { kstDateString, formatKst } = require('../utils/date.utils');
 
 // Anthropic 클라이언트 초기화
 const anthropic = new Anthropic({
@@ -33,80 +34,53 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 - 시간 정보는 "오전 10시 30분" 형식으로 표현합니다
 - 위험 상황은 명확하게 알립니다
 - 불확실한 정보는 추측하지 않습니다
-- 도구를 사용해 실제 데이터를 조회한 후 답변합니다`;
+- 도구를 사용해 실제 데이터를 조회한 후 답변합니다
+- 모든 시각은 한국 시간입니다. 도구 결과의 timeKst를 그대로 쓰고, UTC timestamp를 직접 읽어 시각을 말하지 않습니다
+- 건수와 이벤트는 도구 결과에 있는 것만 말하고, 결과에 있는 이벤트는 빠짐없이 정리합니다
 
-// ============================================================
-// [버그 1 수정] 대화 히스토리 DB 관리
-// ============================================================
+도구 선택:
+- "이번 주", "최근 며칠", "요즘" 등 기간 요약 → get_weekly_summary (기간 내 모든 이벤트 목록 포함)
+- 방문자/초인종/택배 → get_visitor_log (날짜를 지정하지 않으면 최근 7일)
+- 위험 상황 → get_danger_events
+- 오늘 또는 특정 날짜 → get_daily_summary / get_events_by_date (날짜는 아래 현재 날짜 기준으로 계산)
+
+답변 형식 (앱이 아래 형식을 카드/경고 UI로 바꿔 보여줍니다):
+- 장치 상태는 표로: | 장치명 | 유형 | 위치 | 상태 |
+- 이벤트 목록은 표로: | 시간 | 이벤트 | 위험도 |
+- 건수 통계는 표로: | 항목 | 횟수 |
+- 주의가 필요한 내용은 "⚠️ 제목: 내용" 형식의 줄로 시작합니다
+- 그 외 설명은 짧은 문단과 "-" 목록으로 쓰고, HTML은 쓰지 않습니다`;
 
 /**
- * 새 conversation 생성 → DB 저장
+ * 요청마다 현재 한국 날짜/시각을 붙인 시스템 프롬프트
+ * (날짜를 모르면 "오늘/어제/이번 주"를 해석할 기준이 없어 엉뚱한 날짜로 조회함)
  */
-const createConversation = async (userId) => {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('conversations')
-      .insert([{ user_id: userId || 'anonymous', title: null }])
-      .select()
-      .single();
+const buildSystemPrompt = () => {
+  const now = new Date();
+  const today = kstDateString(now);
+  return `${SYSTEM_PROMPT}
 
-    if (error) throw error;
-    logger.info(`[Claude] Conversation created: ${data.id}`);
-    return data.id;
-  } catch (error) {
-    // DB 미연결 시 임시 ID 반환 (개발 편의)
-    const tempId = `conv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    logger.warn('[Claude] DB unavailable, using temp conversation ID:', error.message);
-    return tempId;
-  }
+현재 시각: ${formatKst(now)} (한국 시간, 오늘 날짜 ${today})`;
 };
 
+// ============================================================
+// [버그 1 수정] 대화 히스토리 DB 관리 → conversation.service.js
+// ============================================================
+
+// Claude에 전달할 최근 메시지 수
+const HISTORY_LIMIT = 50;
+
 /**
- * DB에서 대화 히스토리 로드
+ * DB에서 대화 히스토리 로드 (호출 전에 isOwnConversation으로 소유자 확인)
  * @returns {Array} Claude messages 형식 [{ role, content }]
  */
 const loadMessages = async (conversationId) => {
-  // 임시 ID(conv_timestamp_xxx)는 DB에 없으므로 빈 배열 반환
-  if (!conversationId || conversationId.startsWith('conv_')) {
-    return [];
-  }
-
   try {
-    const { data, error } = await supabase
-      .from('messages')
-      .select('role, content')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: true })
-      .limit(50); // 최근 50개만 컨텍스트로 사용
-
-    if (error) throw error;
-
-    return (data || []).map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    const rows = await conversationService.getMessages(conversationId, HISTORY_LIMIT);
+    return rows.map(msg => ({ role: msg.role, content: msg.content }));
   } catch (error) {
     logger.warn('[Claude] Failed to load message history:', error.message);
     return [];
-  }
-};
-
-/**
- * 메시지 DB에 저장
- */
-const saveMessage = async (conversationId, role, content) => {
-  if (!conversationId || conversationId.startsWith('conv_')) {
-    return; // 임시 ID면 저장 건너뜀
-  }
-
-  try {
-    const { error } = await supabaseAdmin
-      .from('messages')
-      .insert([{ conversation_id: conversationId, role, content }]);
-
-    if (error) throw error;
-  } catch (error) {
-    logger.warn('[Claude] Failed to save message:', error.message);
   }
 };
 
@@ -121,10 +95,15 @@ const chat = async ({ message, conversationId, userId }) => {
   try {
     logger.debug(`[Claude] Processing message: ${message.substring(0, 100)}`);
 
-    // 1. 대화 ID 확보 (없으면 새로 생성)
+    // 1. 대화 ID 확보 (없거나 본인 대화가 아니면 새로 생성)
     let convId = conversationId;
+    if (convId && !(await conversationService.isOwnConversation(convId, userId))) {
+      logger.warn(`[Claude] Conversation ${convId} is not owned by ${userId}, starting a new one`);
+      convId = null;
+    }
     if (!convId) {
-      convId = await createConversation(userId);
+      // 첫 질문이 대화 목록의 제목이 됨
+      convId = await conversationService.createConversation(userId, message);
     }
 
     // 2. [버그 1 수정] 기존 대화 히스토리 DB에서 로드
@@ -134,6 +113,9 @@ const chat = async ({ message, conversationId, userId }) => {
     // 3. 현재 유저 메시지를 히스토리에 추가
     const messages = [...history, { role: 'user', content: message }];
 
+    // 현재 한국 날짜/시각 포함 (요청마다 새로 계산)
+    const systemPrompt = buildSystemPrompt();
+
     // 4~5. MCP 서버에 접속해 도구 목록을 받고, Claude의 tool_use 요청을 MCP tools/call로 실행
     const response = await mcpService.withSession(async (mcp) => {
       // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
@@ -142,7 +124,7 @@ const chat = async ({ message, conversationId, userId }) => {
       let res = await anthropic.messages.create({
         model: config.anthropic.model,
         max_tokens: config.anthropic.maxTokens,
-        system: SYSTEM_PROMPT,
+        system: systemPrompt,
         tools,
         messages
       });
@@ -182,7 +164,7 @@ const chat = async ({ message, conversationId, userId }) => {
         res = await anthropic.messages.create({
           model: config.anthropic.model,
           max_tokens: config.anthropic.maxTokens,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           tools,
           messages
         });
@@ -200,8 +182,8 @@ const chat = async ({ message, conversationId, userId }) => {
       .join('\n');
 
     // 7. [버그 1 수정] 유저 메시지 & 어시스턴트 응답 DB에 저장
-    await saveMessage(convId, 'user', message);
-    await saveMessage(convId, 'assistant', content);
+    await conversationService.saveMessage(convId, 'user', message);
+    await conversationService.saveMessage(convId, 'assistant', content);
 
     return {
       content,

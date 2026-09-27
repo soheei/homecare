@@ -123,6 +123,7 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 ## 알려진 이슈 / 남은 일
 
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.
+- 채팅 대화/메시지는 `src/services/conversation.service.js`만 통해 접근한다 — `conversations`/`messages` RLS가 `auth.uid()` 기준이라 서버 anon 클라이언트로는 항상 빈 결과. admin으로 읽되 반드시 `user_id`로 소유자를 확인할 것(2026-09-27 정리). 2026-09-27 이전에 만들어진 대화는 제목이 null이라 채팅 기록 목록에 "제목 없는 대화"로 표시됨.
 - `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
 - **`edge/systemd/`의 unit 파일이 아직 Pi에 설치 안 됨** — `sudo cp ... /etc/systemd/system/ && sudo systemctl daemon-reload`까지는 해둬야 `systemctl start`로 켤 수 있음(자동 시작은 원하지 않으므로 `enable`은 하지 않음). 설치 전까지는 카메라/마이크 카드가 계속 "꺼짐"으로 보임.
 - Anthropic API 크레딧 충전됨(2026-09-27). 이어서 발견된 `input_schema` 누락 400 에러는 코드 수정 완료 — **배포 후 웹 채팅이 실제 이벤트로 답하는지 확인 필요**

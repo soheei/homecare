@@ -48,8 +48,8 @@ const createMcpServer = () => {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
-    logger.info(`[MCP] Tool called: ${name}`);
-    logger.debug('[MCP] Arguments:', args);
+    // 인자도 한 줄에 남김 (winston은 두 번째 인자 객체를 출력하지 않아 "Arguments:" 뒤가 비어 있었음)
+    logger.info(`[MCP] Tool called: ${name} ${JSON.stringify(args || {})}`);
 
     try {
       const handler = handlers[name];

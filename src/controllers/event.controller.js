@@ -12,6 +12,7 @@ const eventService = require('../services/event.service');
 const storageService = require('../services/storage.service');
 const notificationService = require('../services/notification.service');
 const logger = require('../utils/logger');
+const { kstDateString } = require('../utils/date.utils');
 
 /**
  * 이벤트 목록 조회
@@ -202,7 +203,7 @@ const createEvent = async (req, res, next) => {
 const getDailySummary = async (req, res, next) => {
   try {
     const { date } = req.query;
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || kstDateString(); // 생략 시 오늘(한국 날짜)
 
     const summary = await eventService.getDailySummary(targetDate);
 

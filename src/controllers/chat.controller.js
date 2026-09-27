@@ -8,8 +8,9 @@
 
 const claudeService = require('../services/claude.service');
 const eventService = require('../services/event.service');
-const { supabase, supabaseAdmin } = require('../config/supabase');
+const conversationService = require('../services/conversation.service');
 const logger = require('../utils/logger');
+const { kstDateString } = require('../utils/date.utils');
 
 /**
  * 사용자 메시지를 AI에게 전송
@@ -51,50 +52,45 @@ const sendMessage = async (req, res, next) => {
 
 /**
  * 대화 기록 조회 [버그 1 수정]
+ * - conversationId 없음: 로그인 사용자의 대화 목록 (최근 대화 순)
+ * - conversationId 있음: 그 대화의 전체 메시지 (본인 대화가 아니면 404)
  */
 const getHistory = async (req, res, next) => {
   try {
     const userId = req.user?.id || 'anonymous';
-    const { conversationId, limit = 20, offset = 0 } = req.query;
+    const { conversationId } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
 
     if (conversationId) {
-      // 특정 대화의 메시지 목록 조회
-      const { data: messages, error: msgError } = await supabase
-        .from('messages')
-        .select('id, role, content, created_at')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true })
-        .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+      if (!(await conversationService.isOwnConversation(conversationId, userId))) {
+        return res.status(404).json({
+          success: false,
+          error: 'Conversation not found'
+        });
+      }
 
-      if (msgError) throw msgError;
+      const messages = await conversationService.getMessages(conversationId);
 
       return res.json({
         success: true,
         data: {
           conversationId,
-          messages: messages || [],
-          total: messages?.length || 0
+          messages,
+          total: messages.length
         }
       });
     }
 
-    // 사용자의 대화 목록 조회
-    const { data: conversations, error, count } = await supabase
-      .from('conversations')
-      .select('id, title, created_at, updated_at', { count: 'exact' })
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
-
-    if (error) throw error;
+    const { conversations, total } = await conversationService.listConversations(userId, { limit, offset });
 
     res.json({
       success: true,
       data: {
-        conversations: conversations || [],
-        total: count || 0,
-        limit: parseInt(limit),
-        offset: parseInt(offset)
+        conversations,
+        total,
+        limit,
+        offset
       }
     });
 
@@ -110,7 +106,7 @@ const getHistory = async (req, res, next) => {
 const getDailySummary = async (req, res, next) => {
   try {
     const { date } = req.body;
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || kstDateString(); // 생략 시 오늘(한국 날짜)
 
     logger.info(`[Chat] Generating daily summary for ${targetDate}`);
 
@@ -141,28 +137,15 @@ const deleteConversation = async (req, res, next) => {
     const { conversationId } = req.params;
     const userId = req.user?.id || 'anonymous';
 
-    // 본인 대화인지 확인
-    const { data: conv, error: findError } = await supabase
-      .from('conversations')
-      .select('id, user_id')
-      .eq('id', conversationId)
-      .eq('user_id', userId)
-      .single();
+    // 본인 대화만 삭제 (messages는 CASCADE로 자동 삭제 — schema.sql 참고)
+    const deleted = await conversationService.deleteConversation(conversationId, userId);
 
-    if (findError || !conv) {
+    if (!deleted) {
       return res.status(404).json({
         success: false,
         error: 'Conversation not found'
       });
     }
-
-    // messages는 CASCADE로 자동 삭제 (schema.sql 참고)
-    const { error: deleteError } = await supabaseAdmin
-      .from('conversations')
-      .delete()
-      .eq('id', conversationId);
-
-    if (deleteError) throw deleteError;
 
     res.json({
       success: true,

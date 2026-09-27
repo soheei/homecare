@@ -187,4 +187,10 @@
   - `claude.service.js` — 직접 import/`MCP_TOOLS`/`MCP_HANDLERS`/`callMcpTool` 제거, `mcpService.withSession()` 안에서 tool_use 루프 실행.
   - `index.js` 기동 로그의 "MCP Server will be available on port 3001"(실제 없는 포트) 문구를 `/mcp`로 수정.
 - 검증: `tests/mcp.test.js` 신규 9건 통과 — 토큰 없음/틀림 401, GET 405, SDK 클라이언트로 `tools/list` 9개, `tools/call` 결과(기기 서비스만 mock), 없는 도구 `isError`, `mcp.service` 변환, **채팅 전체 흐름**(Claude API mock: tool_use → MCP tools/call → tool_result 전달 → 최종 답변). 전체 `npm test` 16건 중 11 통과/5 실패(실패 5건은 기존과 동일, 회귀 없음). 변경 파일 eslint 통과(`index.js` 파일 끝 개행 경고는 기존).
+
+### 채팅 모델 404 → Haiku 4.5로 변경
+- `input_schema` 수정 배포 후 채팅이 `404 not_found_error: model: claude-sonnet-4-20250514`로 실패. Sonnet 4(`claude-sonnet-4-20250514`)는 2026-06-15 종료된 모델. (앞의 `input_schema` 400은 이 단계에서 더 이상 안 나옴 → 그 수정은 반영된 것으로 보임)
+- 공식 대체는 `claude-sonnet-5`였으나 **사용자 결정으로 `claude-haiku-4-5-20251001`(Haiku 4.5)로 변경** — `src/config/index.js`의 `anthropic.model` 한 곳. Haiku 4.5는 thinking이 기본 꺼짐이라 `max_tokens`(채팅 4096, 요약/이미지 1024)는 그대로 둠. `temperature`/`budget_tokens` 등 호환 안 되는 파라미터는 원래 안 씀.
+- `npm test` 11 통과/5 실패(기존과 동일).
+
 - **배포 후 확인 필요**: 커밋/푸시 전. 푸시 후 Render Logs에 `[MCP Client] tools/call ...`가 찍히는지, 웹 채팅이 실제 이벤트로 답하는지, 토큰 없이 `POST /mcp`가 401인지.

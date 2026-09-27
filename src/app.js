@@ -92,7 +92,9 @@ const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
 
 // 모든 나머지 요청은 index.html로 (SPA 라우팅)
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
+  // /.well-known/*(OAuth 탐색 등)은 404로 — HTML을 주면 mcp-remote 같은 MCP 클라이언트가 JSON으로 파싱하다 죽음
+  if (req.path.startsWith('/.well-known/')) return next();
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-27 (MCP 서버 `/mcp` Streamable HTTP 전환, `MCP_AUTH_TOKEN`/`MCP_SERVER_URL` 추가)
+> 최근 수정일시: 2026-09-27 저녁 (테스트 현황 갱신, stdio MCP 주의사항, Claude Desktop 연결 방법 위치 안내)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -18,9 +18,9 @@
 | `npm run dev:fresh` | 3000번 포트를 먼저 kill한 뒤 개발 서버 실행 |
 | `npm start` | 프로덕션 모드 실행 (`node src/index.js`) |
 | `npm run kill` | 3000번 포트를 점유 중인 프로세스 종료 |
-| `npm test` | Jest 테스트 실행 (현재 5건 실패/2건 통과, 원인 미확인) |
+| `npm test` | Jest 테스트 실행 (2026-09-27 기준 34 통과/5 실패 — 실패 5건은 기존 낡은 테스트, 인수인계 "알려진 이슈" 참고) |
 | `npm run lint` | eslint로 `src/` 검사 |
-| `npm run mcp` | MCP **stdio** 서버 단독 실행 (`node src/mcp/server.js`) — 로컬 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작. 웹 채팅은 이게 아니라 백엔드의 HTTP MCP 서버(`/mcp`)를 사용 |
+| `npm run mcp` | MCP **stdio** 서버 단독 실행 (`node src/mcp/server.js`) — 로컬 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작. 웹 채팅은 이게 아니라 백엔드의 HTTP MCP 서버(`/mcp`)를 사용. **현재 `.env`를 안 읽고 로그가 stdout에 섞여 Claude Desktop 연결용으로 부적합** — Claude Desktop은 `/mcp` + `mcp-remote`로 연결(README "MCP 서버 테스트") |
 
 ### Frontend — `web/` (Vite + React, Vercel 배포되는 실제 프론트엔드)
 

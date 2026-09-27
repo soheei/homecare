@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-27 (MCP 서버를 Streamable HTTP(`/mcp`)로 열고 웹 채팅이 MCP 프로토콜로 도구를 호출하도록 전환, `MCP_AUTH_TOKEN` 추가)
+> 최근 수정일시: 2026-09-27 저녁 (홈 브리핑 서버 저장 `briefings` 테이블 추가, Claude Desktop MCP 연결 방법 정리, stdio 서버 문제 기록)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -61,8 +61,21 @@
 - 채팅은 기본적으로 같은 프로세스의 `http://127.0.0.1:${PORT}/mcp`로 접속한다(`MCP_SERVER_URL`로 변경 가능, 보통 설정 불필요).
 - 도구 추가 방법: `src/mcp/tools/`에 정의+핸들러를 추가하면 `src/mcp/createServer.js`가 등록 → 채팅은 `tools/list`로 자동 인식(예전처럼 `claude.service.js`를 따로 고칠 필요 없음). stdio(`server.js`)와 HTTP가 같은 `createServer.js`를 쓴다.
 - 관련 코드: `src/mcp/createServer.js`(서버/도구 등록), `src/controllers/mcp.controller.js` + `src/routes/mcp.routes.js`(`/mcp`), `src/middlewares/auth.middleware.js`의 `authenticateMcp`, `src/services/mcp.service.js`(채팅용 클라이언트), 테스트 `tests/mcp.test.js`.
-- 로그로 MCP 경유 확인: Render Logs에 `[MCP Client] tools/list → 9 tools`, `[MCP Client] tools/call get_today_events`, `[MCP] Tool called: get_today_events`가 찍힌다.
-- Claude Desktop 연결 시연 방법은 **확인 필요**(Desktop은 기본적으로 stdio 서버를 실행하므로 원격 HTTP 서버는 `mcp-remote` 같은 브리지로 헤더를 붙여 연결하는 방식이 일반적 — 실제 설정은 시연 전에 검증할 것). claude.ai 커스텀 커넥터는 OAuth를 요구하는 경우가 많아 현재 Bearer 방식으로 바로 붙는지는 **확인 필요**.
+- 로그로 MCP 경유 확인: Render Logs에 `[MCP Client] tools/list → 10 tools`, `[MCP Client] tools/call get_weekly_summary`, `[MCP] Tool called: get_weekly_summary {인자}`가 찍힌다(도구 10개, 2026-09-27 `get_weekly_summary` 추가).
+- **Claude Desktop 연결(외부 클라이언트 시연)**: 원격 `/mcp`를 `mcp-remote` 브리지로 연결한다. 설정 예시는 [README.md](../README.md)의 "MCP 서버 테스트 (Claude Desktop)".
+  - 전제: Render에 `MCP_AUTH_TOKEN`이 설정돼 있어야 함(미설정이면 기동마다 임의 토큰이라 외부 접속 불가). 현재 Render에 설정됐는지 **확인 필요**.
+  - Claude Desktop 설정 파일(`claude_desktop_config.json`)에 토큰이 평문으로 들어가므로 공유·커밋 금지.
+  - `mcp-remote`는 `npx`가 아니라 **전역 설치(`npm install -g mcp-remote`)**해서 쓴다 — Windows Claude Desktop이 서버를 동시에 두 번 띄워 npx 캐시가 깨짐(2026-09-27 실측).
+  - `/.well-known/*`는 404 JSON이어야 한다(mcp-remote의 OAuth 탐색). `app.js`의 SPA 폴백이 여기에 HTML을 주면 연결이 `"<!DOCTYPE"... is not valid JSON`으로 실패 — 2026-09-27 제외 처리함. 로컬에선 `mcp-remote`로 `tools/list` 10개 수신 확인, 운영(Render)은 **배포 후 확인 필요**. Claude Desktop 로그는 Settings → Developer에서 서버별로 확인.
+  - claude.ai 웹의 커스텀 커넥터는 헤더 지정 없이 OAuth를 쓰는 방식이라 현재 Bearer 방식으로는 바로 못 붙는 것으로 보임 — **확인 필요**.
+- **stdio 버전(`npm run mcp`)을 Claude Desktop에 직접 붙이지 말 것** (2026-09-27 확인): ① `server.js`가 `.env`를 로드하지 않아 Supabase 환경변수가 비고(`index.js`만 `dotenv` 호출), ② winston 로거가 stdout에 로그를 써서 MCP JSON-RPC 메시지와 섞인다(`initialize` 응답 앞에 `info: MCP Server ... is running` 줄이 붙는 것 확인). 고치려면 stdio 모드에서 로그를 stderr로 보내고 dotenv를 로드해야 함 — 미수정.
+
+## 홈 "오늘의 브리핑" 저장 (2026-09-27 추가)
+
+- 브리핑(`POST /api/chat/summary`)을 만들면 `briefings` 테이블에 **사용자당 1행**으로 저장(upsert, `user_id UNIQUE` — 새로 만들면 덮어씀). 앱을 열거나 새로고침하면 `GET /api/chat/summary/latest`로 복원해서 다시 만들 필요 없음. 다른 기기에서도 같은 브리핑이 보임.
+- **배포에 필요한 수동 작업**: Supabase SQL Editor에서 `database/schema.sql`의 "7-1. Briefings 테이블" 블록만 실행. 테이블(또는 `UNIQUE`)이 없으면 브리핑은 화면에 나오지만 저장이 안 되고, 로그에 `[Briefing] Failed to save briefing` 경고만 남는다(응답은 정상). 운영 DB에 생성됐는지 **확인 필요**.
+- 브리핑 본문은 Markdown(한 줄 요약 → `## 이모지 섹션` → `- **오후 2:55** 내용`, 위험은 `⚠️ 제목: 내용`)으로 생성되고, 홈 카드가 채팅과 같은 파서(`web/src/lib/chatBlocks.js`)로 제목·목록·경고 카드를 그린다. 이벤트 시각은 한국 시간으로 모델에 전달.
+- 관련 코드: `src/services/briefing.service.js`, `chat.controller.js`의 `getDailySummary`/`getLatestSummary`, `claude.service.js`의 `BRIEFING_SYSTEM_PROMPT`, 프론트 `AppDataContext.jsx`(복원), `HomeScreen.jsx`, `components/chat/AiMessage.jsx`의 `MarkdownBlocks`.
 
 ## 웹 푸시 알림 (2026-09-22 추가)
 
@@ -126,11 +139,12 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 - 채팅 대화/메시지는 `src/services/conversation.service.js`만 통해 접근한다 — `conversations`/`messages` RLS가 `auth.uid()` 기준이라 서버 anon 클라이언트로는 항상 빈 결과. admin으로 읽되 반드시 `user_id`로 소유자를 확인할 것(2026-09-27 정리). 2026-09-27 이전에 만들어진 대화는 제목이 null이라 채팅 기록 목록에 "제목 없는 대화"로 표시됨.
 - `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
 - **`edge/systemd/`의 unit 파일이 아직 Pi에 설치 안 됨** — `sudo cp ... /etc/systemd/system/ && sudo systemctl daemon-reload`까지는 해둬야 `systemctl start`로 켤 수 있음(자동 시작은 원하지 않으므로 `enable`은 하지 않음). 설치 전까지는 카메라/마이크 카드가 계속 "꺼짐"으로 보임.
-- Anthropic API 크레딧 충전됨(2026-09-27). 이어서 발견된 `input_schema` 누락 400 에러는 코드 수정 완료 — **배포 후 웹 채팅이 실제 이벤트로 답하는지 확인 필요**
+- 2026-09-27 작업분은 커밋·push됨(`a1559cc`, `cc1ad07`). **Render 배포 후 확인 필요**: `/health`가 `production`, 토큰 없이 `POST /mcp` 401, 웹 채팅 "이번주 요약"이 3건 모두·한국 시간으로 답하는지, 홈 브리핑이 새로고침 후에도 유지되는지(`briefings` 테이블 생성 후).
+- 채팅 "이번주 요약"이 3건 중 1건만·UTC 시각("오전 7시")으로 답한 원인은 **미확정**(로컬 프론트→로컬 백엔드, 새 코드로 동작 중이었음을 확인). 후보: 이전 대화 기록 재사용(대화 기록엔 최종 답변 텍스트만 저장, 도구 결과는 저장 안 됨) / 다른 도구 선택. 새 대화에서 재질문 후 로그의 `[MCP] Tool called:` 도구명으로 판별할 것.
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
 - 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부만 확인
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
-- `npm test` 기존 5건 실패: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
+- `npm test` 34 통과 / 5 실패(2026-09-27 기준). 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)

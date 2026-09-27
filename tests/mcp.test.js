@@ -91,6 +91,14 @@ describe('MCP Server /mcp', () => {
       const res = await request(app).get('/mcp');
       expect(res.statusCode).toBe(405);
     });
+
+    it('OAuth 탐색(/.well-known/*)은 SPA HTML이 아니라 404 JSON (mcp-remote가 HTML을 JSON 파싱하다 죽던 문제)', async () => {
+      for (const p of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server']) {
+        const res = await request(app).get(p);
+        expect(res.statusCode).toBe(404);
+        expect(res.headers['content-type']).toMatch(/json/);
+      }
+    });
   });
 
   describe('MCP 프로토콜', () => {

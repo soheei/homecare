@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-27 (채팅 input_schema 400 수정, MCP 서버 Streamable HTTP 전환)
+> 최근 수정일시: 2026-09-27 저녁 (홈 브리핑 서버 저장·Markdown UI·한국 시간, 이번주 요약 원인 재조사, Claude Desktop MCP 연결 조사)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -242,4 +242,35 @@
 - ~~원인: `ChatScreen`의 `useEffect(() => scrollIntoView({ behavior: 'smooth' }), [messages])` — 그려진 **뒤** 실행돼 첫 프레임은 맨 위, 이어서 smooth 애니메이션. 전역 `html { scroll-behavior: smooth }`도 겹침(채팅은 window 스크롤, 탭 전환마다 재마운트).~~ → `useLayoutEffect`(그리기 전)로 바꾸고, 진입/대화 전환(첫 메시지가 바뀐 경우)은 `behavior: 'instant'`로 즉시 맨 아래, 대화 중 새 메시지는 기존대로 smooth. 전역 CSS는 유지.
 - 검증: 브라우저에서 홈→채팅 클릭 직후 프레임별 scrollY 기록 — 수정 후 첫 프레임부터 맨 아래·40프레임 불변, 새 메시지는 부드럽게(7/7). 수정 전 코드로는 y=0→2→10→24→47… 애니메이션 재현(4/7). 채팅 기록 22건 회귀 통과.
 
-- **배포 후 확인 필요**: 커밋/푸시 전. 푸시 후 Render Logs에 `[MCP Client] tools/call ...`가 찍히는지, 웹 채팅이 실제 이벤트로 답하는지, 토큰 없이 `POST /mcp`가 401인지.
+- ~~**배포 후 확인 필요**: 커밋/푸시 전.~~ → 사용자가 커밋·push(`a1559cc` 채팅수정, `cc1ad07` 수정). Render 배포 후 Logs에 `[MCP Client] tools/call ...`, 웹 채팅이 실제 이벤트로 답하는지, 토큰 없이 `POST /mcp`가 401인지는 **아직 확인 필요**.
+
+### "이번주 요약"이 여전히 3건 중 1건 + "오전 7시"로 답함 — 원인 재조사 (미해결)
+- 사용자 스크린샷: 이벤트 화면엔 3건(9/25 낙상 테스트, 9/22 문 소리·초인종)인데 채팅 "이번주 요약"은 총 1건, "9월 25일 오전 7시"(UTC).
+- 처음엔 "커밋 안 된 로컬 변경이라 Render(구 코드)가 답했다"고 판단했으나 **틀림**: Vite 개발 서버가 서빙하는 `api.js`에서 `VITE_API_URL`이 `http://localhost:3000`임을 확인, 로컬 백엔드는 17:20에 새 코드로 재시작돼 있었고 `MCP_SERVER_URL`도 미설정(같은 프로세스 `/mcp` 사용).
+- 새 코드의 `get_weekly_summary`는 테스트상 3건·`timeKst`를 반환하므로, 모델이 이 결과를 보지 않은 것으로 추정. 후보: ① 같은 대화의 이전 답변 재사용(대화 기록엔 최종 텍스트만 저장, 도구 결과 미저장) ② 다른 도구 선택. **새 대화에서 재질문 후 로그 `[MCP] Tool called:` 도구명으로 판별 필요**.
+
+### 채팅 통계 카드 높이 축소
+- `web/src/components/chat/ChatCards.jsx` `StatCard`: 라벨/숫자 2줄 → 한 줄 좌우 배치, `p-3.5`→`px-3 py-2`, 숫자 `text-xl`→`text-base`. 타일 높이 약 절반.
+
+### 홈 "오늘의 브리핑" 새로고침 시 유지 (서버 저장)
+- 문제: 브리핑이 React state에만 있어 새로고침하면 "브리핑 만들기" 화면으로 돌아감.
+- 1차로 브라우저 localStorage 저장을 구현했다가, 사용자 요청으로 서버 저장으로 교체(다른 기기에서도 보이도록).
+- 백엔드: `src/services/briefing.service.js` 신규(supabaseAdmin + `user_id` 필터), `POST /api/chat/summary`가 생성과 동시에 저장(저장 실패해도 응답은 정상, 경고 로그만), `GET /api/chat/summary/latest` 신규. 처음엔 매번 행 추가였으나 사용자 요청으로 **사용자당 1행 upsert(`user_id UNIQUE`, `onConflict: 'user_id'`)**로 변경.
+- DB: `database/schema.sql`에 "7-1. Briefings 테이블" + RLS(본인 SELECT, service_role 전체). **Supabase에 생성 SQL 실행 여부 확인 필요**(사용자에게 SQL 전달함 — 이미 누적형으로 만들었으면 중복 삭제 후 `UNIQUE` 추가 SQL도 전달).
+- 프론트: `AppDataContext`가 앱 시작 시 최신 브리핑을 복원(`restoring` 상태 → "마지막 브리핑을 불러오는 중…"), 오늘 만든 게 아니면 생성 시각에 날짜도 표시.
+- 검증: `tests/chat-history.test.js`에 5건 추가(최신 조회, 없으면 null, 생성 후 조회, 사용자당 1행 덮어쓰기·타인 불변, 401). 실제 Supabase로는 미검증.
+
+### 브리핑 시각 UTC → 한국 시간, 브리핑 Markdown UI
+- ~~`claude.service.js` `generateDailySummary`가 이벤트 `timestamp`(UTC)를 그대로 프롬프트에 넣어 브리핑 속 시각이 9시간 틀릴 수 있음~~ → `formatKst()`로 변환. 테스트로 "오후 4:00" 포함·UTC 문자열 미포함 확인. **(해결됨, 2026-09-27)**
+- 브리핑이 `whitespace-pre-line` 텍스트라 `#`, `**`가 그대로 노출 → `AiMessage.jsx`에 `MarkdownBlocks`(채팅과 같은 파서·카드, 말풍선 없이) 추가, 홈 카드에서 사용(맨 앞 `#` 제목은 카드 제목과 중복이라 생략). 브리핑 전용 시스템 프롬프트 `BRIEFING_SYSTEM_PROMPT`(한 줄 요약, `## 이모지 섹션`, `- **오후 2:55** 내용`, `⚠️` 경고, 15줄 이내).
+- 전체 `npm test` 34 통과/5 실패(기존 5건), 백엔드 eslint·프론트 lint/build 통과.
+
+### Claude Desktop으로 MCP 서버 테스트하는 방법 조사
+- stdio 버전을 로컬에서 `initialize` 요청으로 실행해 본 결과 두 가지 문제 확인(미수정): ① `server.js`가 `.env`를 로드하지 않아 `Missing environment variables` 경고(도구 호출 시 Supabase 실패 예상) ② winston 로그 `info: 🔧 MCP Server "homecare-mcp" is running`이 **stdout**에 찍혀 JSON-RPC 응답과 섞임.
+- 결론: Claude Desktop은 원격 `/mcp`를 `mcp-remote` 브리지(`--header "Authorization:${AUTH_HEADER}"`, `env`로 `Bearer 토큰` 전달)로 연결하는 방식을 README "MCP 서버 테스트"에 정리. Render `MCP_AUTH_TOKEN` 설정 여부와 실제 연결은 **확인 필요**.
+- README.md 갱신: 아키텍처(인프로세스 → `/mcp`), 도구 10개 표, Chat API(`summary/latest`), `MCP_AUTH_TOKEN`, 알려진 이슈·테스트 현황.
+
+### Claude Desktop 실제 연결 시도 → 문제 3건
+1. ~~설정 파일 JSON 파싱 오류(`Bad control character ... line 21`)~~ — 토큰을 `.env`에서 복사하며 줄바꿈이 섞여 닫는 따옴표가 다음 줄로 밀림 → 한 줄로 수정. **(해결됨, 사용자 조치)**
+2. ~~`npx -y mcp-remote` 실행 실패(`ERR_MODULE_NOT_FOUND strict-url-sanitise`)~~ — Claude Desktop이 같은 서버를 일반 채팅용과 Cowork/Code용(`shared-pool`)으로 동시에 띄워 두 npx가 같은 `_npx` 캐시에 동시 설치 → `EPERM`으로 파일 누락. → `npm install -g mcp-remote` 후 `command: "mcp-remote"`로 변경. **(해결됨, 사용자 조치)** (Node 20.18.0 < undici 요구 20.18.1 `EBADENGINE` 경고는 동작엔 영향 없었음)
+3. ~~`mcp-remote`가 OAuth 탐색에서 `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`으로 종료~~ — mcp-remote는 접속 전 `GET /.well-known/oauth-protected-resource` 등으로 OAuth 여부를 확인하는데, `app.js`의 레거시 `frontend/` SPA 폴백 `app.get('*')`가 이 경로에 `index.html`을 200으로 응답. → 폴백에서 `/.well-known/*`만 제외해 404 JSON을 주도록 수정(폴백 전체 제거는 영향 범위가 커서 보류). `tests/mcp.test.js`에 회귀 테스트 추가(35 통과/5 실패, 실패는 기존). 로컬 임시 서버(3999, 테스트 토큰)에 실제 `mcp-remote`로 접속해 `initialize` → `tools/list` 10개 수신까지 확인. **(해결됨, 2026-09-27 — Render 배포 전. push 후 Claude Desktop 재연결로 운영 확인 필요)**

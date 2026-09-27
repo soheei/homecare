@@ -15,7 +15,7 @@
 - 핵심 코드 위치:
   - 백엔드 진입점: `src/index.js` → `src/app.js`(Express 앱 설정)
   - 라우트/컨트롤러/서비스: `src/routes/`, `src/controllers/`, `src/services/` (`claude.service.js`가 Claude API 호출 + MCP 도구 실행 루프의 핵심)
-  - MCP 도구 정의: `src/mcp/tools/` (`event.tools.js`, `camera.tools.js`) — **주의**: 백엔드는 이 도구들을 인프로세스로 직접 import해서 호출하며, `src/mcp/server.js`(stdio 기반 별도 MCP 서버)는 런타임에 쓰이지 않음. 상세 배경은 `SH_README/hometalk_진행일지.md` 2026-08-30 항목 참고.
+  - MCP 도구 정의: `src/mcp/tools/` (`event.tools.js`, `camera.tools.js`), 서버 생성·도구 등록은 `src/mcp/createServer.js`. 2026-09-27부터 백엔드의 `/mcp`(Streamable HTTP, `src/routes/mcp.routes.js`)가 MCP 서버이고, 웹 채팅은 `src/services/mcp.service.js`(MCP 클라이언트)로 `tools/list`/`tools/call`을 호출한다. `src/mcp/server.js`는 같은 팩토리를 쓰는 stdio 버전(로컬 외부 클라이언트용, 배포 안 함). 상세는 `SH_README/hometalk_인수인계.md` "MCP 서버".
   - 설정/검증: `src/config/index.js` (필수 환경변수 검증), `src/config/supabase.js`
   - 웹 프론트엔드(실제 배포되는 것): `web/` — Vite + React 19 + Tailwind, Vercel 배포 (https://homecare-9sr8.vercel.app/)
   - 레거시/프로토타입 프론트엔드(package.json 없음, 빌드/배포 안 됨 — **확인 필요**): `frontend/`
@@ -23,7 +23,7 @@
   - 엣지(라즈베리파이) 전송 코드: `edge/` — 감지기가 `EventEmitter.emit()`만 호출하면 쿨다운 → SQLite 큐(`edge/data/`) → sender가 `POST /api/events`로 전송(재시도 포함). 카테고리→`type`/`dangerLevel` 변환표는 `edge/event_mapper.py`. 마이크→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`)과 YOLO 연동은 **아직 없음**.
   - 오디오 분류 실험/설계: `yamnet/` (`core/` = 모델 로딩·카테고리·판정 규칙, `verification/` = ESC-50 평가 스크립트, 설계는 `yamnet/Plan.md`)
   - 배포 설정: `Dockerfile`(Node 20, Render가 사용), `docker-compose.yml`(과거 Pi 배포용, 현재 배포 경로 아님. mcp 서비스는 `profiles: ["mcp-manual"]`로 기본 실행에서 제외됨)
-- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/2건 통과 상태(인증 401로 보임, 원인 미확인 — 새 변경과 무관하게 기존부터 실패). 엣지는 `python -m unittest discover -s edge/tests -t .`(15개).
+- 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `mcp.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/11건 통과 — 실패 5건은 기존부터: `chat.test.js` 4건은 토큰 없이 요청해 401(인증은 정상, 테스트가 낡음), `app.test.js` 404 1건은 `app.js`의 레거시 `frontend/` SPA 폴백 때문. 엣지는 `python -m unittest discover -s edge/tests -t .`(15개).
 
 ## Common Commands
 - 설치: `npm install` (백엔드), `cd web && npm install` (프론트엔드)
@@ -37,8 +37,9 @@
 - 엣지(Pi): `python3 -m venv .venv && source .venv/bin/activate && pip install -r edge/requirements.txt` (시스템 pip은 PEP 668로 막힘). 전송 경로 점검: `python -m edge.send_test_event`.
 
 ## Working Rules
-- `src/services/claude.service.js`가 MCP 도구 목록(`MCP_TOOLS`)과 핸들러 맵(`MCP_HANDLERS`)을 직접 관리하므로, `src/mcp/tools/`에 새 도구를 추가할 때는 이 파일도 함께 갱신해야 실제로 Claude가 호출할 수 있다.
-- `src/mcp/server.js`(stdio MCP 서버)는 현재 런타임에서 쓰이지 않는 별도 산출물이다. 이 파일을 수정할 땐 "언젠가 외부 MCP 클라이언트가 붙을 수도 있다"는 전제로만 관리하고, 상시 서비스로 되살리려 하지 말 것(구조적으로 불가능 — 진행일지 참고).
+- 새 MCP 도구는 `src/mcp/tools/`에 정의(`inputSchema`, MCP 규격)+핸들러를 추가하고, 새 파일이면 `src/mcp/createServer.js`에 등록한다. 채팅은 `tools/list`로 자동 인식하므로 `claude.service.js`는 고칠 필요 없다. Anthropic API용 `input_schema` 변환은 `mcp.service.js`가 한다 — 도구 정의를 `input_schema`로 바꾸지 말 것.
+- `/mcp`는 `MCP_AUTH_TOKEN` Bearer 인증이 필수다(도구가 전체 집 데이터를 조회). 인증을 풀거나 개발환경 우회를 추가하지 말 것.
+- `src/mcp/server.js`(stdio)는 상시 서비스(데몬)로 띄우지 말 것(stdin EOF로 즉시 종료 — 진행일지 2026-08-30). 네트워크로 여는 건 `/mcp`가 담당한다.
 - `.env`, `database/schema.sql`에 정의된 테이블 구조를 바꿀 때는 실제 Supabase 프로젝트의 스키마와 어긋나지 않는지 확인한다 — 이 저장소엔 마이그레이션 도구가 없어 `schema.sql`이 유일한 스키마 근거다(**확인 필요**: 실제 운영 DB와 동기화 여부).
 - 경로는 명시적인 요청 없이는 수정하지 않는다.
 - 새로운 의존성은 사용자가 요청할 때만 추가한다.

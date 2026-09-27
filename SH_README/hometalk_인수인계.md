@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-22 (카메라/마이크 온·오프 상태 하트비트 연동 — devices 기기 행 정정, online/offline 판단 로직 수정, 엣지 heartbeat 코드 추가)
+> 최근 수정일시: 2026-09-27 (MCP 서버를 Streamable HTTP(`/mcp`)로 열고 웹 채팅이 MCP 프로토콜로 도구를 호출하도록 전환, `MCP_AUTH_TOKEN` 추가)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -25,7 +25,7 @@
 | 엣지 | 라즈베리파이 (`edge/` 코드) | `POST /api/events`로 이벤트 전송, 실전송 검증 완료. 마이크(ReSpeaker 2-Mic HAT)→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`) 실제 가동 중(실제 "문 소리 감지" 등 이벤트 저장 확인됨, 문서상 "미구현"이던 옛 기록은 삭제). 카메라(Camera Module V3)는 하드웨어 감지만 가능, 영상 분석(YOLO 등)은 미구현 |
 
 - 백엔드는 예전에 Pi의 Docker Compose + Tailscale Funnel로 운영했으나, **Pi 초기화(2026-09-20)로 사라졌고 Render로 이전**했다. `docker-compose.yml`은 남아 있지만 현재 배포 경로가 아니다.
-- MCP stdio 서버(`src/mcp/server.js`)는 배포하지 않는다(런타임에 필요 없음, 상시 데몬으로 불가).
+- MCP 서버는 백엔드와 같은 Render 서비스의 `/mcp` 엔드포인트(Streamable HTTP)로 동작한다(2026-09-27~). 아래 "MCP 서버" 참고. stdio 버전(`src/mcp/server.js`, `npm run mcp`)은 로컬 외부 클라이언트용으로만 남아 있고 배포하지 않는다.
 - Render **무료 플랜은 유휴 시 잠들어** 첫 응답이 20초대로 느려짐(관측 22.7초). 플랜은 아직 미결정.
 
 ## 접근 / 계정
@@ -40,10 +40,29 @@
 
 ## 백엔드 환경변수 (Render, 이름만)
 
-`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET`, `ALLOWED_ORIGINS`(프론트 주소, 끝에 `/` 없이), `LOG_LEVEL=info`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`(2026-09-22 웹 푸시 추가, 아래 "웹 푸시 알림" 참고).
+`ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET`, `ALLOWED_ORIGINS`(프론트 주소, 끝에 `/` 없이), `LOG_LEVEL=info`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`(2026-09-22 웹 푸시 추가, 아래 "웹 푸시 알림" 참고), `MCP_AUTH_TOKEN`(2026-09-27 추가, 선택 — 아래 "MCP 서버" 참고).
 
 - `PORT`는 넣지 않는다(Render가 주입, 앱이 `process.env.PORT`를 읽음).
 - `NODE_ENV`는 `production`이어야 한다(Dockerfile 기본값). **`development`로 덮어쓰면 인증이 우회된다** — 로컬 `.env` 통째 붙여넣기 주의.
+
+## MCP 서버 (2026-09-27 전환)
+
+웹 채팅이 Supabase 데이터를 조회할 때 **실제 MCP 프로토콜을 거친다**. 백엔드 안에 MCP 서버(`/mcp`)를 열고, 채팅은 MCP 클라이언트로 그 서버에 접속한다.
+
+```
+웹 채팅 → claude.service.js ─(Claude API: 질문 + tools)→ Claude
+               │  ← tool_use 요청
+               └→ mcp.service.js (MCP 클라이언트) ─ tools/list, tools/call ─→ POST /mcp (MCP 서버) → Supabase
+```
+
+- 주소: `https://homecare-9kcu.onrender.com/mcp` (Streamable HTTP, stateless — 요청마다 서버 인스턴스를 새로 만들어 세션 상태 없음. `POST`만 지원, `GET`/`DELETE`는 405)
+- 인증: `Authorization: Bearer <MCP_AUTH_TOKEN>` 필수(없거나 틀리면 401). 도구가 전체 이벤트/기기를 조회하므로 **토큰이 곧 집 데이터 접근 권한** — 채팅/깃/문서에 값을 적지 말 것.
+- `MCP_AUTH_TOKEN` 미설정 시: 서버 시작마다 임의 토큰을 생성해 내부 채팅만 사용(웹 채팅은 정상, 외부 클라이언트는 접속 불가). 외부 클라이언트(Claude Desktop 등)를 붙이려면 Render 환경변수에 직접 생성한 값을 등록. 생성: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- 채팅은 기본적으로 같은 프로세스의 `http://127.0.0.1:${PORT}/mcp`로 접속한다(`MCP_SERVER_URL`로 변경 가능, 보통 설정 불필요).
+- 도구 추가 방법: `src/mcp/tools/`에 정의+핸들러를 추가하면 `src/mcp/createServer.js`가 등록 → 채팅은 `tools/list`로 자동 인식(예전처럼 `claude.service.js`를 따로 고칠 필요 없음). stdio(`server.js`)와 HTTP가 같은 `createServer.js`를 쓴다.
+- 관련 코드: `src/mcp/createServer.js`(서버/도구 등록), `src/controllers/mcp.controller.js` + `src/routes/mcp.routes.js`(`/mcp`), `src/middlewares/auth.middleware.js`의 `authenticateMcp`, `src/services/mcp.service.js`(채팅용 클라이언트), 테스트 `tests/mcp.test.js`.
+- 로그로 MCP 경유 확인: Render Logs에 `[MCP Client] tools/list → 9 tools`, `[MCP Client] tools/call get_today_events`, `[MCP] Tool called: get_today_events`가 찍힌다.
+- Claude Desktop 연결 시연 방법은 **확인 필요**(Desktop은 기본적으로 stdio 서버를 실행하므로 원격 HTTP 서버는 `mcp-remote` 같은 브리지로 헤더를 붙여 연결하는 방식이 일반적 — 실제 설정은 시연 전에 검증할 것). claude.ai 커스텀 커넥터는 OAuth를 요구하는 경우가 많아 현재 Bearer 방식으로 바로 붙는지는 **확인 필요**.
 
 ## 웹 푸시 알림 (2026-09-22 추가)
 
@@ -106,12 +125,11 @@ python -m edge.send_test_event            # 전송 경로 점검 (웹 "최근 �
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.
 - `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
 - **`edge/systemd/`의 unit 파일이 아직 Pi에 설치 안 됨** — `sudo cp ... /etc/systemd/system/ && sudo systemctl daemon-reload`까지는 해둬야 `systemctl start`로 켤 수 있음(자동 시작은 원하지 않으므로 `enable`은 하지 않음). 설치 전까지는 카메라/마이크 카드가 계속 "꺼짐"으로 보임.
-- **Anthropic API 크레딧 부족으로 채팅 실패(400)가 확인됨** — 충전 여부와 채팅 응답 **확인 필요**
+- Anthropic API 크레딧 충전됨(2026-09-27). 이어서 발견된 `input_schema` 누락 400 에러는 코드 수정 완료 — **배포 후 웹 채팅이 실제 이벤트로 답하는지 확인 필요**
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
 - 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부만 확인
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
-- `npm test` 기존 5건 실패(인증 401로 보임) 원인 미확인
+- `npm test` 기존 5건 실패: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)
-- MCP stdio 서버(`src/mcp/server.js`)는 구조상 실사용 안 됨. 외부 MCP 클라이언트 연동이 필요해지면 별도 검토

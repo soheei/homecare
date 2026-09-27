@@ -18,7 +18,7 @@ const HOST = '0.0.0.0';
 const server = app.listen(PORT, HOST, () => {
   logger.info(`🚀 HomeCare Backend Server running on http://${HOST}:${PORT}`);
   logger.info(`📡 Environment: ${config.nodeEnv}`);
-  logger.info(`🔗 MCP Server will be available on port ${config.mcp.port}`);
+  logger.info('🔗 MCP Server (Streamable HTTP) available at /mcp');
 });
 
 // Graceful Shutdown

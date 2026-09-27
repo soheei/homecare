@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-22 (카메라/마이크 하트비트 관련 엣지 명령어·환경변수 추가)
+> 최근 수정일시: 2026-09-27 (MCP 서버 `/mcp` Streamable HTTP 전환, `MCP_AUTH_TOKEN`/`MCP_SERVER_URL` 추가)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -20,7 +20,7 @@
 | `npm run kill` | 3000번 포트를 점유 중인 프로세스 종료 |
 | `npm test` | Jest 테스트 실행 (현재 5건 실패/2건 통과, 원인 미확인) |
 | `npm run lint` | eslint로 `src/` 검사 |
-| `npm run mcp` | MCP stdio 서버 단독 실행 (`node src/mcp/server.js`) — 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작. 실제 백엔드 채팅 기능은 이 서버를 쓰지 않음(도구를 인프로세스로 직접 호출) |
+| `npm run mcp` | MCP **stdio** 서버 단독 실행 (`node src/mcp/server.js`) — 로컬 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작. 웹 채팅은 이게 아니라 백엔드의 HTTP MCP 서버(`/mcp`)를 사용 |
 
 ### Frontend — `web/` (Vite + React, Vercel 배포되는 실제 프론트엔드)
 
@@ -68,7 +68,8 @@
 | Frontend Local | http://localhost:5173/ | `web/` Vite 개발 서버 기본값 |
 | Backend Production | https://homecare-9kcu.onrender.com | Render Web Service. 무료 플랜이면 유휴 후 첫 응답이 20초대로 느림 |
 | Backend Local | http://localhost:3000 | 로컬 실행 시 기본 포트(`.env.example` `PORT=3000`) |
-| MCP Server | 없음 (HTTP/URL로 열려있지 않음) | stdio 기반이라 네트워크 주소가 없음. 필요 시 로컬에서 `npm run mcp`로 프로세스 단위 실행 |
+| MCP Server (Production) | https://homecare-9kcu.onrender.com/mcp | 백엔드와 같은 Render 서비스, Streamable HTTP(stateless, `POST`만). `Authorization: Bearer <MCP_AUTH_TOKEN>` 필수. 웹 채팅도 이 서버를 MCP 클라이언트로 호출 |
+| MCP Server (Local) | http://localhost:3000/mcp | 로컬 백엔드 실행 시. stdio 버전은 `npm run mcp` |
 
 ---
 
@@ -107,8 +108,10 @@ LOG_LEVEL=
 RATE_LIMIT_WINDOW_MS=
 RATE_LIMIT_MAX_REQUESTS=
 
-MCP_SERVER_PORT=
+MCP_SERVER_PORT=     # 현재 코드에서 실사용 안 함 (과거 별도 포트 구상의 흔적)
 MCP_SERVER_NAME=
+MCP_AUTH_TOKEN=      # /mcp Bearer 토큰. 미설정 시 임의 토큰 → 웹 채팅만 동작, 외부 MCP 클라이언트 접속 불가
+MCP_SERVER_URL=      # 보통 설정 안 함 (기본: 같은 프로세스 http://127.0.0.1:${PORT}/mcp)
 
 VAPID_PUBLIC_KEY=    # 웹 푸시(Web Push). 프론트 VITE_VAPID_PUBLIC_KEY와 동일한 값이어야 함
 VAPID_PRIVATE_KEY=   # 생성: npx web-push generate-vapid-keys

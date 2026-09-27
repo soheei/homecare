@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-22 (카메라/마이크 온·오프 상태 하트비트 연동)
+> 최근 수정일시: 2026-09-27 (채팅 input_schema 400 수정, MCP 서버 Streamable HTTP 전환)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -97,7 +97,7 @@
 ### 배포 후 검증에서 발견·수정한 문제
 1. ~~**Render 환경변수에 `NODE_ENV=development`가 들어가 있어 인증이 우회됨**~~ — `/health`가 `environment: development`, 토큰 없이 `/api/chat/history`가 200. 프로덕션이 아니면 [auth.middleware.js](../src/middlewares/auth.middleware.js)가 더미 유저로 통과시키기 때문(누구나 Claude API 비용을 쓰게 만들 수 있는 상태). → `production`으로 변경. 재확인: `environment: production`, 인증 없는 요청 401. **(해결됨, 2026-09-20)**
 2. ~~**CORS에 Vercel 도메인 없음**~~ — Vercel Origin으로 요청 시 `access-control-allow-origin` 헤더 없음. → Render `ALLOWED_ORIGINS`에 `https://homecare-9sr8.vercel.app` 설정 후 헤더 확인. **(해결됨, 2026-09-20)**
-3. **Anthropic API 크레딧 부족** — 채팅 요청이 `Your credit balance is too low`(400)로 실패. 코드/연결 문제가 아니라 계정 크레딧 문제. → 충전 필요. **(충전 여부·채팅 응답 확인 필요)**
+3. ~~**Anthropic API 크레딧 부족** — 채팅 요청이 `Your credit balance is too low`(400)로 실패. 코드/연결 문제가 아니라 계정 크레딧 문제. → 충전 필요.~~ **(해결됨, 2026-09-27)** 충전 후 크레딧 에러는 사라짐. 채팅 응답은 2026-09-27 항목 참고.
 4. ~~**Supabase `events` 테이블에 `video_url` 컬럼 없음**~~ — 이벤트 저장이 `Could not find the 'video_url' column of 'events' in the schema cache`로 실패. Supabase에서 컬럼 추가, `database/schema.sql`에도 반영(`CREATE TABLE`에 컬럼 + `ADD COLUMN IF NOT EXISTS`). 이후 이벤트가 UUID로 저장되는 것 확인. **(해결됨, 2026-09-20)**
 5. ~~**이벤트 저장 실패를 `temp_` ID로 성공 처리(201)하던 폴백**~~ — [event.service.js](../src/services/event.service.js)의 `createEvent`가 DB 실패를 숨겨 엣지가 실패를 알 수 없었음(4번도 이 때문에 응답만 보면 성공처럼 보였음). → 저장 실패 시 500 `Failed to save event`를 반환하도록 수정(원인은 로그에만). **(해결됨, 2026-09-20)**
 6. **Render 무료 플랜 유휴 지연** — 유휴 후 첫 `/health` 응답이 약 22.7초. 채팅/엣지 전송에 영향. **미해결 (플랜 결정 필요)**
@@ -160,3 +160,31 @@
 - [edge/systemd/homecare-mic.service](../edge/systemd/homecare-mic.service), [edge/systemd/homecare-camera.service](../edge/systemd/homecare-camera.service) 신규 작성(`User=alarmi`, `WorkingDirectory=/home/alarmi/homecare`, `Restart=on-failure`).
 - [edge/README.md](../edge/README.md)의 안내를 `systemctl enable --now`(부팅 자동시작) 대신 `daemon-reload`만 미리 해두고 필요할 때 `systemctl start`/`stop`으로 수동 on/off 하는 방식으로 수정. `hometalk_인수인계.md`도 같은 방향으로 갱신.
 - 나중에 마음이 바뀌면 `systemctl enable`만 추가하면 부팅 자동시작으로 전환 가능하다고 README에 남겨둠.
+
+---
+
+## 2026-09-27
+
+### Anthropic 크레딧 충전 → 채팅 `input_schema` 400 에러 발견·수정
+- 사용자가 API 크레딧 충전 후 웹 채팅 "최근에 무슨 일 있었어?" → `400 invalid_request_error: tools.0.custom.input_schema: Field required`. 크레딧 에러는 사라지고 요청 검증 단계까지 도달한 것(크레딧 부족 시엔 이 검증 전에 막혀 드러나지 않았던 기존 버그).
+- 원인: `src/mcp/tools/*.js`의 도구 정의는 MCP 규격 `inputSchema`(camelCase)인데, `claude.service.js`가 그대로 Anthropic API에 넘김(API는 `input_schema` 요구). 도구 파일을 바꾸면 MCP 서버 쪽이 깨지므로 API 전달 시점에만 변환하도록 수정. 사용자가 직접 push.
+- 이 변환은 아래 MCP 전환 후 `mcp.service.js`의 `listTools()`로 옮겨짐.
+
+### `npm test` 기존 5건 실패 원인 확인 (수정은 안 함)
+- 채팅 테스트 4건: `tests/setup.js`가 `NODE_ENV=test`라 인증 우회(development 전용)가 안 걸리고, 테스트가 토큰 없이 요청해 401. 인증은 정상 — 테스트가 인증 추가 이전 기준으로 작성된 것으로 보임. 그대로 고치면 실제 Claude API를 호출해 크레딧이 나가므로 mock 필요.
+- 404 테스트 1건: `app.js`의 레거시 `frontend/` SPA 폴백 `app.get('*')`가 모든 GET에 `index.html`을 200으로 응답해 404 핸들러에 도달하지 않음(운영 Render에서도 동일할 것으로 보임).
+- 사용자가 정리 방향 결정 전이라 보류.
+
+### MCP 서버를 Streamable HTTP(`/mcp`)로 열고 채팅이 MCP 프로토콜로 도구 호출하도록 전환
+- 배경: 과제 목표가 "MCP 서버 활용으로 차별점". 기존 채팅은 도구 핸들러를 인프로세스로 직접 import해 호출 → 실제 MCP 통신이 없었음(`server.js` stdio 서버는 런타임 미사용).
+- 검토한 대안: A) 백엔드가 stdio 서버를 자식 프로세스로 실행(주소 없음, 외부 연결 불가) / **B) Express에 `/mcp` HTTP 엔드포인트 + 채팅은 MCP 클라이언트로 접속(선택)** / C) Claude API MCP 커넥터로 Anthropic이 직접 `/mcp` 호출(베타, Render 유휴 시 실패 위험, 디버깅 어려움 — B 위에 나중에 확장 가능). 설치된 `@modelcontextprotocol/sdk` 1.29.0에 Streamable HTTP 서버/클라이언트가 있어 새 의존성 없음.
+- 변경:
+  - `src/mcp/createServer.js` 신규 — 서버 생성+도구 등록을 팩토리로 분리. `server.js`(stdio)는 이걸 쓰도록 축소(`npm run mcp` 동작 유지, stdin으로 `tools/list` 9개 확인).
+  - `src/controllers/mcp.controller.js` + `src/routes/mcp.routes.js` 신규, `app.js`에서 `/mcp` 등록(SPA 폴백보다 앞). stateless 모드(요청마다 서버/트랜스포트 생성, `enableJsonResponse`). `GET`/`DELETE`는 405.
+  - `auth.middleware.js`에 `authenticateMcp` — `Authorization: Bearer <MCP_AUTH_TOKEN>`, timing-safe 비교, 개발환경에서도 스킵 안 함.
+  - `config/index.js`에 `mcp.url`(기본 `http://127.0.0.1:${PORT}/mcp`), `mcp.authToken`. `MCP_AUTH_TOKEN` 미설정 시 기동마다 임의 토큰 생성 → Render에 변수를 안 넣고 배포해도 채팅은 동작, 외부 접속만 막힘. `.env.example`엔 예시값이 그대로 쓰이지 않도록 주석으로만 추가.
+  - `src/services/mcp.service.js` 신규 — 채팅 1건당 MCP 연결 1개로 `tools/list`(→ `input_schema` 변환), `tools/call`(→ `tool_result` + `is_error`).
+  - `claude.service.js` — 직접 import/`MCP_TOOLS`/`MCP_HANDLERS`/`callMcpTool` 제거, `mcpService.withSession()` 안에서 tool_use 루프 실행.
+  - `index.js` 기동 로그의 "MCP Server will be available on port 3001"(실제 없는 포트) 문구를 `/mcp`로 수정.
+- 검증: `tests/mcp.test.js` 신규 9건 통과 — 토큰 없음/틀림 401, GET 405, SDK 클라이언트로 `tools/list` 9개, `tools/call` 결과(기기 서비스만 mock), 없는 도구 `isError`, `mcp.service` 변환, **채팅 전체 흐름**(Claude API mock: tool_use → MCP tools/call → tool_result 전달 → 최종 답변). 전체 `npm test` 16건 중 11 통과/5 실패(실패 5건은 기존과 동일, 회귀 없음). 변경 파일 eslint 통과(`index.js` 파일 끝 개행 경고는 기존).
+- **배포 후 확인 필요**: 커밋/푸시 전. 푸시 후 Render Logs에 `[MCP Client] tools/call ...`가 찍히는지, 웹 채팅이 실제 이벤트로 답하는지, 토큰 없이 `POST /mcp`가 401인지.

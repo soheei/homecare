@@ -4,38 +4,20 @@
  * [버그 수정]
  * 1. 멀티턴 대화: DB에서 히스토리 로드 & 저장
  * 2. MCP 도구 연결: tools 파라미터 전달 + tool_use 루프 처리
+ *
+ * 도구 목록/실행은 HTTP MCP 서버(/mcp)를 MCP 클라이언트(mcp.service.js)로 호출한다.
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
 const config = require('../config');
 const logger = require('../utils/logger');
 const { supabase, supabaseAdmin } = require('../config/supabase');
-
-// MCP 도구 정의 & 핸들러 import
-const eventTools = require('../mcp/tools/event.tools');
-const cameraTools = require('../mcp/tools/camera.tools');
+const mcpService = require('./mcp.service');
 
 // Anthropic 클라이언트 초기화
 const anthropic = new Anthropic({
   apiKey: config.anthropic.apiKey || 'placeholder-key'
 });
-
-// Claude에 전달할 MCP 도구 목록 (버그 2 수정)
-// 도구 정의는 MCP 규격(inputSchema)이라 Anthropic API 규격(input_schema)으로 변환해서 전달
-const MCP_TOOLS = [
-  ...eventTools.definitions,
-  ...cameraTools.definitions
-].map(({ name, description, inputSchema }) => ({
-  name,
-  description,
-  input_schema: inputSchema
-}));
-
-// 모든 MCP 핸들러 맵 (버그 2 수정)
-const MCP_HANDLERS = {
-  ...eventTools.handlers,
-  ...cameraTools.handlers
-};
 
 // 시스템 프롬프트
 const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자의 집 안 상황을 모니터링하고 질문에 답변하는 역할을 합니다.
@@ -129,30 +111,6 @@ const saveMessage = async (conversationId, role, content) => {
 };
 
 // ============================================================
-// [버그 2 수정] MCP 도구 실행
-// ============================================================
-
-/**
- * tool_use 블록을 받아 실제 MCP 핸들러 실행
- */
-const callMcpTool = async (toolName, toolArgs) => {
-  const handler = MCP_HANDLERS[toolName];
-  if (!handler) {
-    logger.warn(`[Claude] Unknown MCP tool requested: ${toolName}`);
-    return { error: `Unknown tool: ${toolName}` };
-  }
-
-  try {
-    logger.info(`[Claude] Calling MCP tool: ${toolName}`);
-    const result = await handler(toolArgs || {});
-    return result;
-  } catch (error) {
-    logger.error(`[Claude] MCP tool error (${toolName}):`, error);
-    return { error: error.message };
-  }
-};
-
-// ============================================================
 // 메인 채팅 함수 (버그 1 + 2 통합 수정)
 // ============================================================
 
@@ -176,56 +134,64 @@ const chat = async ({ message, conversationId, userId }) => {
     // 3. 현재 유저 메시지를 히스토리에 추가
     const messages = [...history, { role: 'user', content: message }];
 
-    // 4. [버그 2 수정] Claude API 호출 - MCP tools 파라미터 전달
-    let response = await anthropic.messages.create({
-      model: config.anthropic.model,
-      max_tokens: config.anthropic.maxTokens,
-      system: SYSTEM_PROMPT,
-      tools: MCP_TOOLS,
-      messages
-    });
+    // 4~5. MCP 서버에 접속해 도구 목록을 받고, Claude의 tool_use 요청을 MCP tools/call로 실행
+    const response = await mcpService.withSession(async (mcp) => {
+      // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
+      const tools = await mcp.listTools();
 
-    logger.debug(`[Claude] stop_reason: ${response.stop_reason}`);
-
-    // 5. [버그 2 수정] tool_use 루프 - Claude가 도구 사용을 완료할 때까지 반복
-    let loopCount = 0;
-    const MAX_TOOL_LOOPS = 5; // 무한루프 방지
-
-    while (response.stop_reason === 'tool_use' && loopCount < MAX_TOOL_LOOPS) {
-      loopCount++;
-
-      // tool_use 블록 추출 (동시에 여러 개 요청할 수 있음)
-      const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
-
-      // assistant 메시지(tool_use 포함)를 히스토리에 추가
-      messages.push({ role: 'assistant', content: response.content });
-
-      // 각 도구 병렬 실행 후 tool_result 수집
-      const toolResults = await Promise.all(
-        toolUseBlocks.map(async (toolBlock) => {
-          const result = await callMcpTool(toolBlock.name, toolBlock.input);
-          return {
-            type: 'tool_result',
-            tool_use_id: toolBlock.id,
-            content: JSON.stringify(result, null, 2)
-          };
-        })
-      );
-
-      // tool_result를 user 역할로 히스토리에 추가
-      messages.push({ role: 'user', content: toolResults });
-
-      // Claude에 도구 결과를 전달하고 다시 응답 요청
-      response = await anthropic.messages.create({
+      let res = await anthropic.messages.create({
         model: config.anthropic.model,
         max_tokens: config.anthropic.maxTokens,
         system: SYSTEM_PROMPT,
-        tools: MCP_TOOLS,
+        tools,
         messages
       });
 
-      logger.debug(`[Claude] Tool loop ${loopCount}, stop_reason: ${response.stop_reason}`);
-    }
+      logger.debug(`[Claude] stop_reason: ${res.stop_reason}`);
+
+      // 5. [버그 2 수정] tool_use 루프 - Claude가 도구 사용을 완료할 때까지 반복
+      let loopCount = 0;
+      const MAX_TOOL_LOOPS = 5; // 무한루프 방지
+
+      while (res.stop_reason === 'tool_use' && loopCount < MAX_TOOL_LOOPS) {
+        loopCount++;
+
+        // tool_use 블록 추출 (동시에 여러 개 요청할 수 있음)
+        const toolUseBlocks = res.content.filter(b => b.type === 'tool_use');
+
+        // assistant 메시지(tool_use 포함)를 히스토리에 추가
+        messages.push({ role: 'assistant', content: res.content });
+
+        // 각 도구를 MCP 서버로 병렬 호출 후 tool_result 수집
+        const toolResults = await Promise.all(
+          toolUseBlocks.map(async (toolBlock) => {
+            const result = await mcp.callTool(toolBlock.name, toolBlock.input);
+            return {
+              type: 'tool_result',
+              tool_use_id: toolBlock.id,
+              content: result.content,
+              is_error: result.isError
+            };
+          })
+        );
+
+        // tool_result를 user 역할로 히스토리에 추가
+        messages.push({ role: 'user', content: toolResults });
+
+        // Claude에 도구 결과를 전달하고 다시 응답 요청
+        res = await anthropic.messages.create({
+          model: config.anthropic.model,
+          max_tokens: config.anthropic.maxTokens,
+          system: SYSTEM_PROMPT,
+          tools,
+          messages
+        });
+
+        logger.debug(`[Claude] Tool loop ${loopCount}, stop_reason: ${res.stop_reason}`);
+      }
+
+      return res;
+    });
 
     // 6. 최종 텍스트 응답 추출
     const content = response.content

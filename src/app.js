@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const config = require('./config');
 const routes = require('./routes');
+const mcpRoutes = require('./routes/mcp.routes');
 const { errorHandler, notFoundHandler } = require('./middlewares/error.middleware');
 const logger = require('./utils/logger');
 
@@ -80,6 +81,9 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api', routes);
+
+// MCP Server (Streamable HTTP) — 아래 SPA 폴백(app.get('*'))보다 먼저 등록해야 함
+app.use('/mcp', mcpRoutes);
 
 // ===========================================
 // Frontend Static Files

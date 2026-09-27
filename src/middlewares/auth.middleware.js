@@ -166,6 +166,31 @@ const authenticateDevice = async (req, res, next) => {
 };
 
 // ============================================================
+// MCP 서버(/mcp) 인증 미들웨어
+// ============================================================
+
+/**
+ * Authorization: Bearer <MCP_AUTH_TOKEN> 확인
+ * - 개발 환경에서도 스킵하지 않음 (내부 채팅 클라이언트는 항상 토큰을 보냄)
+ * - 응답은 JSON-RPC 에러 형식 (MCP 클라이언트가 해석할 수 있도록)
+ */
+const authenticateMcp = (req, res, next) => {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+  if (!token || !safeCompare(token, config.mcp.authToken)) {
+    logger.warn(`[Auth] Invalid MCP token from ${req.ip}`);
+    return res.status(401).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Unauthorized' },
+      id: null
+    });
+  }
+
+  next();
+};
+
+// ============================================================
 // 관리자 권한 확인 미들웨어
 // ============================================================
 
@@ -182,5 +207,6 @@ const requireAdmin = (req, res, next) => {
 module.exports = {
   authenticateUser,
   authenticateDevice,
+  authenticateMcp,
   requireAdmin
 };

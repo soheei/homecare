@@ -1,85 +1,17 @@
 /**
- * MCP Server - Model Context Protocol Server
- * Claude가 호출할 수 있는 도구들을 제공
+ * MCP Server (stdio) - Model Context Protocol Server
+ * 외부 MCP 클라이언트가 프로세스로 직접 실행하는 용도 (npm run mcp)
+ * 웹 채팅은 이 파일이 아니라 HTTP 엔드포인트(/mcp, src/routes/mcp.routes.js)를 사용
  */
 
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
-const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 
 const config = require('../config');
 const logger = require('../utils/logger');
-const eventTools = require('./tools/event.tools');
-const cameraTools = require('./tools/camera.tools');
+const { createMcpServer } = require('./createServer');
 
 // MCP 서버 생성
-const server = new Server(
-  {
-    name: config.mcp.name,
-    version: '1.0.0'
-  },
-  {
-    capabilities: {
-      tools: {}
-    }
-  }
-);
-
-// 도구 목록 정의
-const tools = [
-  ...eventTools.definitions,
-  ...cameraTools.definitions
-];
-
-// 도구 목록 요청 핸들러
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return { tools };
-});
-
-// 도구 호출 핸들러
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  logger.info(`[MCP] Tool called: ${name}`);
-  logger.debug(`[MCP] Arguments:`, args);
-
-  try {
-    let result;
-
-    // 이벤트 관련 도구
-    if (eventTools.handlers[name]) {
-      result = await eventTools.handlers[name](args);
-    }
-    // 카메라 관련 도구
-    else if (cameraTools.handlers[name]) {
-      result = await cameraTools.handlers[name](args);
-    }
-    else {
-      throw new Error(`Unknown tool: ${name}`);
-    }
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2)
-        }
-      ]
-    };
-
-  } catch (error) {
-    logger.error(`[MCP] Tool error (${name}):`, error);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ error: error.message })
-        }
-      ],
-      isError: true
-    };
-  }
-});
+const server = createMcpServer();
 
 // 서버 시작
 async function main() {

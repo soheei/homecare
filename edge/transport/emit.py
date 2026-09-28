@@ -54,8 +54,13 @@ class EventEmitter:
         video_path: Optional[str] = None,
         extra: Optional[dict] = None,
         occurred_at: Optional[datetime] = None,
+        delete_originals_on_sent: bool = False,
     ) -> Optional[str]:
-        """큐에 저장하면 event_uid를, 전송 대상이 아니거나 쿨다운 중이면 None을 반환."""
+        """큐에 저장하면 event_uid를, 전송 대상이 아니거나 쿨다운 중이면 None을 반환.
+
+        delete_originals_on_sent: True면 전송 성공 후 image/audio/video 원본 파일도 삭제
+        (실패로 끝나면 원본은 남김). 쿨다운 등으로 큐에 안 들어가면 원본은 그대로 둔다.
+        """
         spec = event_mapper.get_spec(category_id)
         if spec is None:
             log.warning("알 수 없는 category_id, 무시: %s", category_id)
@@ -87,6 +92,6 @@ class EventEmitter:
         attachments = {
             k: v for k, v in (("image", image_path), ("audio", audio_path), ("video", video_path)) if v
         }
-        self.outbox.enqueue(uid, payload, attachments)
+        self.outbox.enqueue(uid, payload, attachments, delete_originals_on_sent=delete_originals_on_sent)
         log.info("이벤트 큐 저장 uid=%s type=%s level=%s", uid, spec.type, spec.danger_level)
         return uid

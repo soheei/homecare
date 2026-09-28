@@ -143,6 +143,7 @@
 
 - [ ] vision 이벤트의 `device_id` — **카메라 기기 id**(`HOMECARE_CAMERA_DEVICE_ID`)여야 함 (2026-09-28 통합 때 수정됨)
 - [ ] vision 이벤트의 `timestamp` — 실제 시각과 **9시간 어긋나는지** 확인(시간대 누락 의심, 0-5)
+- [ ] Pi 원본 정리: 이벤트 전송 로그(`전송 완료 uid=…`) 뒤 `ls -R ~/homecare/edge/data/events`에 그 영상·썸네일이 **없어야** 함. 전송 대기 중(`edge/data/vision/`)엔 남아 있음
 - [ ] `video_url`/`image_url`이 채워졌는지 → 1번 섹션 방법으로 서명 URL을 받아 **휴대폰 브라우저에서 영상 재생** 확인
 
 ---
@@ -173,7 +174,7 @@
 - [ ] **0-5 vision 전용 설정** (`vision/vision_pipeline.py`, `event_recorder.py`)
   - 이벤트 시각에 한국 시간대 붙이기 (`datetime.now()` → 시간대 포함)
   - [x] H.264: 저장 후 ffmpeg(libx264)로 변환 (`event_recorder.py`, 2026-09-28) — 실패해도 원본 mp4v로 전송
-  - 전송 끝난 Pi 로컬 영상 정리 (`/mnt/ssd/events`가 계속 쌓임)
+  - [x] Pi 로컬 영상 정리: 전송 성공하면 원본(영상·썸네일) 삭제, 최종 실패하면 남김 (`edge/transport/outbox.py` `delete_originals_on_sent`, 2026-09-28)
 - [x] 0-6 카메라 서비스를 vision으로 통합 — vision이 하트비트 + "현재 화면 보기"(메모리 최신 프레임) 처리, `homecare-camera.service`가 `vision.vision_pipeline` 실행, 이벤트는 카메라 기기 id + `edge/data/vision/` 큐 (`vision/camera_service.py`) — 2026-09-28
 - [ ] **vision 의존성 정리** — `ultralytics`, `opencv`, `picamera2` 설치 방법을 문서/requirements에 반영 (3-1 결과에 따라)
 

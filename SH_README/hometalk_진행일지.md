@@ -379,3 +379,10 @@
 - 수정: `vision/event_recorder.py` — `avc1` 열기에 실패해 `mp4v`로 저장한 경우에만 `ffmpeg -c:v libx264 -preset veryfast -pix_fmt yuv420p -movflags +faststart`로 변환 후 교체. ffmpeg 없음/시간 초과/실패 시 경고만 찍고 원본 mp4v 유지(이벤트 전송은 계속). `vision/requirements.txt`에 ffmpeg(apt) 안내.
 - 검증: `vision/tests/test_event_recorder.py` 4건 신규(mp4v→H.264 교체, avc1 성공 시 변환 안 함, ffmpeg 없음 → 원본 유지, 변환 실패 → 원본 유지·임시 파일 정리) — PC엔 ffmpeg가 없어 가짜 ffmpeg로 검증. vision 24·엣지 25 통과. **Pi 실제 변환·브라우저 재생 확인 필요**.
 - 참고: Pi에선 매 이벤트 저장 때 OpenCV가 `h264_v4l2m2m` 관련 ERROR 로그를 찍음(avc1 시도 실패 메시지) — 동작엔 영향 없음.
+
+### vision 이벤트 영상 — 전송 성공 시 Pi 원본 삭제 (0-5 일부)
+- 요청: Pi 원본(영상·썸네일)은 전송 성공하면 삭제. 기존엔 전송 대기 복사본만 지우고 원본(`HOMECARE_EVENT_DIR` 아래)은 계속 쌓였음.
+- 대안: emit 직후 원본 삭제(`capture_photo` 방식 — 최종 실패 시 영상이 사라짐) / **큐에 원본 경로를 함께 기록해 전송 성공 때 삭제(선택 — 실패분은 Pi에 남음, 재부팅에도 유지)**.
+- 수정: `edge/transport/outbox.py` `enqueue(..., delete_originals_on_sent=False)` — True면 첨부 항목에 `original` 경로 기록, `mark_sent`에서 원본까지 삭제, `mark_dead`는 큐 복사본만 삭제. `emit.py`에 같은 인자 전달. `vision_pipeline.py`만 True로 호출(마이크·capture_photo 등 기존 동작 불변). 원본 경로는 큐 DB에만 있고 백엔드로 보내지 않음.
+- 검증: 엣지 테스트 3건 신규(성공 시 원본 삭제·재시작 후에도, 실패 시 원본 유지, 기본값은 원본 유지) — 수정 전 실패 확인 후 통과, 엣지 28·vision 24. 실제 녹화→큐→가짜 전송 스크립트로 201이면 원본 삭제·400이면 유지 확인.
+- 참고: 쿨다운 등으로 큐에 안 들어간 이벤트의 원본은 전송되지 않으므로 그대로 남음.

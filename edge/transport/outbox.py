@@ -64,8 +64,14 @@ class Outbox:
         finally:
             conn.close()
 
-    def enqueue(self, uid: str, payload: dict, attachments: Optional[Dict[str, str]] = None) -> str:
-        """attachments: {"image": "/path/a.jpg", "audio": "/path/b.wav"} — 큐 폴더로 복사해 보관."""
+    def enqueue(self, uid: str, payload: dict, attachments: Optional[Dict[str, str]] = None,
+                delete_originals_on_sent: bool = False) -> str:
+        """attachments: {"image": "/path/a.jpg", "audio": "/path/b.wav"} — 큐 폴더로 복사해 보관.
+
+        delete_originals_on_sent: True면 전송 성공(mark_sent) 때 원본 파일도 지운다.
+            최종 실패(mark_dead)하면 원본은 남겨 나중에 확인할 수 있게 한다.
+            (원본 경로는 큐 DB에만 기록되고 백엔드로는 보내지 않음)
+        """
         saved = []
         for field, src in (attachments or {}).items():
             if field not in ALLOWED_FIELDS:
@@ -76,7 +82,10 @@ class Outbox:
                 raise ValueError(f"지원하지 않는 첨부 확장자: {src.suffix}")
             dest = self.attach_dir / f"{uid}_{field}{src.suffix.lower()}"
             shutil.copy2(src, dest)
-            saved.append({"field": field, "path": str(dest), "mime": mime})
+            entry = {"field": field, "path": str(dest), "mime": mime}
+            if delete_originals_on_sent:
+                entry["original"] = str(src)
+            saved.append(entry)
 
         now = time.time()
         with self._conn() as conn:
@@ -108,7 +117,7 @@ class Outbox:
     def mark_sent(self, row: dict) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM outbox WHERE id=?", (row["id"],))
-        self._delete_files(row)
+        self._delete_files(row, include_originals=True)
 
     def mark_retry(self, row: dict, error: str, delay_sec: float) -> int:
         """시도 횟수를 올리고 delay 뒤로 미룬다. 새 시도 횟수를 반환."""
@@ -136,9 +145,13 @@ class Outbox:
         return result
 
     @staticmethod
-    def _delete_files(row: dict) -> None:
+    def _delete_files(row: dict, include_originals: bool = False) -> None:
         for att in row.get("attachments", []):
-            try:
-                Path(att["path"]).unlink(missing_ok=True)
-            except OSError:
-                pass
+            paths = [att["path"]]
+            if include_originals and att.get("original"):
+                paths.append(att["original"])
+            for path in paths:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass

@@ -118,7 +118,7 @@
   sudo systemctl stop  homecare-camera.service
   systemctl is-active  homecare-camera.service
   ```
-  - `homecare-camera.service`(2026-09-28부터 `python -m vision.vision_pipeline`)는 **YOLO 이벤트 감지** + **하트비트** + **앱/채팅의 "현재 화면 보기" 요청 대기**(아래 "현재 화면 캡처")를 함께 돌린다. 이 서비스가 꺼져 있으면 현재 화면 보기는 "카메라가 꺼져 있어…"로 안내된다. 필요 환경: `edge/.env`의 `HOMECARE_CAMERA_DEVICE_ID`, vision 의존성(`ultralytics`, `opencv`, `picamera2` — 설치 여부 **확인 필요**), 영상 저장 폴더 `HOMECARE_EVENT_DIR`(기본 `/mnt/ssd/events` — Pi에 없으므로 `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 지정, 상대 경로는 저장소 루트 기준). 이벤트로 DB에 남기는 수동 촬영(`capture_photo`)은 카메라를 따로 열기 때문에 **이 서비스를 끈 상태에서만** 동작.
+  - `homecare-camera.service`(2026-09-28부터 `python -m vision.vision_pipeline`)는 **YOLO 이벤트 감지** + **하트비트** + **앱/채팅의 "현재 화면 보기" 요청 대기**(아래 "현재 화면 캡처")를 함께 돌린다. 이 서비스가 꺼져 있으면 현재 화면 보기는 "카메라가 꺼져 있어…"로 안내된다. 필요 환경: `edge/.env`의 `HOMECARE_CAMERA_DEVICE_ID`, vision 의존성(`ultralytics`, `opencv`, `picamera2` — 설치 여부 **확인 필요**), 영상 저장 폴더 `HOMECARE_EVENT_DIR`(전송 성공하면 원본 영상·썸네일은 Pi에서 삭제, 최종 실패분만 남음 / 기본 `/mnt/ssd/events` — Pi에 없으므로 `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 지정, 상대 경로는 저장소 루트 기준). 이벤트로 DB에 남기는 수동 촬영(`capture_photo`)은 카메라를 따로 열기 때문에 **이 서비스를 끈 상태에서만** 동작.
 
 ## 현재 화면 캡처 — 홈 카메라 카드 / 채팅 "현재 화면 보여줘" (2026-09-27 추가)
 

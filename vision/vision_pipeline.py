@@ -292,6 +292,9 @@ def main():
                     occurred_at=saved_event[
                         "event_time"
                     ],
+                    # 전송 성공하면 Pi 원본(영상·썸네일) 삭제 — Storage에 올라갔으므로.
+                    # 최종 실패하면 원본은 남겨 둔다.
+                    delete_originals_on_sent=True,
                 )
 
                 print(

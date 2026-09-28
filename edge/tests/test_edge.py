@@ -102,6 +102,41 @@ class OutboxTest(unittest.TestCase):
             self.assertFalse(Path(att["path"]).exists())
             self.assertEqual(box.counts(), {"pending": 0, "dead": 0})
 
+    def _enqueue_with_originals(self, tmp):
+        video, thumb = Path(tmp) / "clip.mp4", Path(tmp) / "clip_thumb.jpg"
+        video.write_bytes(b"mp4")
+        thumb.write_bytes(b"jpg")
+        box = Outbox(Path(tmp) / "data")
+        box.enqueue("u1", {"type": "visitor"}, {"video": str(video), "image": str(thumb)},
+                    delete_originals_on_sent=True)
+        # 재시작해도 유지되는지 보려고 새 Outbox로 다시 읽음
+        (row,) = Outbox(Path(tmp) / "data").fetch_due()
+        return box, row, video, thumb
+
+    def test_originals_deleted_after_sent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            box, row, video, thumb = self._enqueue_with_originals(tmp)
+            self.assertTrue(video.exists() and thumb.exists())  # 큐에 넣었다고 바로 지우지 않음
+            box.mark_sent(row)
+            self.assertFalse(video.exists() or thumb.exists())
+
+    def test_originals_kept_when_dead(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            box, row, video, thumb = self._enqueue_with_originals(tmp)
+            box.mark_dead(row, "HTTP 400")
+            self.assertTrue(video.exists() and thumb.exists())  # 전송 실패한 영상은 Pi에 남김
+            self.assertFalse(Path(row["attachments"][0]["path"]).exists())  # 큐 복사본만 정리
+
+    def test_originals_kept_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "clip.wav"
+            src.write_bytes(b"RIFFdata")
+            box = Outbox(Path(tmp) / "data")
+            box.enqueue("u1", {"type": "sound"}, {"audio": str(src)})
+            (row,) = box.fetch_due()
+            box.mark_sent(row)
+            self.assertTrue(src.exists())
+
     def test_survives_restart_and_rejects_bad_attachment(self):
         with tempfile.TemporaryDirectory() as tmp:
             Outbox(Path(tmp)).enqueue("u1", {"type": "sound"})

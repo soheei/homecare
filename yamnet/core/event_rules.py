@@ -235,7 +235,7 @@ CATEGORY_RULE_CONFIG = {
         fn=rule_combo_cooccurrence,
         kwargs=dict(
             class_id_groups=[[i] for i in _cat_class_ids("fire_alarm_siren")],
-            threshold=0.3,
+            threshold=0.5,
             window_frames=3,
             min_groups=1,  # locked, 즉시 알림 정책 — 클래스 1개만 넘어도 트리거.
                            # 2개 이상 동시 상승은 신뢰도를 높이는 참고 정보로만 활용 (evidence).
@@ -269,7 +269,7 @@ CATEGORY_RULE_CONFIG = {
     ),
     "door_visitor": dict(
         fn=rule_threshold,
-        kwargs=dict(class_ids=_cat_class_ids("door_visitor"), threshold=0.3),
+        kwargs=dict(class_ids=_cat_class_ids("door_visitor"), threshold=0.5),
     ),
     "door_security": dict(
         fn=rule_threshold,

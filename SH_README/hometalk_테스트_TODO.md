@@ -24,7 +24,7 @@
   ```bash
   source .venv/bin/activate
   python -m unittest discover -s edge/tests -t .     # 기대: 25개 OK
-  python -m unittest discover -s vision/tests -t .   # 기대: 17개 OK (cv2, numpy 필요)
+  python -m unittest discover -s vision/tests -t .   # 기대: 20개 OK (cv2, numpy 필요)
   ```
 
 ---
@@ -82,7 +82,9 @@
 
 ### 3-1. 실행 환경 (먼저 확인)
 
-- [ ] **vision 의존성 설치 여부** — 어느 requirements 파일에도 없음
+- [x] **vision 의존성 설치 여부** — 2026-09-28 Pi 확인 결과: venv(Python 3.13.5, numpy 2.5.3)에 `cv2`·`torch`·`ultralytics`·`picamera2` **전부 없음**. picamera2는 apt(`python3-picamera2`)로 시스템에만 설치됨, venv는 `include-system-site-packages = false`. sparse-checkout에 vision 포함, `HOMECARE_CAMERA_DEVICE_ID` 설정됨, `/mnt/ssd` **없음**
+  - [ ] 조치: ① `.venv/pyvenv.cfg`의 `include-system-site-packages`를 `true`로 → ② venv에서 `pip install ultralytics` → ③ numpy/tensorflow 버전이 바뀌지 않았는지, 마이크 쪽 import 확인 (명령은 진행일지 2026-09-28 "Pi vision 의존성 확인")
+  - 원래 메모: 어느 requirements 파일에도 없음
   ```bash
   python -c "import cv2, ultralytics, picamera2; print('OK')"
   ```
@@ -91,7 +93,7 @@
   ```bash
   python -c "import cv2; w=cv2.VideoWriter('/tmp/t.mp4', cv2.VideoWriter_fourcc(*'avc1'), 5, (640,480)); print('H.264 가능' if w.isOpened() else 'H.264 불가 → mp4v로 저장됨(브라우저 재생 불가)')"
   ```
-- [ ] **영상 저장 폴더** — 기본 `/mnt/ssd/events`. 없으면 `export HOMECARE_EVENT_DIR=~/homecare_events`로 지정 후 실행
+- [ ] **영상 저장 폴더** — 기본 `/mnt/ssd/events`인데 Pi에 `/mnt/ssd` 없음(2026-09-28). `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 추가 (코드 수정 A안 반영됨 2026-09-28 — `.env` 값이 적용됨, 상대 경로는 저장소 루트 기준). 서비스 시작 로그 `[EVENT DIR] /home/alarmi/homecare/edge/data/events` 확인
 - [ ] **`edge/.env`에 `HOMECARE_CAMERA_DEVICE_ID`** 가 있는지 (없으면 vision이 "설정 오류"로 바로 종료)
 
 실행: `sudo systemctl start homecare-camera.service` → `journalctl -u homecare-camera.service -f`

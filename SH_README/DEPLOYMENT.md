@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-28 (카메라 서비스 = vision 파이프라인, 테스트 현황 52/5, 엣지 실행 명령 `python -m edge.xxx` → `python -m edge.apps.xxx` — edge/ 폴더 재구성 / 이전: camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 추가)
+> 최근 수정일시: 2026-09-28 (HOMECARE_EVENT_DIR .env 반영, 카메라 서비스 = vision 파이프라인, 테스트 현황 52/5, 엣지 실행 명령 `python -m edge.xxx` → `python -m edge.apps.xxx` — edge/ 폴더 재구성 / 이전: camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 추가)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -136,6 +136,7 @@ HOMECARE_BACKEND_URL=       # 백엔드 주소 (끝에 / 없이)
 HOMECARE_DEVICE_ID=         # Supabase devices 테이블의 마이크(ReSpeaker) 기기 행 id (events 행의 id가 아님)
 EDGE_DEVICE_SECRET=         # Render의 EDGE_DEVICE_SECRET과 같은 값
 HOMECARE_CAMERA_DEVICE_ID=  # Supabase devices 테이블의 카메라(Camera Module V3) 기기 행 id — 카메라 서비스(vision)·capture_photo가 사용
+HOMECARE_EVENT_DIR=         # (선택) vision 이벤트 영상 저장 폴더, 기본 /mnt/ssd/events — Pi에 /mnt/ssd가 없으면 edge/data/events (상대 경로 = 저장소 루트 기준)
 
 # 선택
 # EDGE_REQUEST_TIMEOUT=60

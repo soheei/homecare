@@ -355,3 +355,15 @@
 - 달라지는 점: "현재 화면 보기" 사진 1280×720 → 640×480(vision 해상도), 대신 카메라를 다시 열지 않아 즉시 응답. `capture_photo`/`camera_monitor --list-cameras`는 서비스를 끈 상태에서만 동작.
 - 검증: `vision/tests/test_camera_service.py` 5건 신규(프레임 없음/오래됨 → 꺼짐, JPEG 인코딩, 캡처 요청에 최신 프레임 업로드·rpicam-still 미사용, 카메라 기기 id로 시작) → vision 17개·엣지 25개 통과. 가짜 카메라/YOLO로 `main()` 연결 스모크 테스트(카메라 기기 id·vision 큐·최신 프레임 JPEG 확인).
 - **Pi 반영 시 주의**: README의 sparse-checkout이 `edge yamnet/core`만 받게 되어 있어 Pi에 `vision/`이 없을 수 있음 → `git sparse-checkout add vision`. unit 파일 재복사 필요. vision 의존성 설치 여부 **확인 필요**. 확인 순서는 `hometalk_테스트_TODO.md` 3-1b.
+
+### Pi vision 의존성 확인 (사용자가 Pi에서 확인 명령 실행)
+- 결과: sparse-checkout에 `vision` 포함·폴더 있음, `edge/.env`에 `HOMECARE_CAMERA_DEVICE_ID` 있음. venv = Python 3.13.5, numpy 2.5.3, `include-system-site-packages = false`. venv에 `cv2`·`torch`·`ultralytics`·`picamera2` **없음**, picamera2는 apt `python3-picamera2`로 시스템에만 설치. `/mnt/ssd` **없음**. H.264는 cv2가 없어 확인 불가.
+- 영향: 카메라 서비스(= vision)가 `import cv2`에서 바로 종료 → systemd가 10초마다 재시작 반복 가능. 설치 전까지 `homecare-camera.service`는 꺼 둘 것.
+- 추가 발견: `vision_pipeline.py`가 `HOMECARE_EVENT_DIR`·`HOMECARE_CAMERA_ID`·`HOMECARE_CAMERA_CHECK_INTERVAL_SEC`를 모듈 로드 시점에 읽는데 `edge/.env`는 `main()`의 `load_config()`에서 로드됨 → `.env`에 적어도 무시되고 기본값 `/mnt/ssd/events` 사용 → 첫 이벤트 저장에서 폴더 생성 실패로 종료. 수정안: `load_config()` 이후에 읽기(A안, 추천) / systemd `Environment=`(B안). **미착수 — 사용자 결정 대기**.
+- 설치 안내(미실행): ① `.venv/pyvenv.cfg` `include-system-site-packages = true` ② `pip install ultralytics` ③ numpy/tensorflow 버전 전후 비교 + `cv2 torch ultralytics picamera2 tensorflow sounddevice` import + H.264 + 엣지 25·vision 17 테스트. 위험(**확인 필요**): ultralytics 설치가 numpy를 바꿔 마이크(TensorFlow)에 영향, apt picamera2와 venv numpy 2.5.3 충돌.
+
+### vision 설정값(.env) 반영 수정 — A안
+- 문제: `vision/vision_pipeline.py`가 `HOMECARE_EVENT_DIR`·`HOMECARE_CAMERA_ID`·`HOMECARE_CAMERA_CHECK_INTERVAL_SEC`를 모듈 로드 시점에 읽음 → `edge/.env`(= `main()`의 `load_config()`에서 로드)에 적어도 무시되고 기본값 `/mnt/ssd/events` 사용 → Pi엔 `/mnt/ssd`가 없어 첫 이벤트 저장에서 종료될 상황.
+- 수정: 세 값을 `read_settings()`로 옮겨 `load_config()` 이후 호출. 기본값 유지. 상대 경로는 실행 위치와 무관하게 저장소 루트 기준으로 해석(서비스 `WorkingDirectory`와 직접 실행 모두 같은 곳). `edge/.env.example`·DEPLOYMENT·인수인계·테스트 TODO에 `HOMECARE_EVENT_DIR=edge/data/events` 안내.
+- 검증: `vision/tests/test_pipeline_settings.py` 3건 신규(임시 .env 값 반영·상대 경로 루트 기준, 절대 경로 유지, 미설정 시 기본값) → vision 20·엣지 25 통과, 가짜 카메라 스모크 테스트 정상.
+- Pi 적용: `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 한 줄 추가(값은 Pi에서 직접).

@@ -67,23 +67,45 @@ DELIVERY_REQUIRED_FRAMES = 10  # 사람이 떠난 뒤 새 물체가 5fps 기준 
 # Storage
 # ==========================================
 
-EVENT_BASE_DIR = os.environ.get(
-    "HOMECARE_EVENT_DIR",
-    "/mnt/ssd/events",
-)
-
-CAMERA_ID = os.environ.get(
-    "HOMECARE_CAMERA_ID",
-    "camera_01",
-)
+DEFAULT_EVENT_DIR = "/mnt/ssd/events"
+DEFAULT_CAMERA_ID = "camera_01"
 
 # ==========================================
 # Camera service (하트비트 / 현재 화면 보기)
 # ==========================================
 
-HEARTBEAT_INTERVAL_SEC = float(
-    os.environ.get("HOMECARE_CAMERA_CHECK_INTERVAL_SEC", "20")
-)
+DEFAULT_HEARTBEAT_INTERVAL_SEC = 20.0
+
+
+def read_settings():
+    """
+    환경변수 설정값을 읽는다. edge/.env는 load_config()에서 로드되므로
+    반드시 load_config() 이후에 호출해야 .env에 적은 값이 반영된다.
+
+    HOMECARE_EVENT_DIR가 상대 경로(예: edge/data/events)면
+    실행 위치와 상관없이 저장소 루트 기준으로 해석한다.
+    """
+
+    event_dir = Path(
+        os.environ.get("HOMECARE_EVENT_DIR", DEFAULT_EVENT_DIR)
+    )
+
+    if not event_dir.is_absolute():
+        event_dir = VISION_DIR.parent / event_dir
+
+    return {
+        "event_dir": str(event_dir),
+        "camera_id": os.environ.get(
+            "HOMECARE_CAMERA_ID",
+            DEFAULT_CAMERA_ID,
+        ),
+        "heartbeat_interval_sec": float(
+            os.environ.get(
+                "HOMECARE_CAMERA_CHECK_INTERVAL_SEC",
+                DEFAULT_HEARTBEAT_INTERVAL_SEC,
+            )
+        ),
+    }
 
 
 def main():
@@ -102,6 +124,11 @@ def main():
     )
 
     cfg = load_config()
+
+    # .env 로드 이후에 읽어야 HOMECARE_EVENT_DIR 등 .env 값이 반영됨
+    settings = read_settings()
+    event_base_dir = settings["event_dir"]
+    camera_id = settings["camera_id"]
 
     # vision은 카메라 서비스 — 이벤트·하트비트는 마이크가 아니라 카메라 기기 id로,
     # 전송 큐도 마이크(edge/data/)와 분리 (같은 큐면 마이크 쪽 sender가 마이크 id로 보내버림)
@@ -157,8 +184,8 @@ def main():
     # --------------------------------------
 
     recorder = EventRecorder(
-        base_dir=EVENT_BASE_DIR,
-        camera_id=CAMERA_ID,
+        base_dir=event_base_dir,
+        camera_id=camera_id,
         fps=FPS,
         pre_seconds=3,
         post_seconds=3,
@@ -191,14 +218,14 @@ def main():
     service_stops = camera_service.start(
         cfg,
         latest_frame,
-        interval_sec=HEARTBEAT_INTERVAL_SEC,
+        interval_sec=settings["heartbeat_interval_sec"],
     )
 
     print("[CAMERA STARTED]")
     print("[YOLO STARTED]")
     print("[VISION STARTED]")
-    print(f"[EVENT DIR] {EVENT_BASE_DIR}")
-    print(f"[CAMERA ID] {CAMERA_ID}")
+    print(f"[EVENT DIR] {event_base_dir}")
+    print(f"[CAMERA ID] {camera_id}")
     print("Ctrl+C to stop")
 
     try:
@@ -256,7 +283,7 @@ def main():
                         "video_path"
                     ],
                     extra={
-                        "camera_id": CAMERA_ID,
+                        "camera_id": camera_id,
                         "vision_event":
                             saved_event[
                                 "event_type"

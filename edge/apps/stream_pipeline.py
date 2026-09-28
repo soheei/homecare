@@ -1,4 +1,6 @@
 """
+
+마이크 담당 코드
 stream_pipeline.py — 마이크(또는 파일) 오디오 스트림 → YAMNet 추론 → event_rules 판정 → edge.emit()
 
     python -m edge.apps.stream_pipeline                          # 기본 마이크 장치로 실시간 캡처 (sounddevice 필요)
@@ -56,6 +58,7 @@ HOP_SEC = event_rules.FRAME_HOP_SEC     # 0.48초 — 새 프레임 생성 주�
 HISTORY_SEC = 3 * 3600                  # long_silence 규칙(3시간 무활동)까지 커버할 점수 히스토리 길이
 MAX_HISTORY_FRAMES = int(HISTORY_SEC / HOP_SEC) + 10
 HEARTBEAT_INTERVAL_SEC = 20.0           # 이 파이프라인이 살아있는 동안 주기적으로 보낼 하트비트 간격
+RECENT_TRIGGER_FRAMES = 12              # 점수/시각을 뽑을 최근 트리거 구간(약 6초) — 가장 긴 조합 시간창(순차 6프레임)보다 넉넉히
 
 
 class AudioSource:
@@ -166,18 +169,24 @@ class StreamPipeline:
             self._score_history = self._score_history[-MAX_HISTORY_FRAMES:]
 
     def _handle_triggers(self) -> None:
+        latest_idx = len(self._score_history) - 1
         for result in event_rules.evaluate_all(self._score_history):
-            if not result.triggered:
+            # 규칙은 히스토리 전체(최대 3시간)를 매번 다시 보므로, 예전 트리거 프레임이 남아 있는 동안
+            # 계속 triggered=True가 된다 → 이번에 들어온 최신 프레임이 트리거에 포함될 때만 새 이벤트로 본다.
+            # (지속형 규칙 kitchen_risk/long_silence는 상태가 이어지는 동안 최신 프레임을 포함하므로 쿨다운 간격으로 전송)
+            if not result.triggered or latest_idx not in result.trigger_frames:
                 continue
-            latest = self._score_history[-1]
-            score = float(latest[class_ids_for(result.category_id)].max())
-            top5 = self._top_labels(latest, k=5)
+            recent = [f for f in result.trigger_frames if f >= latest_idx - RECENT_TRIGGER_FRAMES]
+            recent_scores = self._score_history[recent][:, class_ids_for(result.category_id)]
+            score = float(recent_scores.max())
+            peak = self._score_history[recent[int(recent_scores.max(axis=1).argmax())]]
+            top5 = self._top_labels(peak, k=5)
             # Plan.md §8: YAMNet top label 신뢰도가 낮으므로 "확정된 사실"이 아니라 참고용으로 metadata에 보존
             uid = self.emitter.emit(
                 result.category_id,
                 source="yamnet",
                 score=score,
-                extra={"trigger_times_sec": result.trigger_times_sec()[-5:], "top5": top5},
+                extra={"trigger_times_sec": [round(f * HOP_SEC, 2) for f in recent][-5:], "top5": top5},
             )
             if uid:
                 log.info(

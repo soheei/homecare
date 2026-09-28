@@ -30,6 +30,8 @@ const getEvents = async (req, res, next) => {
     };
 
     const result = await eventService.getEvents(filters);
+    // private 버킷 — 사진/소리/영상은 서명 URL로 바꿔서 응답 (DB에는 원래 URL 유지)
+    result.events = await storageService.signEventMedia(result.events);
 
     res.json({
       success: true,
@@ -57,9 +59,11 @@ const getEventById = async (req, res, next) => {
       });
     }
 
+    const [signedEvent] = await storageService.signEventMedia([event]);
+
     res.json({
       success: true,
-      data: event
+      data: signedEvent
     });
 
   } catch (error) {

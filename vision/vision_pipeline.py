@@ -1,3 +1,5 @@
+import dataclasses
+import logging
 import os
 import time
 from pathlib import Path
@@ -8,6 +10,7 @@ from picamera2 import Picamera2
 from edge.transport.config import load_config
 from edge.transport.emit import EventEmitter
 
+from . import camera_service
 from .yolo_detector import YOLODetector
 from .fall_detector import FallDetector
 from .visitor_detector import VisitorDetector
@@ -57,8 +60,8 @@ DOOR_ROI = (
     1.0,
 )
 
-VISITOR_REQUIRED_FRAMES = 3
-DELIVERY_REQUIRED_FRAMES = 3
+VISITOR_REQUIRED_FRAMES = 15   # 5fps 기준 3초 머물러야 방문자 (그 전에 사라지면 지나감)
+DELIVERY_REQUIRED_FRAMES = 10  # 사람이 떠난 뒤 새 물체가 5fps 기준 2초 연속 보이면 택배
 
 # ==========================================
 # Storage
@@ -74,6 +77,14 @@ CAMERA_ID = os.environ.get(
     "camera_01",
 )
 
+# ==========================================
+# Camera service (하트비트 / 현재 화면 보기)
+# ==========================================
+
+HEARTBEAT_INTERVAL_SEC = float(
+    os.environ.get("HOMECARE_CAMERA_CHECK_INTERVAL_SEC", "20")
+)
+
 
 def main():
     print("====================================")
@@ -84,10 +95,33 @@ def main():
     # Edge
     # --------------------------------------
 
+    # 하트비트/캡처/전송 로그(logging)를 터미널·journalctl에 출력
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
     cfg = load_config()
+
+    # vision은 카메라 서비스 — 이벤트·하트비트는 마이크가 아니라 카메라 기기 id로,
+    # 전송 큐도 마이크(edge/data/)와 분리 (같은 큐면 마이크 쪽 sender가 마이크 id로 보내버림)
+    camera_device_id = os.environ.get("HOMECARE_CAMERA_DEVICE_ID")
+
+    if not camera_device_id:
+        print("설정 오류: HOMECARE_CAMERA_DEVICE_ID 누락 (edge/.env.example 참고)")
+        return 2
+
+    cfg = dataclasses.replace(
+        cfg,
+        device_id=camera_device_id,
+        outbox_dir=cfg.outbox_dir / "vision",
+    )
 
     emitter = EventEmitter(cfg)
     emitter.start()
+
+    latest_frame = camera_service.LatestFrame()
+    service_stops = []
 
     # --------------------------------------
     # YOLO
@@ -153,6 +187,13 @@ def main():
 
     time.sleep(2)
 
+    # 카메라가 열린 뒤에 시작 (카메라를 못 열면 하트비트도 안 나감)
+    service_stops = camera_service.start(
+        cfg,
+        latest_frame,
+        interval_sec=HEARTBEAT_INTERVAL_SEC,
+    )
+
     print("[CAMERA STARTED]")
     print("[YOLO STARTED]")
     print("[VISION STARTED]")
@@ -177,6 +218,9 @@ def main():
             frame_height, frame_width = (
                 frame.shape[:2]
             )
+
+            # 하트비트 / "현재 화면 보기"용 최신 프레임
+            latest_frame.set(frame)
 
             # ==================================
             # 2. Event Recording
@@ -270,6 +314,7 @@ def main():
                     detections,
                     frame_width,
                     frame_height,
+                    frame=frame,
                 )
             )
 
@@ -380,6 +425,9 @@ def main():
 
         print("[CLEANUP]")
 
+        for stop in service_stops:
+            stop.set()
+
         try:
             picam2.stop()
         except Exception:
@@ -394,4 +442,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

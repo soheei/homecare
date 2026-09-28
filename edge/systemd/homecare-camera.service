@@ -1,5 +1,5 @@
 [Unit]
-Description=HomeCare edge - camera (Camera Module V3) hardware presence monitor
+Description=HomeCare edge - camera (Camera Module V3) vision pipeline: YOLO events + heartbeat + current-frame capture
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=alarmi
 WorkingDirectory=/home/alarmi/homecare
-ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.apps.camera_monitor
+ExecStart=/home/alarmi/homecare/.venv/bin/python -m vision.vision_pipeline
 Restart=on-failure
 RestartSec=10
 

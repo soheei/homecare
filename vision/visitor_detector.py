@@ -1,3 +1,6 @@
+from .activity_tracker import ActivityTracker
+
+
 class VisitorDetector:
     def __init__(
         self,
@@ -11,13 +14,18 @@ class VisitorDetector:
 
         기본값:
             전체 화면
+
+        required_frames:
+            ROI 안에 이만큼 머물러야 방문자로 판단 (한 번 머무는 동안 1회).
+            그 전에 사라지면 그냥 지나간 것으로 보고 무시한다.
         """
 
         self.roi = roi
         self.required_frames = required_frames
 
-        self.inside = False
-        self.enter_count = 0
+        self.tracker = ActivityTracker(
+            dwell_frames=required_frames,
+        )
 
     def _inside_roi(
         self,
@@ -55,23 +63,15 @@ class VisitorDetector:
             frame_height,
         )
 
-        # 사람이 ROI 밖
-        if not is_inside:
-            self.inside = False
-            self.enter_count = 0
-            return False
+        # ROI 밖의 사람은 없는 것으로 본다
+        event = self.tracker.update(
+            person if is_inside else None
+        )
 
-        # 새롭게 들어온 경우
-        if not self.inside:
-            self.enter_count += 1
-        else:
-            self.enter_count = 0
+        if event == "passed":
+            print("[VISITOR] passed by (ignored)")
 
-        self.inside = True
-
-        if self.enter_count >= self.required_frames:
-            self.enter_count = 0
-
+        if event == "dwelling":
             print("[VISITOR DETECTED]")
 
             return True

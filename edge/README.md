@@ -1,6 +1,6 @@
 # edge/ — 라즈베리파이 이벤트 전송 코드
 
-> 최근 수정일시: 2026-09-28 (폴더 재구성 — 실행 프로그램은 `apps/`, 전송 모듈은 `transport/`로 이동, 실행 명령이 `python -m edge.apps.xxx`로 바뀜 / 이전: 카메라/마이크 하트비트 추가)
+> 최근 수정일시: 2026-09-28 (카메라 서비스를 vision 파이프라인으로 통합, sparse-checkout에 vision 추가 / 폴더 재구성 — 실행 프로그램은 `apps/`, 전송 모듈은 `transport/`로 이동, 실행 명령이 `python -m edge.apps.xxx`로 바뀜 / 이전: 카메라/마이크 하트비트 추가)
 
 라즈베리파이(엣지)에서 감지한 이벤트(소리, 이후 영상)를 **HomeCare 백엔드(`POST /api/events`)로 안전하게 보내는** 코드입니다.
 소리 감지(`apps/stream_pipeline.py` + `yamnet/core/`)는 이 폴더 안에 있고, YOLO 등 영상 감지기는 아직 없습니다. 감지기가 `emitter.emit()`만 호출하면 나머지(변환/쿨다운/큐/재시도)는 이 폴더가 담당합니다.
@@ -40,8 +40,8 @@ edge/
 |---|---|
 | **`apps/`** | |
 | `apps/stream_pipeline.py` | 마이크(또는 wav 파일) → `yamnet/core/` 추론 → `event_rules` 판정 → 트리거되면 `emit()` 호출까지 연결하는 엔드투엔드 스크립트 + 마이크 하트비트 |
-| `apps/camera_monitor.py` | Camera Module V3(CSI) 하드웨어 인식 여부(`rpicam-hello`/`libcamera-hello --list-cameras`) 주기 확인 → 하트비트 전송 + "현재 화면 보기" 캡처 요청 롱폴링 — 영상 분석 파이프라인 자체는 아직 없음 |
-| `apps/capture_photo.py` | `rpicam-still`로 사진 1장 촬영 → 카메라 기기 id로 이미지 이벤트 전송 (카메라 전용 큐 `data/camera/`) |
+| `apps/camera_monitor.py` | "현재 화면 보기" 캡처 요청 롱폴링·업로드 함수(카메라 서비스 = `vision/vision_pipeline.py`가 재사용) + `--list-cameras` 인식 점검. 단독 실행(`rpicam-hello` 하트비트)은 2026-09-28부터 서비스에서 제외 — vision과 카메라를 동시에 열 수 없음 |
+| `apps/capture_photo.py` | `rpicam-still`로 사진 1장 촬영 → 카메라 기기 id로 이미지 이벤트 전송 (카메라 전용 큐 `data/camera/`). 카메라 서비스를 끈 상태에서만 동작 |
 | `apps/send_test_event.py` | 가짜 이벤트 1건을 보내 전송 경로를 점검하는 스크립트 |
 | **`transport/`** | |
 | `transport/emit.py` | 공통 진입점 `EventEmitter`. 감지기는 `emit()`만 호출하면 됨 |
@@ -49,11 +49,11 @@ edge/
 | `transport/cooldown.py` | 같은 `(source, category)` 재전송 억제 (메모리, 재시작 시 초기화) |
 | `transport/outbox.py` | SQLite 전송 대기 큐 + 첨부 파일 복사본 보관 |
 | `transport/sender.py` | 큐 → 백엔드 전송, 응답 코드별 재시도/폐기 처리 |
-| `transport/heartbeat.py` | `POST /api/devices/:id/heartbeat` 주기 전송 공용 헬퍼. `stream_pipeline.py`(마이크)와 `camera_monitor.py`(카메라)가 사용 |
+| `transport/heartbeat.py` | `POST /api/devices/:id/heartbeat` 주기 전송 공용 헬퍼. `stream_pipeline.py`(마이크)와 `vision/camera_service.py`(카메라)가 사용 |
 | `transport/config.py` | `edge/.env` 또는 환경변수 로드 (시크릿은 출력되지 않음). 기준 폴더는 `edge/`(`.env`, `data/` 위치 불변) |
 | **기타** | |
-| `systemd/` | `apps/stream_pipeline.py`/`apps/camera_monitor.py`를 systemd로 켜고 끄기 위한 unit 파일 |
-| `tests/` | 단위 테스트 (24개) |
+| `systemd/` | 마이크(`apps/stream_pipeline.py`)·카메라(`vision/vision_pipeline.py`) 서비스를 systemd로 켜고 끄기 위한 unit 파일 |
+| `tests/` | 단위 테스트 (25개). vision 테스트는 `vision/tests/` |
 | `.env.example`, `requirements.txt` | 설정 예시, 의존성(`requests`, `stream_pipeline.py`용 `sounddevice`/`tensorflow` 등) |
 
 ## Pi에서 사용하기
@@ -61,7 +61,8 @@ edge/
 ```bash
 # 1) 코드 받기 (최초 1회, 필요한 폴더만)
 git clone --filter=blob:none --no-checkout https://github.com/soheei/homecare.git
-cd homecare && git sparse-checkout set edge yamnet/core && git checkout main
+cd homecare && git sparse-checkout set edge yamnet/core vision && git checkout main
+# 이미 edge yamnet/core만 받아 둔 Pi라면: git sparse-checkout add vision  (카메라 서비스 = vision)
 # 업데이트: git pull
 
 # 2) 가상환경 + 의존성 (시스템 pip은 PEP 668로 막혀 있음)
@@ -80,9 +81,9 @@ python -m edge.apps.send_test_event
 python -m edge.apps.stream_pipeline --list-devices
 python -m edge.apps.stream_pipeline --device <번호>
 
-# 6) 카메라(Camera Module V3) 하드웨어 인식 확인 (edge/.env에 HOMECARE_CAMERA_DEVICE_ID 설정 후)
-python -m edge.apps.camera_monitor --list-cameras   # 1회 확인
-python -m edge.apps.camera_monitor                  # 상시 실행 (아래 systemd로 등록 권장)
+# 6) 카메라(Camera Module V3) — edge/.env에 HOMECARE_CAMERA_DEVICE_ID 설정 후
+python -m edge.apps.camera_monitor --list-cameras   # 인식 1회 확인 (카메라 서비스가 꺼져 있을 때)
+python -m vision.vision_pipeline                    # 카메라 서비스 (YOLO 이벤트 + 하트비트 + 현재 화면 보기, 아래 systemd로 실행 권장)
 ```
 
 ### 필요할 때만 켜고 끄기 (systemd, 자동 시작 아님)

@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-28 (엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-09-28 (이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -314,3 +314,44 @@
 - 같이 고친 것: import 경로(`apps/`, `edge/tests/`, `vision/vision_pipeline.py`), `config.py`의 기준 폴더(`edge/` 유지 → `edge/.env`·`edge/data/` 위치 불변), `stream_pipeline.py`의 `yamnet/core` 경로, systemd unit `ExecStart`(`python -m edge.apps.xxx`), 문서의 실행 명령(CLAUDE.md, edge/README.md, DEPLOYMENT.md, 인수인계). logger 이름(`edge.sender` 등)은 그대로 둠.
 - 검증: 엣지 단위 테스트 24개 통과, `edge/.env`·`edge/data`·`yamnet/core` 경로 해석 확인, `python -m edge.apps.{stream_pipeline,camera_monitor,capture_photo} --help` 정상. `vision/`은 `picamera2`(Pi 전용)가 없어 로컬 import 불가 — Pi에서 **확인 필요**.
 - **Pi 반영 필요(미완료)**: `git pull` 후 `sudo cp edge/systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload` → 켜 둔 서비스 `restart`. unit 파일을 다시 복사하지 않으면 옛 명령(`python -m edge.stream_pipeline`)이 모듈을 못 찾아 서비스가 실패함.
+
+### 이벤트 사진/영상 조회 — private 버킷 서명 URL
+- 결정(사용자): 영상은 Supabase Storage에 올리고 URL을 DB에 저장. `events` 버킷은 **private**, 앱은 서명 URL로 조회(방식 B). 기존 코드는 최대한 유지.
+- 확인: 엣지→`POST /api/events`(multipart `video`)→Storage `events/video/`→`events.video_url` 저장 경로는 이미 구현돼 있음. 다만 업로드가 `getPublicUrl()` 값을 저장해 private 버킷에선 열리지 않는 링크였음. 웹에는 이벤트 사진/영상 표시 화면이 없음.
+- 대안: 업로드 시 URL 대신 경로 저장(업로드·기존 데이터 형식 변경) / **조회 응답에서만 서명 URL로 치환(선택, DB·업로드 무변경, 기존 행도 동작)**.
+- 수정: `src/services/storage.service.js`에 `signEventMedia()` 추가(저장된 URL에서 경로 추출 → `createSignedUrls` 1회, 1시간, 실패 시 null·외부 URL 유지), `src/controllers/event.controller.js`의 `getEvents`/`getEventById` 응답에 적용. MCP·요약은 미적용.
+- 검증: `tests/event-media.test.js` 4건 신규(목록 일괄 서명·외부 URL 유지, 상세, 서명 실패 시 null, Storage 파일 없으면 요청 안 함). 전체 52 통과/5 실패(기존 5건). 추가 코드 eslint 에러 0(`uploadFile`의 기존 들여쓰기 에러 2건은 그대로).
+- **미완료**: 커밋·Render 배포 전. 배포 후 실제 private 버킷 파일로 서명 URL이 열리는지 확인 필요.
+
+### 엣지 소리 이벤트 반복 전송 버그 수정 (소리·영상 융합 0-1단계)
+- 발견: `stream_pipeline.py`가 0.48초마다 **3시간치 점수 히스토리 전체**로 규칙을 다시 판정 → 예전에 한 번 넘은 프레임이 히스토리에 남아 있는 동안 계속 `triggered=True`, 쿨다운만 지나면 같은 이벤트를 다시 전송. 10분 시뮬레이션(유리 1회+초인종 1회)에서 glass_impact 60건·door_visitor 2건, 두 번째부터 신뢰도 0.01(최신 무음 프레임 점수). 3시간이면 유리 1번에 약 1,080건 추정. 운영 DB에 이미 중복 이벤트가 있을 수 있음(**확인 필요**).
+- 대안: 이미 처리한 프레임 기억 / 규칙별로 필요한 구간만 판정(`event_rules.py`까지 수정) / **최신 프레임이 트리거에 포함될 때만 emit(선택, `_handle_triggers`만 수정)**.
+- 수정: `edge/apps/stream_pipeline.py` `_handle_triggers()` — 최신 프레임 포함 시에만 emit, 신뢰도·top5·trigger_times는 최근 약 6초(`RECENT_TRIGGER_FRAMES=12`) 트리거 프레임 기준. 지속형 규칙(kitchen_risk/long_silence)은 기존처럼 쿨다운 간격 전송.
+- 검증: 재현 테스트 `test_single_sound_is_not_re_emitted_after_cooldown` 추가(수정 전 6≠1로 실패 확인 → 수정 후 통과), 엣지 25개 통과, 같은 시뮬레이션 glass 1건·door 1건·신뢰도 0.8.
+- 남은 것: 히스토리가 길어질수록 판정이 느려지는 문제(3시간 시 PC 기준 210ms/회)는 그대로 — Pi 실측 필요.
+
+### vision 방문자 감지 버그 수정 + 행동 추적기 (소리·영상 융합 0-2단계)
+- 발견: `vision/visitor_detector.py`가 ROI 안에 계속 있는 사람을 "이미 안에 있음"으로 보고 매 프레임 카운터를 0으로 리셋 → `required_frames=3`에 도달 불가, **방문자 이벤트가 한 번도 발생하지 않음**(기존 코드로 200프레임 연속 서 있기 재현 → 0건). 고치더라도 3프레임(0.6초)이면 지나가는 사람도 방문자.
+- 수정(기존 인터페이스 유지): `vision/activity_tracker.py` 신규 — 없음→등장→머무름→퇴장/지나감 상태 추적, YOLO 순간 누락은 5프레임 유예, 마지막 사람 위치 기억(택배 판정용). `VisitorDetector`는 카운터 부분만 추적기로 교체(생성자·`update()` 입출력·ROI 판정 그대로). `vision_pipeline.py` `VISITOR_REQUIRED_FRAMES` 3→15(5fps 기준 3초).
+- 검증: `vision/tests/test_visitor.py` 6건 신규(머무름 1회, 지나감 무시, 순간 누락에도 1회, 떠났다 오면 재발생, ROI 밖 무시, 상태 전이) — `python -m unittest discover -s vision/tests -t .`. 엣지 25개 통과. Pi 실제 카메라 확인은 나중에 일괄.
+
+### vision 택배 감지 재설계 — 두고 간 물체 감지 (소리·영상 융합 0-4단계, 사용자 요청으로 0-3보다 먼저)
+- 발견: YOLO 기본 모델(`yolov8n.pt`, COCO 80클래스)에 상자/택배 클래스가 없음(모델 파일에서 클래스 목록 직접 확인). 기존 `delivery_detector.py`는 "ROI 안 사람 + 백팩/핸드백/여행가방 3프레임"을 택배로 판정 → 실제 상자는 못 잡고 가방 멘 사람은 택배로 오탐.
+- 대안: 두고 간 물체 감지(OpenCV 배경 비교) / 택배 상자 전용 YOLO 추가 학습 / YOLO-World(Pi에서 무거움) → **사용자 결정: 두고 간 물체 감지(A안)**.
+- 수정: `vision/delivery_detector.py` 판정 로직 교체 — 사람 없을 때 배경 천천히 갱신 → 등장 시 고정 → 퇴장(머묾/지나감 모두) 후 최대 10초간 160×120 흑백으로 배경 비교, 사람이 서 있던 자리 주변에 새 덩어리가 연속 `required_frames` 보이면 택배(점수=밝기 차이/100). 화면 40% 이상 변화는 조명 변화로 무시, 사람이 다시 나타나면 중단, 확정 후 물체를 배경에 포함. `ActivityTracker`(0-2) 재사용. 클래스명·생성자·반환값 유지, `update()`에 `frame` 인자 추가(기본 None). `vision_pipeline.py`는 호출에 `frame=frame` 추가, `DELIVERY_REQUIRED_FRAMES` 3→10(2초).
+- 검증: `vision/tests/test_delivery.py` 6건 신규(발밑 상자 1회 감지·점수 0.73, 아무것도 안 둠, 조명 변화, 먼 구석 물체, 다시 돌아옴, frame 없음) — vision 테스트 12개 통과. 프레임당 추가 처리 0.11ms(PC).
+- **Pi에서 확인 필요**: 카메라 자동 노출이 사람 등장/퇴장 때 화면 밝기를 크게 바꾸면 조명 변화로 오인해 놓칠 수 있음, 그림자·상자 색이 바닥과 비슷할 때 `DIFF_THRESHOLD`(35) 조정. 택배 기사가 3초 이상 머물면 방문자 이벤트도 함께 발생(융합 단계에서 묶을 예정).
+
+### 실기 테스트 TODO 문서 작성
+- 오늘 작업(엣지 폴더 재구성, 서명 URL, 소리 반복 전송 수정, 방문자·택배 감지 재설계)이 코드·단위 테스트까지만 검증돼, Pi/Render/Supabase 실기 확인 항목과 방법, 소리·영상 융합 남은 수정사항을 `SH_README/hometalk_테스트_TODO.md`로 정리(체크리스트 성격이라 진행일지·인수인계와 분리, 인수인계 "알려진 이슈"에 링크).
+
+### 카메라 서비스를 vision 파이프라인으로 통합 (소리·영상 융합 0-6단계)
+- 배경: 카메라는 한 프로그램만 열 수 있음(libcamera). `homecare-camera.service`(= `camera_monitor.py`, `rpicam-hello` 인식 확인 + `rpicam-still` 현재 화면 촬영)와 `vision/vision_pipeline.py`(picamera2로 상시 촬영)가 동시에 돌 수 없음 → 사용자 요청으로 하나로 통합.
+- 수정(기존 코드 재사용):
+  - `edge/apps/camera_monitor.py`: 캡처 처리 함수 3개에 `capture_fn` 선택 인자만 추가(기본값 = 기존 rpicam-still, 동작 불변).
+  - `vision/camera_service.py` 신규: `LatestFrame`(메인 루프가 매 프레임 보관) + 하트비트(최근 10초 안에 프레임이 있을 때만) + 캡처 요청 대기(최신 프레임을 JPEG로 업로드, camera_monitor의 롱폴링·업로드 함수 재사용).
+  - `vision/vision_pipeline.py`: 카메라 서비스 시작·정리, 매 프레임 `latest_frame.set()`, 이벤트를 **카메라 기기 id + `edge/data/vision/` 큐**로 전송(기존엔 마이크 id·마이크 큐), logging 설정, 설정 오류 시 종료 코드 2.
+  - `edge/systemd/homecare-camera.service`: `ExecStart` → `python -m vision.vision_pipeline` (서비스 이름·켜고 끄는 명령은 그대로).
+- 달라지는 점: "현재 화면 보기" 사진 1280×720 → 640×480(vision 해상도), 대신 카메라를 다시 열지 않아 즉시 응답. `capture_photo`/`camera_monitor --list-cameras`는 서비스를 끈 상태에서만 동작.
+- 검증: `vision/tests/test_camera_service.py` 5건 신규(프레임 없음/오래됨 → 꺼짐, JPEG 인코딩, 캡처 요청에 최신 프레임 업로드·rpicam-still 미사용, 카메라 기기 id로 시작) → vision 17개·엣지 25개 통과. 가짜 카메라/YOLO로 `main()` 연결 스모크 테스트(카메라 기기 id·vision 큐·최신 프레임 JPEG 확인).
+- **Pi 반영 시 주의**: README의 sparse-checkout이 `edge yamnet/core`만 받게 되어 있어 Pi에 `vision/`이 없을 수 있음 → `git sparse-checkout add vision`. unit 파일 재복사 필요. vision 의존성 설치 여부 **확인 필요**. 확인 순서는 `hometalk_테스트_TODO.md` 3-1b.

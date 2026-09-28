@@ -6,6 +6,52 @@ const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 const path = require('path');
 
+// 앱이 이벤트 사진/소리/영상을 볼 때 발급하는 서명 URL 유효시간 (events 버킷은 private)
+const SIGNED_URL_EXPIRES_SEC = 60 * 60;
+const MEDIA_FIELDS = ['image_url', 'audio_url', 'video_url'];
+
+/**
+ * DB에 저장된 Storage URL(…/storage/v1/object/public/<bucket>/<path>)에서 버킷 내부 경로를 꺼낸다.
+ * 우리 Storage URL이 아니면(외부 URL 등) null.
+ */
+const extractStoragePath = (storedUrl, bucket = 'events') => {
+  if (typeof storedUrl !== 'string') return null;
+  const match = storedUrl.match(new RegExp(`/storage/v1/object/(?:public|sign|authenticated)/${bucket}/([^?]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
+/**
+ * 이벤트 목록의 image_url/audio_url/video_url을 서명 URL로 바꾼 복사본을 반환한다 (DB 값은 그대로).
+ * private 버킷이라 저장된 public URL로는 열리지 않기 때문. 서명 요청은 한 번에 묶어서 보낸다.
+ * 서명에 실패한 Storage URL은 null(열리지 않는 링크를 주지 않음), 외부 URL은 그대로 둔다.
+ */
+const signEventMedia = async (events, bucket = 'events', expiresIn = SIGNED_URL_EXPIRES_SEC) => {
+  const paths = [...new Set(
+    events.flatMap(e => MEDIA_FIELDS.map(f => extractStoragePath(e[f], bucket)).filter(Boolean))
+  )];
+  if (paths.length === 0) return events;
+
+  const signedByPath = {};
+  try {
+    const { data, error } = await supabaseAdmin.storage.from(bucket).createSignedUrls(paths, expiresIn);
+    if (error) throw error;
+    (data || []).forEach(item => {
+      if (item.signedUrl && !item.error) signedByPath[item.path] = item.signedUrl;
+    });
+  } catch (error) {
+    logger.error('[Storage] Signed URL error:', error);
+  }
+
+  return events.map(event => {
+    const signed = { ...event };
+    MEDIA_FIELDS.forEach(field => {
+      const filePath = extractStoragePath(event[field], bucket);
+      if (filePath) signed[field] = signedByPath[filePath] || null;
+    });
+    return signed;
+  });
+};
+
 /**
  * Supabase Storage에 파일 업로드
  * @param {Object} file - Multer 파일 객체
@@ -86,5 +132,6 @@ const deleteFile = async (publicUrl, bucket = 'events') => {
 
 module.exports = {
   uploadFile,
-  deleteFile
+  deleteFile,
+  signEventMedia
 };

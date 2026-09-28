@@ -2,7 +2,7 @@
  * Capture Service - "현재 카메라 화면" 1장 촬영을 라즈베리파이(엣지)에 요청하고 결과 이미지를 받아 둔다
  *
  * Render의 백엔드는 Pi로 먼저 접속할 수 없다(Pi에 공인 주소가 없음). 그래서 Pi의 카메라 서비스
- * (edge/apps/camera_monitor.py)가 GET /api/devices/:id/capture-requests/next 로 롱폴링하며 기다리고,
+ * (vision 파이프라인 — vision/camera_service.py, 롱폴링 함수는 edge/apps/camera_monitor.py)가 GET /api/devices/:id/capture-requests/next 로 롱폴링하며 기다리고,
  * 요청이 생기면 바로 응답을 받아 촬영 → POST /api/devices/:id/capture-requests/:requestId 로 JPEG를 올린다.
  *
  * - 상태는 전부 메모리(Render 단일 인스턴스 전제)
@@ -83,7 +83,7 @@ const requestCapture = async (deviceId) => {
 
   const last = lastPollAt.get(device.id);
   if (!pollers.has(device.id) && (!last || Date.now() - last > settings.listenerStaleMs)) {
-    logger.warn(`[Capture] No capture listener for device ${device.id} (camera_monitor.py 구버전이거나 연결 끊김)`);
+    logger.warn(`[Capture] No capture listener for device ${device.id} (카메라 서비스 구버전이거나 연결 끊김)`);
     throw new AppError(MESSAGES.notListening, 503);
   }
 

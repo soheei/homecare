@@ -9,6 +9,7 @@ import numpy as np
 
 from edge.apps import stream_pipeline as sp
 from edge.transport.config import Config
+from edge.transport.cooldown import Cooldown
 from edge.transport.emit import EventEmitter
 
 
@@ -93,6 +94,42 @@ class StreamPipelineTest(unittest.TestCase):
 
             # ambient_log는 rule_log_only라서 triggered=False로 남고, emit() 대상도 아님
             self.assertEqual(emitter.outbox.counts(), {"pending": 0, "dead": 0})
+
+    def test_single_sound_is_not_re_emitted_after_cooldown(self):
+        """유리 파손 소리 1번 → 쿨다운(10초)이 여러 번 지나도 이벤트는 1건, 점수는 트리거 프레임 값.
+        (예전: 히스토리 전체를 매번 다시 판정해 쿨다운마다 같은 이벤트가 최대 3시간 반복 전송됨)"""
+        now = [0.0]
+
+        class TimedSource(FakeSource):
+            def frames(self):
+                for chunk in super().frames():
+                    now[0] += sp.HOP_SEC  # 청크 하나 = 실제 0.48초 경과
+                    yield chunk
+
+        call = [0]
+
+        def infer_fn(model, window):
+            call[0] += 1
+            frame = np.zeros((1, 521), dtype=np.float32)
+            if call[0] == 3:
+                frame[0, 435] = 0.8  # Glass
+                frame[0, 437] = 0.7  # Shatter
+            return frame, None, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            emitter = EventEmitter(make_cfg(tmp))
+            emitter._cooldown = Cooldown(clock=lambda: now[0])
+            n_chunks = int(60 / sp.HOP_SEC)  # 1분 = glass_impact 쿨다운(10초)의 6배
+            pipeline = sp.StreamPipeline(
+                model=None, class_names=[], emitter=emitter,
+                source=TimedSource(n_chunks, self._hop_samples()), infer_fn=infer_fn,
+            )
+            pipeline.run()
+
+            glass = [r for r in emitter.outbox.fetch_due(limit=1000)
+                     if r["payload"]["metadata"]["category_id"] == "glass_impact"]
+            self.assertEqual(len(glass), 1)
+            self.assertAlmostEqual(glass[0]["payload"]["metadata"]["score"], 0.8, places=3)
 
 
 if __name__ == "__main__":

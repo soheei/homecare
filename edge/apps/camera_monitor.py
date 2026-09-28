@@ -89,13 +89,18 @@ def capture_current_frame(width: int = CAPTURE_WIDTH, height: int = CAPTURE_HEIG
         return None, ("capture_failed" if camera_detected() else "camera_not_detected")
 
 
-def handle_capture_request(session, backend_url: str, device_id: str, device_secret: str, request_id: str) -> None:
-    """캡처 요청 1건 처리: 촬영 후 결과(이미지 또는 실패 사유)를 백엔드에 제출."""
+def handle_capture_request(session, backend_url: str, device_id: str, device_secret: str, request_id: str,
+                           capture_fn=None) -> None:
+    """캡처 요청 1건 처리: 촬영 후 결과(이미지 또는 실패 사유)를 백엔드에 제출.
+
+    capture_fn: 촬영 함수(() -> (JPEG bytes, None) | (None, 사유)). 기본은 rpicam-still 촬영.
+                vision 파이프라인처럼 카메라를 이미 열고 있는 쪽은 최신 프레임을 돌려주는 함수를 넘긴다.
+    """
     url = f"{backend_url}/api/devices/{device_id}/capture-requests/{request_id}"
     headers = {"X-Device-Id": device_id, "X-Device-Secret": device_secret}
 
     started = time.monotonic()
-    image, reason = capture_current_frame()
+    image, reason = (capture_fn or capture_current_frame)()
     try:
         if image:
             resp = session.post(url, files={"image": ("frame.jpg", image, "image/jpeg")},
@@ -113,7 +118,8 @@ def handle_capture_request(session, backend_url: str, device_id: str, device_sec
         log.error("현재 화면 캡처 실패(%s) request=%s → HTTP %s", reason, request_id, resp.status_code)
 
 
-def run_capture_listener(backend_url: str, device_id: str, device_secret: str, stop: threading.Event, session=None) -> None:
+def run_capture_listener(backend_url: str, device_id: str, device_secret: str, stop: threading.Event, session=None,
+                         capture_fn=None) -> None:
     """백엔드 캡처 요청 롱폴링 루프 (stop이 set될 때까지)."""
     session = session or requests.Session()
     url = f"{backend_url}/api/devices/{device_id}/capture-requests/next"
@@ -146,15 +152,16 @@ def run_capture_listener(backend_url: str, device_id: str, device_secret: str, s
         if data and data.get("requestId"):
             log.info("현재 화면 캡처 요청 받음 request=%s", data["requestId"])
             try:
-                handle_capture_request(session, backend_url, device_id, device_secret, data["requestId"])
+                handle_capture_request(session, backend_url, device_id, device_secret, data["requestId"],
+                                       capture_fn=capture_fn)
             except Exception:  # 예기치 못한 오류로 대기 스레드(=서비스)가 죽지 않게
                 log.exception("캡처 요청 처리 오류 request=%s", data["requestId"])
 
 
-def start_capture_listener(backend_url: str, device_id: str, device_secret: str):
+def start_capture_listener(backend_url: str, device_id: str, device_secret: str, capture_fn=None):
     stop = threading.Event()
     thread = threading.Thread(
-        target=run_capture_listener, args=(backend_url, device_id, device_secret, stop),
+        target=run_capture_listener, args=(backend_url, device_id, device_secret, stop, None, capture_fn),
         name="capture-listener", daemon=True,
     )
     thread.start()

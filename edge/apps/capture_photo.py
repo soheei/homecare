@@ -1,9 +1,9 @@
 """
 capture_photo.py — Camera Module V3로 사진 1장을 찍어 백엔드(POST /api/events)에 이미지 이벤트로 전송
 
-    python -m edge.capture_photo
-    python -m edge.capture_photo --description "현관 확인"   # 이벤트 설명 지정
-    python -m edge.capture_photo --no-send                   # 촬영만 하고 edge/data/captures에 저장 (카메라 점검용)
+    python -m edge.apps.capture_photo
+    python -m edge.apps.capture_photo --description "현관 확인"   # 이벤트 설명 지정
+    python -m edge.apps.capture_photo --no-send                   # 촬영만 하고 edge/data/captures에 저장 (카메라 점검용)
 
 rpicam-still(예전 OS는 libcamera-still)로 촬영한다 — camera_monitor.py와 같은 libcamera-apps 명령이라
 추가 설치가 필요 없다. 백엔드가 사진을 Supabase Storage 'events' 버킷에 올리고 events.image_url에 저장한다.
@@ -26,9 +26,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from . import sender
-from .config import ConfigError, load_config
-from .emit import EventEmitter
+from ..transport import sender
+from ..transport.config import ConfigError, load_config
+from ..transport.emit import EventEmitter
 
 log = logging.getLogger("edge.capture_photo")
 
@@ -90,7 +90,7 @@ def main(argv: Optional[list] = None) -> int:
 
     photo = cfg.outbox_dir / "captures" / f"{datetime.now():%Y%m%d_%H%M%S}.jpg"
     if not capture(photo, args.width, args.height):
-        print("실패: 사진을 찍지 못했습니다 (위 로그 확인, `python -m edge.camera_monitor --list-cameras`로 인식 여부 점검)")
+        print("실패: 사진을 찍지 못했습니다 (위 로그 확인, `python -m edge.apps.camera_monitor --list-cameras`로 인식 여부 점검)")
         return 1
     print(f"촬영 완료: {photo} ({photo.stat().st_size // 1024} KB)")
     if args.no_send:

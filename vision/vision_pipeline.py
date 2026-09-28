@@ -5,8 +5,8 @@ from pathlib import Path
 import cv2
 from picamera2 import Picamera2
 
-from edge.config import load_config
-from edge.emit import EventEmitter
+from edge.transport.config import load_config
+from edge.transport.emit import EventEmitter
 
 from .yolo_detector import YOLODetector
 from .fall_detector import FallDetector

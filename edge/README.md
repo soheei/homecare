@@ -1,9 +1,9 @@
 # edge/ — 라즈베리파이 이벤트 전송 코드
 
-> 최근 수정일시: 2026-09-22 (카메라/마이크 하트비트 추가 — `heartbeat.py`, `camera_monitor.py`, systemd unit 파일)
+> 최근 수정일시: 2026-09-28 (폴더 재구성 — 실행 프로그램은 `apps/`, 전송 모듈은 `transport/`로 이동, 실행 명령이 `python -m edge.apps.xxx`로 바뀜 / 이전: 카메라/마이크 하트비트 추가)
 
 라즈베리파이(엣지)에서 감지한 이벤트(소리, 이후 영상)를 **HomeCare 백엔드(`POST /api/events`)로 안전하게 보내는** 코드입니다.
-소리 감지(`stream_pipeline.py` + `yamnet/core/`)는 이 폴더 안에 있고, YOLO 등 영상 감지기는 아직 없습니다. 감지기가 `emitter.emit()`만 호출하면 나머지(변환/쿨다운/큐/재시도)는 이 폴더가 담당합니다.
+소리 감지(`apps/stream_pipeline.py` + `yamnet/core/`)는 이 폴더 안에 있고, YOLO 등 영상 감지기는 아직 없습니다. 감지기가 `emitter.emit()`만 호출하면 나머지(변환/쿨다운/큐/재시도)는 이 폴더가 담당합니다.
 
 ## 동작 방식
 
@@ -27,20 +27,33 @@ Render 백엔드 → Supabase events 테이블
 
 ## 파일 구성
 
+```
+edge/
+├── apps/        — 직접 실행하는 프로그램 (python -m edge.apps.<이름>)
+├── transport/   — 이벤트 전송 모듈 (감지기는 emit()만 호출)
+├── systemd/     — Pi 서비스 파일 (start/stop으로 켜고 끔)
+├── tests/       — 단위 테스트
+└── data/        — 실행 중 생성되는 큐/첨부 (git 제외)
+```
+
 | 파일 | 역할 |
 |---|---|
-| `stream_pipeline.py` | 마이크(또는 wav 파일) → `yamnet/core/` 추론 → `event_rules` 판정 → 트리거되면 `emit()` 호출까지 연결하는 엔드투엔드 스크립트 (Pi 실기 미검증) |
-| `emit.py` | 공통 진입점 `EventEmitter`. 감지기는 `emit()`만 호출하면 됨 |
-| `event_mapper.py` | 카테고리 → 백엔드 `type`/`dangerLevel`/쿨다운 변환표 (수정은 `SPECS`만) |
-| `cooldown.py` | 같은 `(source, category)` 재전송 억제 (메모리, 재시작 시 초기화) |
-| `outbox.py` | SQLite 전송 대기 큐 + 첨부 파일 복사본 보관 |
-| `sender.py` | 큐 → 백엔드 전송, 응답 코드별 재시도/폐기 처리 |
-| `config.py` | `edge/.env` 또는 환경변수 로드 (시크릿은 출력되지 않음) |
-| `heartbeat.py` | `POST /api/devices/:id/heartbeat` 주기 전송 공용 헬퍼. `stream_pipeline.py`(마이크)와 `camera_monitor.py`(카메라)가 사용 |
-| `camera_monitor.py` | Camera Module V3(CSI) 하드웨어 인식 여부(`rpicam-hello`/`libcamera-hello --list-cameras`)만 주기 확인해 하트비트 전송 — 영상 분석 파이프라인 자체는 아직 없음 |
-| `send_test_event.py` | 가짜 이벤트 1건을 보내 전송 경로를 점검하는 스크립트 |
-| `systemd/` | `stream_pipeline.py`/`camera_monitor.py`를 Pi 부팅 시 자동 실행·재시작하기 위한 systemd unit 파일 |
-| `tests/` | 단위 테스트 (18개) |
+| **`apps/`** | |
+| `apps/stream_pipeline.py` | 마이크(또는 wav 파일) → `yamnet/core/` 추론 → `event_rules` 판정 → 트리거되면 `emit()` 호출까지 연결하는 엔드투엔드 스크립트 + 마이크 하트비트 |
+| `apps/camera_monitor.py` | Camera Module V3(CSI) 하드웨어 인식 여부(`rpicam-hello`/`libcamera-hello --list-cameras`) 주기 확인 → 하트비트 전송 + "현재 화면 보기" 캡처 요청 롱폴링 — 영상 분석 파이프라인 자체는 아직 없음 |
+| `apps/capture_photo.py` | `rpicam-still`로 사진 1장 촬영 → 카메라 기기 id로 이미지 이벤트 전송 (카메라 전용 큐 `data/camera/`) |
+| `apps/send_test_event.py` | 가짜 이벤트 1건을 보내 전송 경로를 점검하는 스크립트 |
+| **`transport/`** | |
+| `transport/emit.py` | 공통 진입점 `EventEmitter`. 감지기는 `emit()`만 호출하면 됨 |
+| `transport/event_mapper.py` | 카테고리 → 백엔드 `type`/`dangerLevel`/쿨다운 변환표 (수정은 `SPECS`만) |
+| `transport/cooldown.py` | 같은 `(source, category)` 재전송 억제 (메모리, 재시작 시 초기화) |
+| `transport/outbox.py` | SQLite 전송 대기 큐 + 첨부 파일 복사본 보관 |
+| `transport/sender.py` | 큐 → 백엔드 전송, 응답 코드별 재시도/폐기 처리 |
+| `transport/heartbeat.py` | `POST /api/devices/:id/heartbeat` 주기 전송 공용 헬퍼. `stream_pipeline.py`(마이크)와 `camera_monitor.py`(카메라)가 사용 |
+| `transport/config.py` | `edge/.env` 또는 환경변수 로드 (시크릿은 출력되지 않음). 기준 폴더는 `edge/`(`.env`, `data/` 위치 불변) |
+| **기타** | |
+| `systemd/` | `apps/stream_pipeline.py`/`apps/camera_monitor.py`를 systemd로 켜고 끄기 위한 unit 파일 |
+| `tests/` | 단위 테스트 (24개) |
 | `.env.example`, `requirements.txt` | 설정 예시, 의존성(`requests`, `stream_pipeline.py`용 `sounddevice`/`tensorflow` 등) |
 
 ## Pi에서 사용하기
@@ -61,20 +74,20 @@ cp edge/.env.example edge/.env
 nano edge/.env
 
 # 4) 전송 경로 점검
-python -m edge.send_test_event
+python -m edge.apps.send_test_event
 
 # 5) 마이크 인식 확인 후 (arecord -l), 실시간 파이프라인 실행
-python -m edge.stream_pipeline --list-devices
-python -m edge.stream_pipeline --device <번호>
+python -m edge.apps.stream_pipeline --list-devices
+python -m edge.apps.stream_pipeline --device <번호>
 
 # 6) 카메라(Camera Module V3) 하드웨어 인식 확인 (edge/.env에 HOMECARE_CAMERA_DEVICE_ID 설정 후)
-python -m edge.camera_monitor --list-cameras   # 1회 확인
-python -m edge.camera_monitor                  # 상시 실행 (아래 systemd로 등록 권장)
+python -m edge.apps.camera_monitor --list-cameras   # 1회 확인
+python -m edge.apps.camera_monitor                  # 상시 실행 (아래 systemd로 등록 권장)
 ```
 
 ### 필요할 때만 켜고 끄기 (systemd, 자동 시작 아님)
 
-`python -m edge.stream_pipeline`을 터미널에서 직접 실행하면 그 터미널(SSH 세션)을 닫는 순간 같이 죽는다.
+`python -m edge.apps.stream_pipeline`을 터미널에서 직접 실행하면 그 터미널(SSH 세션)을 닫는 순간 같이 죽는다.
 **부팅 시 자동 시작은 필요 없고, 켜고 싶을 때 명령 한 줄로 켜고/끄고 싶을 때 끄는 정도면** 아래처럼 systemd에 등록만 해두고(`enable`은 하지 않음) `start`/`stop`으로 직접 제어하면 된다 — 터미널을 닫아도 그 사이엔 계속 돈다.
 
 ```bash
@@ -93,6 +106,8 @@ systemctl status homecare-mic.service homecare-camera.service
 journalctl -u homecare-mic.service -f      # 실시간 로그
 journalctl -u homecare-camera.service -f
 ```
+
+> **2026-09-28 폴더 재구성 이후**: unit 파일의 실행 명령이 `python -m edge.apps.xxx`로 바뀌었으므로, 이미 등록해 둔 Pi는 `git pull` 후 위 "등록" 두 줄(`cp` + `daemon-reload`)을 한 번 더 실행해야 한다.
 
 나중에 마음이 바뀌어 부팅 시 자동으로 켜지길 원하면 그때 `sudo systemctl enable homecare-mic.service homecare-camera.service`만 추가로 실행하면 된다.
 
@@ -128,7 +143,7 @@ unit 파일은 계정/경로를 `alarmi` / `/home/alarmi/homecare`로 고정해 
 - [x] Pi → Render 백엔드 실전송 검증 (`send_test_event`, 실제 UUID로 저장 확인, 2026-09-20)
 
 ### 다음 (엣지 2단계)
-- [x] **마이크 → YAMNet → 판정 → `emit()` 파이프라인** (`edge/stream_pipeline.py`, 2026-09-22)
+- [x] **마이크 → YAMNet → 판정 → `emit()` 파이프라인** (`edge/apps/stream_pipeline.py`, 2026-09-22)
   - 오디오 캡처: `sounddevice` 채택 (사용자 승인). 추론 런타임: TensorFlow 유지(Pi 설치 실패 시 TFLite 검토)
   - `edge/tests/test_stream_pipeline.py`로 버퍼링·판정·emit 연결 로직 검증(가짜 추론 함수 주입, TF/sounddevice 불필요)
   - ~~Pi에서 TensorFlow 설치 가능 여부~~ → **해결 (2026-09-22)**: `pip install -r edge/requirements.txt`로 Pi에서 TensorFlow 2.21.0 정상 설치 확인 (venv 안에서)

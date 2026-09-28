@@ -1,11 +1,11 @@
 """
 stream_pipeline.py — 마이크(또는 파일) 오디오 스트림 → YAMNet 추론 → event_rules 판정 → edge.emit()
 
-    python -m edge.stream_pipeline                          # 기본 마이크 장치로 실시간 캡처 (sounddevice 필요)
-    python -m edge.stream_pipeline --device 2                # 특정 입력 장치 지정
-    python -m edge.stream_pipeline --list-devices            # 사용 가능한 입력 장치 목록 출력 후 종료
-    python -m edge.stream_pipeline --wav-file clip.wav        # 마이크 없이 파일을 스트리밍처럼 흘려보냄(테스트용)
-    python -m edge.stream_pipeline --wav-file clip.wav --fast # 위와 동일하되 실시간 대기 없이 최대 속도로 처리
+    python -m edge.apps.stream_pipeline                          # 기본 마이크 장치로 실시간 캡처 (sounddevice 필요)
+    python -m edge.apps.stream_pipeline --device 2                # 특정 입력 장치 지정
+    python -m edge.apps.stream_pipeline --list-devices            # 사용 가능한 입력 장치 목록 출력 후 종료
+    python -m edge.apps.stream_pipeline --wav-file clip.wav        # 마이크 없이 파일을 스트리밍처럼 흘려보냄(테스트용)
+    python -m edge.apps.stream_pipeline --wav-file clip.wav --fast # 위와 동일하되 실시간 대기 없이 최대 속도로 처리
 
 Plan.md §6 6단계. yamnet/core(추론·판정 로직)와 edge(전송)를 여기서 연결한다:
 
@@ -18,7 +18,7 @@ Plan.md §6 6단계. yamnet/core(추론·판정 로직)와 edge(전송)를 여�
     event_rules.evaluate_all(히스토리) — 카테고리별 판정 규칙 적용
         │  triggered=True인 카테고리만
         ▼
-    edge.emit.EventEmitter.emit() — 쿨다운 체크 후 큐에 저장, 백그라운드로 백엔드 전송
+    edge.transport.emit.EventEmitter.emit() — 쿨다운 체크 후 큐에 저장, 백그라운드로 백엔드 전송
 
 yamnet/core 쪽 모듈(yamnet_core, category_map, event_rules)은 패키지가 아니라
 verification/mediatest.py와 같은 방식으로 sys.path에 직접 추가해서 가져온다
@@ -38,16 +38,16 @@ from typing import Callable, List, Optional
 
 import numpy as np
 
-YAMNET_CORE_DIR = Path(__file__).resolve().parent.parent / "yamnet" / "core"
+YAMNET_CORE_DIR = Path(__file__).resolve().parents[2] / "yamnet" / "core"  # edge/apps/ → 저장소 루트
 sys.path.insert(0, str(YAMNET_CORE_DIR))
 
 from yamnet_core import TARGET_SAMPLE_RATE, infer, load_class_names, load_yamnet, preprocess  # noqa: E402
 from category_map import class_ids_for, get_category  # noqa: E402
 import event_rules  # noqa: E402
 
-from .config import ConfigError, load_config
-from .emit import EventEmitter
-from . import heartbeat
+from ..transport.config import ConfigError, load_config
+from ..transport.emit import EventEmitter
+from ..transport import heartbeat
 
 log = logging.getLogger("edge.stream_pipeline")
 

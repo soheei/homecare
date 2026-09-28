@@ -1,8 +1,8 @@
 """
 emit.py — 모든 감지기(YAMNet, 이후 YOLO 등)가 이벤트를 내보내는 공통 진입점
 
-    from edge.config import load_config
-    from edge.emit import EventEmitter
+    from edge.transport.config import load_config
+    from edge.transport.emit import EventEmitter
 
     emitter = EventEmitter(load_config())
     emitter.start()                      # 백그라운드 전송 스레드 시작

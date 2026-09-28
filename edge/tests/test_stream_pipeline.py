@@ -7,9 +7,9 @@ from pathlib import Path
 
 import numpy as np
 
-from edge import stream_pipeline as sp
-from edge.config import Config
-from edge.emit import EventEmitter
+from edge.apps import stream_pipeline as sp
+from edge.transport.config import Config
+from edge.transport.emit import EventEmitter
 
 
 def make_cfg(tmp):

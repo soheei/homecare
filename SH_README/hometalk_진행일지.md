@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-27 밤 (홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리 / 이전: 홈 브리핑 서버 저장·Markdown UI·한국 시간, 이번주 요약 원인 재조사, Claude Desktop MCP 연결)
+> 최근 수정일시: 2026-09-28 (엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -303,3 +303,14 @@
 - 발견·수정: 롱폴링 연결 끊김을 `req.on('close')`로 감지하려다, Node 16+에선 GET 본문을 다 읽자마자 발생해 폴링이 바로 끊기는 문제를 코드 작성 중 발견 → `res.on('close')`로 변경, 끊긴 순간 넘기려던 요청은 다음 폴링이 다시 가져가게(`undispatch`).
 - 검증: `tests/capture.test.js` 13건 신규(전체 흐름·소유자만 조회, 꺼짐 409, Pi 미연결 503, 남의 기기 404/카메라 아님 400, 폴링 대기 만료, 동시 요청 촬영 1번, Pi 장치 없음 503, 타임아웃 504, 기기 id 불일치 403/만료 요청 410, MCP 도구 꺼짐/성공, 채팅 답변에 이미지 줄 붙임/실패 시 안 붙임). 전체 48 통과/5 실패(실패 5건은 기존 `chat.test.js` 4 + `app.test.js` 1). 엣지 24개 통과(리스너 3건 추가). 변경 파일 eslint 에러 0, 프론트 oxlint 에러 0·빌드 성공, 채팅 파서 이미지 블록 출력 확인.
 - ~~**실기 검증 미완료**: Render 배포 + Pi `git pull` + `sudo systemctl restart homecare-camera.service` 후 홈 카드·채팅에서 실제 사진 확인 필요~~ → 사용자 커밋·push(`03634f2 캡쳐`), 배포 후 실제 환경에서 동작 확인(사용자 보고). **(해결됨, 2026-09-27)**
+
+## 2026-09-28
+
+### 엣지 폴더 재구성 (`edge/apps/`, `edge/transport/`)
+- 파일이 한 폴더에 섞여 있어 역할별로 분리(`git mv`, 이력 유지):
+  - `edge/apps/` — 직접 실행하는 프로그램: `stream_pipeline.py`, `camera_monitor.py`, `capture_photo.py`, `send_test_event.py`
+  - `edge/transport/` — 이벤트 전송 모듈: `emit.py`, `event_mapper.py`, `cooldown.py`, `outbox.py`, `sender.py`, `heartbeat.py`, `config.py`
+  - `systemd/`, `tests/`, `data/`는 그대로.
+- 같이 고친 것: import 경로(`apps/`, `edge/tests/`, `vision/vision_pipeline.py`), `config.py`의 기준 폴더(`edge/` 유지 → `edge/.env`·`edge/data/` 위치 불변), `stream_pipeline.py`의 `yamnet/core` 경로, systemd unit `ExecStart`(`python -m edge.apps.xxx`), 문서의 실행 명령(CLAUDE.md, edge/README.md, DEPLOYMENT.md, 인수인계). logger 이름(`edge.sender` 등)은 그대로 둠.
+- 검증: 엣지 단위 테스트 24개 통과, `edge/.env`·`edge/data`·`yamnet/core` 경로 해석 확인, `python -m edge.apps.{stream_pipeline,camera_monitor,capture_photo} --help` 정상. `vision/`은 `picamera2`(Pi 전용)가 없어 로컬 import 불가 — Pi에서 **확인 필요**.
+- **Pi 반영 필요(미완료)**: `git pull` 후 `sudo cp edge/systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload` → 켜 둔 서비스 `restart`. unit 파일을 다시 복사하지 않으면 옛 명령(`python -m edge.stream_pipeline`)이 모듈을 못 찾아 서비스가 실패함.

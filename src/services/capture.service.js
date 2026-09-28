@@ -2,7 +2,7 @@
  * Capture Service - "현재 카메라 화면" 1장 촬영을 라즈베리파이(엣지)에 요청하고 결과 이미지를 받아 둔다
  *
  * Render의 백엔드는 Pi로 먼저 접속할 수 없다(Pi에 공인 주소가 없음). 그래서 Pi의 카메라 서비스
- * (edge/camera_monitor.py)가 GET /api/devices/:id/capture-requests/next 로 롱폴링하며 기다리고,
+ * (edge/apps/camera_monitor.py)가 GET /api/devices/:id/capture-requests/next 로 롱폴링하며 기다리고,
  * 요청이 생기면 바로 응답을 받아 촬영 → POST /api/devices/:id/capture-requests/:requestId 로 JPEG를 올린다.
  *
  * - 상태는 전부 메모리(Render 단일 인스턴스 전제)

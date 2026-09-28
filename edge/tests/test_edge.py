@@ -7,11 +7,11 @@ from pathlib import Path
 
 import requests
 
-from edge import event_mapper, sender
-from edge.config import Config
-from edge.cooldown import Cooldown
-from edge.emit import EventEmitter
-from edge.outbox import Outbox
+from edge.transport import event_mapper, sender
+from edge.transport.config import Config
+from edge.transport.cooldown import Cooldown
+from edge.transport.emit import EventEmitter
+from edge.transport.outbox import Outbox
 
 
 class FakeResponse:
@@ -238,7 +238,7 @@ class CaptureListenerTest(unittest.TestCase):
     def run_listener(self, polls, capture_result):
         import threading
         from unittest import mock
-        from edge import camera_monitor
+        from edge.apps import camera_monitor
 
         stop = threading.Event()
         session = self.Session(polls, stop)
@@ -261,7 +261,7 @@ class CaptureListenerTest(unittest.TestCase):
 
     def test_capture_classifies_missing_camera(self):
         from unittest import mock
-        from edge import camera_monitor
+        from edge.apps import camera_monitor
         with mock.patch.object(camera_monitor.capture_photo, "capture", return_value=False), \
                 mock.patch.object(camera_monitor, "camera_detected", return_value=False):
             self.assertEqual(camera_monitor.capture_current_frame(), (None, "camera_not_detected"))
@@ -270,7 +270,7 @@ class CaptureListenerTest(unittest.TestCase):
 class CapturePhotoTest(unittest.TestCase):
     def test_falls_back_to_libcamera_still(self):
         from unittest import mock
-        from edge import capture_photo
+        from edge.apps import capture_photo
 
         def fake_run(cmd, **kw):
             if cmd[0] == "rpicam-still":
@@ -286,7 +286,7 @@ class CapturePhotoTest(unittest.TestCase):
 
     def test_sends_with_camera_device_id_and_separate_outbox(self):
         from unittest import mock
-        from edge import capture_photo
+        from edge.apps import capture_photo
 
         tmp = tempfile.mkdtemp()
         posted = []

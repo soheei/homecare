@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=alarmi
 WorkingDirectory=/home/alarmi/homecare
-ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.camera_monitor
+ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.apps.camera_monitor
 Restart=on-failure
 RestartSec=10
 

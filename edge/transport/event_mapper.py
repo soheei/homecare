@@ -42,7 +42,7 @@ SPECS = {
     # 중간
     "long_silence":          EventSpec("장시간 무음/무활동", "other", "warning", 3600),
     "kitchen_risk":          EventSpec("주방 위험 전조", "other", "warning", 600),
-    # 카메라 수동 촬영 (edge/capture_photo.py) — 감지가 아니라 사용자가 직접 찍는 것이라 쿨다운 없음
+    # 카메라 수동 촬영 (edge/apps/capture_photo.py) — 감지가 아니라 사용자가 직접 찍는 것이라 쿨다운 없음
     "camera_capture":        EventSpec("카메라 사진 촬영", "other", "normal", 0),
     # 전송하지 않음 — 즉시 알림 없음(집계) / 기본 OFF / 로그전용
     "health_signal":         EventSpec("건강 이상 신호음", "sound", "normal", 0, send=False),

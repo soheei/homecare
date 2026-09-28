@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=alarmi
 WorkingDirectory=/home/alarmi/homecare
-ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.stream_pipeline
+ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.apps.stream_pipeline
 Restart=on-failure
 RestartSec=10
 

@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-27 밤 (camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 `edge.capture_photo` 추가 / 이전: 테스트 현황 갱신, stdio MCP 주의사항, Claude Desktop 연결 방법 위치 안내)
+> 최근 수정일시: 2026-09-28 (엣지 실행 명령 `python -m edge.xxx` → `python -m edge.apps.xxx` — edge/ 폴더 재구성 / 이전: camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 추가)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -41,11 +41,11 @@
 | `python3 -m venv .venv` | 가상환경 생성 (시스템 pip은 PEP 668 `externally-managed-environment`로 막힘) |
 | `source .venv/bin/activate` | 가상환경 활성화 (새 터미널마다 필요) |
 | `pip install -r edge/requirements.txt` | 의존성 설치 (`requests`) |
-| `python -m edge.send_test_event` | 가짜 이벤트 1건을 백엔드로 전송해 경로 점검. 웹 "최근 이벤트"에 `[테스트] 엣지 전송 확인`이 보이면 성공 |
-| `python -m edge.stream_pipeline` | 마이크(ReSpeaker) → YAMNet 실시간 이벤트 감지 실행. 실행 중엔 20초 간격으로 자동 하트비트 전송(홈 화면 "마이크" 상태) |
-| `python -m edge.camera_monitor` | 카메라(Camera Module V3) 하드웨어 인식 여부를 20초마다 확인해 하트비트 전송(홈 화면 "카메라" 상태) + 홈 카메라 카드/채팅 "현재 화면 보여줘" 캡처 요청 대기(롱폴링, 2026-09-27~). 보통 `homecare-camera.service`로 실행 |
-| `python -m edge.camera_monitor --list-cameras` | 카메라 감지 결과만 1회 출력(디버그용) |
-| `python -m edge.capture_photo` | 카메라로 사진 1장 촬영(`rpicam-still`) → 카메라 기기 id(`HOMECARE_CAMERA_DEVICE_ID`)로 `POST /api/events` 이미지 이벤트 전송 → Supabase Storage `events` 버킷 + `events.image_url` 저장. `--description "..."`로 설명 지정, `--no-send`는 촬영만(`edge/data/captures/`). 2026-09-27 작성, Pi 실기 검증 **미완료** |
+| `python -m edge.apps.send_test_event` | 가짜 이벤트 1건을 백엔드로 전송해 경로 점검. 웹 "최근 이벤트"에 `[테스트] 엣지 전송 확인`이 보이면 성공 |
+| `python -m edge.apps.stream_pipeline` | 마이크(ReSpeaker) → YAMNet 실시간 이벤트 감지 실행. 실행 중엔 20초 간격으로 자동 하트비트 전송(홈 화면 "마이크" 상태) |
+| `python -m edge.apps.camera_monitor` | 카메라(Camera Module V3) 하드웨어 인식 여부를 20초마다 확인해 하트비트 전송(홈 화면 "카메라" 상태) + 홈 카메라 카드/채팅 "현재 화면 보여줘" 캡처 요청 대기(롱폴링, 2026-09-27~). 보통 `homecare-camera.service`로 실행 |
+| `python -m edge.apps.camera_monitor --list-cameras` | 카메라 감지 결과만 1회 출력(디버그용) |
+| `python -m edge.apps.capture_photo` | 카메라로 사진 1장 촬영(`rpicam-still`) → 카메라 기기 id(`HOMECARE_CAMERA_DEVICE_ID`)로 `POST /api/events` 이미지 이벤트 전송 → Supabase Storage `events` 버킷 + `events.image_url` 저장. `--description "..."`로 설명 지정, `--no-send`는 촬영만(`edge/data/captures/`). 2026-09-27 작성, Pi 실기 검증 **미완료** |
 | `python -m unittest discover -s edge/tests -t .` | 엣지 단위 테스트, 저장소 루트에서 실행 |
 
 ### 백엔드 배포 (Render)

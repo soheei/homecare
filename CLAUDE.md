@@ -20,7 +20,7 @@
   - 웹 프론트엔드(실제 배포되는 것): `web/` — Vite + React 19 + Tailwind, Vercel 배포 (https://homecare-9sr8.vercel.app/)
   - 레거시/프로토타입 프론트엔드(package.json 없음, 빌드/배포 안 됨 — **확인 필요**): `frontend/`
   - DB 스키마: `database/schema.sql` (Supabase PostgreSQL). **주의**: 맨 아래에 개발용 샘플 데이터 INSERT가 있어 파일 전체를 운영 DB에서 실행하면 가짜 이벤트/기기가 들어간다.
-  - 엣지(라즈베리파이) 전송 코드: `edge/` — 감지기가 `EventEmitter.emit()`만 호출하면 쿨다운 → SQLite 큐(`edge/data/`) → sender가 `POST /api/events`로 전송(재시도 포함). 카테고리→`type`/`dangerLevel` 변환표는 `edge/event_mapper.py`. 마이크→YAMNet 실시간 파이프라인(`edge/stream_pipeline.py`)과 YOLO 연동은 **아직 없음**.
+  - 엣지(라즈베리파이) 전송 코드: `edge/` — 감지기가 `EventEmitter.emit()`만 호출하면 쿨다운 → SQLite 큐(`edge/data/`) → sender가 `POST /api/events`로 전송(재시도 포함). 카테고리→`type`/`dangerLevel` 변환표는 `edge/transport/event_mapper.py`. 마이크→YAMNet 실시간 파이프라인(`edge/apps/stream_pipeline.py`)은 가동 중, YOLO 연동은 **아직 없음**. 폴더: 실행 프로그램 `edge/apps/`, 전송 모듈 `edge/transport/`.
   - 오디오 분류 실험/설계: `yamnet/` (`core/` = 모델 로딩·카테고리·판정 규칙, `verification/` = ESC-50 평가 스크립트, 설계는 `yamnet/Plan.md`)
   - 배포 설정: `Dockerfile`(Node 20, Render가 사용), `docker-compose.yml`(과거 Pi 배포용, 현재 배포 경로 아님. mcp 서비스는 `profiles: ["mcp-manual"]`로 기본 실행에서 제외됨)
 - 테스트 코드 위치: `tests/` (`app.test.js`, `chat.test.js`, `chat-history.test.js`, `event-date.test.js`, `mcp.test.js`, `capture.test.js`, `setup.js`), Jest 사용 (`jest.config.js`). 현재 5건 실패/48건 통과 — 실패 5건은 기존부터: `chat.test.js` 4건은 토큰 없이 요청해 401(인증은 정상, 테스트가 낡음), `app.test.js` 404 1건은 `app.js`의 레거시 `frontend/` SPA 폴백 때문. 엣지는 `python -m unittest discover -s edge/tests -t .`(24개).
@@ -34,7 +34,7 @@
 - 유닛 테스트: `npm test` (Jest)
 - 빌드: 백엔드는 별도 빌드 없음(Node 직접 실행). 프론트엔드는 `cd web && npm run build` (Vite, Vercel이 자동 빌드)
 - 백엔드 배포: `main`에 push하면 Render가 자동 재배포한다(별도 명령 없음). 상태 확인은 `curl https://homecare-9kcu.onrender.com/health` — 응답의 `environment`가 반드시 `production`이어야 한다. (과거의 `docker-compose up -d --build backend`는 Pi 시절 방식 — 상세는 `SH_README/`)
-- 엣지(Pi): `python3 -m venv .venv && source .venv/bin/activate && pip install -r edge/requirements.txt` (시스템 pip은 PEP 668로 막힘). 전송 경로 점검: `python -m edge.send_test_event`.
+- 엣지(Pi): `python3 -m venv .venv && source .venv/bin/activate && pip install -r edge/requirements.txt` (시스템 pip은 PEP 668로 막힘). 전송 경로 점검: `python -m edge.apps.send_test_event`.
 
 ## Working Rules
 - 새 MCP 도구는 `src/mcp/tools/`에 정의(`inputSchema`, MCP 규격)+핸들러를 추가하고, 새 파일이면 `src/mcp/createServer.js`에 등록한다. 채팅은 `tools/list`로 자동 인식하므로 `claude.service.js`는 고칠 필요 없다. Anthropic API용 `input_schema` 변환은 `mcp.service.js`가 한다 — 도구 정의를 `input_schema`로 바꾸지 말 것.

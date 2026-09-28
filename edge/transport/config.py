@@ -17,7 +17,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-EDGE_DIR = Path(__file__).resolve().parent
+EDGE_DIR = Path(__file__).resolve().parent.parent  # edge/ (이 파일은 edge/transport/에 있음)
 
 
 class ConfigError(RuntimeError):

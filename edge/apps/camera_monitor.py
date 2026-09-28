@@ -2,8 +2,8 @@
 camera_monitor.py — Camera Module V3(CSI) 하드웨어 인식 여부를 주기적으로 확인해 백엔드에 하트비트 전송
                     + 앱/채팅의 "현재 화면 보기" 요청을 받아 사진 1장 촬영 (homecare-camera.service)
 
-    python -m edge.camera_monitor
-    python -m edge.camera_monitor --list-cameras   # 감지 결과만 한 번 출력하고 종료 (디버그용)
+    python -m edge.apps.camera_monitor
+    python -m edge.apps.camera_monitor --list-cameras   # 감지 결과만 한 번 출력하고 종료 (디버그용)
 
 아직 카메라 영상 분석 파이프라인(YOLO 등)은 없다 — 하트비트는 "카메라가 OS에 잡히는지"만
 확인하는 임시 신호다. 실제 분석 파이프라인이 생기면 그 프로세스가 하트비트를 보내도록 교체할 것
@@ -35,8 +35,9 @@ from pathlib import Path
 
 import requests
 
-from . import capture_photo, heartbeat
-from .config import ConfigError, load_config
+from . import capture_photo
+from ..transport import heartbeat
+from ..transport.config import ConfigError, load_config
 
 log = logging.getLogger("edge.camera_monitor")
 

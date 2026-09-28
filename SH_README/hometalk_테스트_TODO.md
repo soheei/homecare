@@ -12,7 +12,7 @@
 
 - [ ] **변경사항 커밋·push** (현재 로컬에만 있음: 서명 URL 백엔드, 소리 반복 전송 수정, 방문자·택배 감지, 카메라 서비스 통합)
   - push하면 Render가 백엔드를 자동 재배포한다.
-- [ ] **Pi 코드 받기 + 서비스 파일 재설치** (엣지 폴더 재구성으로 실행 명령이 바뀜)
+- [x] **Pi 코드 받기 + 서비스 파일 재설치** (2026-09-28 완료, 카메라=`vision.vision_pipeline`, `HOMECARE_EVENT_DIR=edge/data/events` 추가) (엣지 폴더 재구성으로 실행 명령이 바뀜)
   ```bash
   cd ~/homecare && git pull
   git sparse-checkout list          # vision 이 없으면 ↓ (카메라 서비스 = vision)
@@ -20,11 +20,11 @@
   sudo cp edge/systemd/*.service /etc/systemd/system/ && sudo systemctl daemon-reload
   ```
   - 확인: `grep ExecStart /etc/systemd/system/homecare-*.service` → 마이크는 `edge.apps.stream_pipeline`, 카메라는 `vision.vision_pipeline`
-- [ ] **Pi에서 단위 테스트** (Pi 환경에서도 코드가 도는지)
+- [x] **Pi에서 단위 테스트** (2026-09-28: 엣지 25·vision 20 OK) (Pi 환경에서도 코드가 도는지)
   ```bash
   source .venv/bin/activate
   python -m unittest discover -s edge/tests -t .     # 기대: 25개 OK
-  python -m unittest discover -s vision/tests -t .   # 기대: 20개 OK (cv2, numpy 필요)
+  python -m unittest discover -s vision/tests -t .   # 기대: 24개 OK (cv2, numpy 필요)
   ```
 
 ---
@@ -83,13 +83,13 @@
 ### 3-1. 실행 환경 (먼저 확인)
 
 - [x] **vision 의존성 설치 여부** — 2026-09-28 Pi 확인 결과: venv(Python 3.13.5, numpy 2.5.3)에 `cv2`·`torch`·`ultralytics`·`picamera2` **전부 없음**. picamera2는 apt(`python3-picamera2`)로 시스템에만 설치됨, venv는 `include-system-site-packages = false`. sparse-checkout에 vision 포함, `HOMECARE_CAMERA_DEVICE_ID` 설정됨, `/mnt/ssd` **없음**
-  - [ ] 조치: ① `.venv/pyvenv.cfg`의 `include-system-site-packages`를 `true`로 → ② venv에서 `pip install ultralytics` → ③ numpy/tensorflow 버전이 바뀌지 않았는지, 마이크 쪽 import 확인 (명령은 진행일지 2026-09-28 "Pi vision 의존성 확인")
+  - [x] 조치 완료(2026-09-28): `include-system-site-packages = true` + `pip install ultralytics` → cv2·torch·ultralytics·picamera2·tensorflow·sounddevice 모두 import OK, numpy 2.5.3·tensorflow 2.21.0 그대로. 버전은 `vision/requirements.txt`에 기록
   - 원래 메모: 어느 requirements 파일에도 없음
   ```bash
   python -c "import cv2, ultralytics, picamera2; print('OK')"
   ```
   - `picamera2`는 apt(`python3-picamera2`)로 설치되는 패키지라, venv를 `--system-site-packages` 없이 만들었다면 venv 안에서 import가 안 될 수 있음 → 안 되면 설치 방법 결정 필요
-- [ ] **영상이 브라우저에서 재생 가능한 H.264로 저장되는지**
+- [x] **영상이 브라우저에서 재생 가능한 H.264로 저장되는지** — 2026-09-28 결과: **불가**. OpenCV(pip)가 하드웨어 인코더 `h264_v4l2m2m`만 시도하다 실패(Pi 5엔 H.264 하드웨어 인코더 없음) → `mp4v`로 저장돼 브라우저 재생 불가. → Pi에 ffmpeg libx264·PyAV libx264 있음 확인, `event_recorder.py`에 저장 후 ffmpeg H.264 변환 추가(2026-09-28). **확인**: 이벤트 저장 로그에 `[EVENT VIDEO] converted to H.264`가 나오고, 서명 URL 영상이 휴대폰 브라우저에서 재생되는지
   ```bash
   python -c "import cv2; w=cv2.VideoWriter('/tmp/t.mp4', cv2.VideoWriter_fourcc(*'avc1'), 5, (640,480)); print('H.264 가능' if w.isOpened() else 'H.264 불가 → mp4v로 저장됨(브라우저 재생 불가)')"
   ```
@@ -172,7 +172,7 @@
 - [ ] **0-3 낙상 판정 강화** (`vision/fall_detector.py`만) — 내려간 거리를 사람 키 대비 비율로, 쓰러진 뒤 2~3초 누운 모양 유지 시에만 확정. `update(person)` 입출력 유지
 - [ ] **0-5 vision 전용 설정** (`vision/vision_pipeline.py`, `event_recorder.py`)
   - 이벤트 시각에 한국 시간대 붙이기 (`datetime.now()` → 시간대 포함)
-  - H.264로 저장 안 되면(3-1 결과) 저장 후 ffmpeg로 변환
+  - [x] H.264: 저장 후 ffmpeg(libx264)로 변환 (`event_recorder.py`, 2026-09-28) — 실패해도 원본 mp4v로 전송
   - 전송 끝난 Pi 로컬 영상 정리 (`/mnt/ssd/events`가 계속 쌓임)
 - [x] 0-6 카메라 서비스를 vision으로 통합 — vision이 하트비트 + "현재 화면 보기"(메모리 최신 프레임) 처리, `homecare-camera.service`가 `vision.vision_pipeline` 실행, 이벤트는 카메라 기기 id + `edge/data/vision/` 큐 (`vision/camera_service.py`) — 2026-09-28
 - [ ] **vision 의존성 정리** — `ultralytics`, `opencv`, `picamera2` 설치 방법을 문서/requirements에 반영 (3-1 결과에 따라)

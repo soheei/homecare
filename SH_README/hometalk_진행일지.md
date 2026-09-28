@@ -367,3 +367,15 @@
 - 수정: 세 값을 `read_settings()`로 옮겨 `load_config()` 이후 호출. 기본값 유지. 상대 경로는 실행 위치와 무관하게 저장소 루트 기준으로 해석(서비스 `WorkingDirectory`와 직접 실행 모두 같은 곳). `edge/.env.example`·DEPLOYMENT·인수인계·테스트 TODO에 `HOMECARE_EVENT_DIR=edge/data/events` 안내.
 - 검증: `vision/tests/test_pipeline_settings.py` 3건 신규(임시 .env 값 반영·상대 경로 루트 기준, 절대 경로 유지, 미설정 시 기본값) → vision 20·엣지 25 통과, 가짜 카메라 스모크 테스트 정상.
 - Pi 적용: `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 한 줄 추가(값은 Pi에서 직접).
+
+### Pi vision 의존성 설치·단위 테스트 (사용자 실행)
+- 설치: `.venv/pyvenv.cfg` `include-system-site-packages = true` + `pip install ultralytics` → cv2·torch·ultralytics·picamera2·tensorflow·sounddevice import OK. numpy 2.5.3·tensorflow 2.21.0 설치 전후 동일(마이크 영향 없음). 버전: ultralytics 8.4.164, torch 2.14.0, torchvision 0.29.0, opencv-python 5.0.0.93(apt `opencv` 4.10.0도 시스템에 있음 — venv의 pip 쪽이 먼저 import됨) → `vision/requirements.txt` 신규 작성.
+- Pi 반영: `git pull`, unit 파일 재복사(카메라 `vision.vision_pipeline`), `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events`. 단위 테스트 엣지 25·vision 20 OK.
+- ~~H.264 가능 여부 확인 필요~~ → **불가**: OpenCV가 `h264_v4l2m2m`(하드웨어 인코더)만 시도하다 실패 — Pi 5엔 H.264 하드웨어 인코더가 없음. 지금 코드는 `mp4v`로 저장 → 웹 브라우저 재생 불가. 소프트웨어 H.264(libx264) 변환 필요(0-5), Pi의 ffmpeg/PyAV libx264 지원 여부 **확인 필요**.
+
+### vision 이벤트 영상 H.264 변환 (0-5 일부)
+- 확인(사용자, Pi): ffmpeg `libx264` 인코더 있음, PyAV 14.2.0 `libx264` 있음.
+- 대안: 저장 후 ffmpeg로 변환(기존 OpenCV 저장 코드 유지, 새 파이썬 의존성 없음) / PyAV로 처음부터 H.264 저장(저장 코드 교체) → **ffmpeg 변환 선택**.
+- 수정: `vision/event_recorder.py` — `avc1` 열기에 실패해 `mp4v`로 저장한 경우에만 `ffmpeg -c:v libx264 -preset veryfast -pix_fmt yuv420p -movflags +faststart`로 변환 후 교체. ffmpeg 없음/시간 초과/실패 시 경고만 찍고 원본 mp4v 유지(이벤트 전송은 계속). `vision/requirements.txt`에 ffmpeg(apt) 안내.
+- 검증: `vision/tests/test_event_recorder.py` 4건 신규(mp4v→H.264 교체, avc1 성공 시 변환 안 함, ffmpeg 없음 → 원본 유지, 변환 실패 → 원본 유지·임시 파일 정리) — PC엔 ffmpeg가 없어 가짜 ffmpeg로 검증. vision 24·엣지 25 통과. **Pi 실제 변환·브라우저 재생 확인 필요**.
+- 참고: Pi에선 매 이벤트 저장 때 OpenCV가 `h264_v4l2m2m` 관련 ERROR 로그를 찍음(avc1 시도 실패 메시지) — 동작엔 영향 없음.

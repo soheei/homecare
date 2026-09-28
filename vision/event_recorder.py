@@ -1,5 +1,6 @@
 import cv2
 import os
+import subprocess
 import uuid
 
 from datetime import datetime
@@ -140,6 +141,8 @@ class EventRecorder:
             (width, height),
         )
 
+        used_h264 = writer.isOpened()
+
         # 실패하면 mp4v
         if not writer.isOpened():
             print(
@@ -173,6 +176,11 @@ class EventRecorder:
             writer.write(frame)
 
         writer.release()
+
+        # mp4v는 브라우저에서 재생되지 않음 → H.264로 변환
+        # (Pi 5엔 H.264 하드웨어 인코더가 없어 OpenCV의 avc1이 실패함)
+        if not used_h264:
+            self._convert_to_h264(video_path)
 
         if self.event_frame is not None:
             cv2.imwrite(
@@ -215,6 +223,54 @@ class EventRecorder:
         self._reset()
 
         return result
+
+    def _convert_to_h264(self, video_path):
+        """
+        ffmpeg(libx264, 소프트웨어 인코딩)로 video_path를 H.264로 바꾼다.
+        ffmpeg가 없거나 실패하면 원본(mp4v)을 그대로 둔다 — 이벤트 전송은 계속되고,
+        영상만 브라우저에서 재생되지 않을 수 있다.
+        """
+
+        tmp_path = video_path + ".h264.mp4"
+
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", video_path,
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-pix_fmt", "yuv420p",        # 브라우저 호환 색 형식
+            "-movflags", "+faststart",    # 다 받기 전에 재생 시작
+            tmp_path,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            print(
+                f"[WARN] H.264 conversion skipped ({type(e).__name__}) "
+                "- keeping mp4v (may not play in browser)"
+            )
+            return
+
+        if result.returncode != 0 or not os.path.exists(tmp_path):
+            print(
+                "[WARN] H.264 conversion failed - keeping mp4v: "
+                f"{(result.stderr or '').strip()[-200:]}"
+            )
+
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+            return
+
+        os.replace(tmp_path, video_path)
+
+        print("[EVENT VIDEO] converted to H.264")
 
     def _reset(self):
         self.recording = False

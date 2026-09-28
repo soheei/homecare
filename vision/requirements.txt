@@ -1,0 +1,16 @@
+# vision (카메라 서비스 = homecare-camera.service) 의존성 — Pi의 .venv에서: pip install -r vision/requirements.txt
+#
+# picamera2는 pip가 아니라 apt로 설치한다 (libcamera 바인딩이 apt에만 있음):
+#   sudo apt install -y python3-picamera2
+#   그리고 .venv/pyvenv.cfg 의 include-system-site-packages = true  (venv가 apt 패키지를 보도록)
+#
+# 이벤트 영상을 브라우저 재생 가능한 H.264로 바꾸는 데 ffmpeg(libx264)도 필요 (Pi 5엔 H.264 하드웨어 인코더 없음):
+#   sudo apt install -y ffmpeg   (2026-09-28 Pi에 이미 설치돼 있음 확인)
+#
+# 2026-09-28 Pi(Python 3.13.5)에서 동작 확인한 버전:
+#   ultralytics 8.4.164, torch 2.14.0, torchvision 0.29.0, opencv-python 5.0.0.93, numpy 2.5.3
+#   (마이크 쪽 tensorflow 2.21.0과 같은 venv에서 충돌 없음 확인)
+
+requests>=2.31        # edge.transport 전송 모듈
+numpy>=1.23
+ultralytics>=8.4      # YOLO 실행 — torch, torchvision, opencv-python 함께 설치됨

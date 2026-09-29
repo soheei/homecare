@@ -72,6 +72,13 @@ router.post(
 );
 
 /**
+ * DELETE /api/events
+ * 이벤트 여러 개 삭제 — body { ids: [...] }면 선택한 것만, body가 없으면 전체
+ * (로그인한 사용자의 기기에서 발생한 이벤트만)
+ */
+router.delete('/', authenticateUser, eventController.deleteEvents);
+
+/**
  * DELETE /api/events/:id
  * 이벤트 삭제
  */

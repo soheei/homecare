@@ -9,6 +9,7 @@
  */
 
 const eventService = require('../services/event.service');
+const deviceService = require('../services/device.service');
 const storageService = require('../services/storage.service');
 const notificationService = require('../services/notification.service');
 const logger = require('../utils/logger');
@@ -260,11 +261,40 @@ const deleteEvent = async (req, res, next) => {
   }
 };
 
+/**
+ * 이벤트 여러 개/전체 삭제 — 요청한 사용자의 기기에서 발생한 이벤트만
+ * body.ids가 있으면 선택한 이벤트만, 없으면 전체
+ */
+const deleteEvents = async (req, res, next) => {
+  try {
+    const ids = req.body?.ids;
+    if (ids !== undefined && (!Array.isArray(ids) || ids.length === 0 || !ids.every(id => typeof id === 'string'))) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids는 비어 있지 않은 문자열 배열이어야 합니다.'
+      });
+    }
+
+    const devices = await deviceService.getDevices(req.user?.id);
+    const deleted = await eventService.deleteEventsByDevices(devices.map(d => d.id), ids);
+
+    res.json({
+      success: true,
+      data: { deleted }
+    });
+
+  } catch (error) {
+    logger.error('[Event] Error deleting events:', error);
+    next(error);
+  }
+};
+
 module.exports = {
   getEvents,
   getEventById,
   createEvent,
   getDailySummary,
   getWeeklySummary,
-  deleteEvent
+  deleteEvent,
+  deleteEvents
 };

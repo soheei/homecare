@@ -131,6 +131,60 @@ class StreamPipelineTest(unittest.TestCase):
             self.assertEqual(len(glass), 1)
             self.assertAlmostEqual(glass[0]["payload"]["metadata"]["score"], 0.8, places=3)
 
+    def test_sound_event_waits_for_clip_and_attaches_wav(self):
+        """감지 후 CLIP_POST_SEC초가 찰 때까지 전송을 미루고, 감지 윈도우+5초 wav를 첨부. 녹음 중 재감지는 무시."""
+        import wave
+
+        hop = self._hop_samples()
+        post_chunks = int(np.ceil(sp.CLIP_POST_SEC / sp.HOP_SEC))
+        call = [0]
+
+        def infer_fn(model, window):
+            call[0] += 1
+            frame = np.zeros((1, 521), dtype=np.float32)
+            if call[0] in (3, 5):  # 녹음 중(5번째)에 또 울려도 이벤트는 1건
+                frame[0, 349] = 0.9  # Doorbell
+            return frame, None, None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            emitter = EventEmitter(make_cfg(tmp))
+            pipeline = sp.StreamPipeline(
+                model=None, class_names=[], emitter=emitter,
+                source=FakeSource(3 + post_chunks - 1, hop), infer_fn=infer_fn,
+            )
+            # 5초가 차기 직전까지만 흘려 보내면 아직 전송 전(녹음 중)
+            for i, chunk in enumerate(pipeline.source.frames()):
+                pipeline._audio_buf = np.concatenate([pipeline._audio_buf, chunk])[-pipeline.window_samples:]
+                pipeline._feed_clips(chunk)
+                pipeline._append_history(pipeline._infer_latest_frame())
+                pipeline._handle_triggers()
+            self.assertEqual(emitter.outbox.counts()["pending"], 0)
+            self.assertIn("door_visitor", pipeline._pending_clips)
+
+            pipeline._feed_clips(np.zeros(hop, dtype=np.float32))  # 마지막 청크 → 5초 완성 → 전송
+            rows = emitter.outbox.fetch_due()
+            self.assertEqual(len(rows), 1)
+            audio = [a for a in rows[0]["attachments"] if a["field"] == "audio"]
+            self.assertEqual(audio[0]["mime"], "audio/wav")
+            with wave.open(audio[0]["path"]) as w:
+                self.assertEqual(w.getframerate(), sp.TARGET_SAMPLE_RATE)
+                expected = pipeline.window_samples + int(round(sp.CLIP_POST_SEC * sp.TARGET_SAMPLE_RATE))
+                self.assertEqual(w.getnframes(), expected)
+            self.assertEqual(pipeline._pending_clips, {})
+
+    def test_pending_clip_is_flushed_when_stream_ends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            emitter = EventEmitter(make_cfg(tmp))
+            pipeline = sp.StreamPipeline(
+                model=None, class_names=[], emitter=emitter,
+                source=FakeSource(3, self._hop_samples()), infer_fn=make_fake_infer(3, 349),
+            )
+            pipeline.run()  # 5초가 차기 전에 끝나도 모인 만큼 보냄
+            rows = emitter.outbox.fetch_due()
+            self.assertEqual(len(rows), 1)
+            self.assertTrue(any(a["field"] == "audio" for a in rows[0]["attachments"]))
+            self.assertLess(rows[0]["payload"]["metadata"]["clip_sec"], sp.CLIP_POST_SEC)
+
 
 if __name__ == "__main__":
     unittest.main()

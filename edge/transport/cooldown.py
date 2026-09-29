@@ -14,6 +14,14 @@ class Cooldown:
         self._last = {}
         self._lock = threading.Lock()
 
+    def is_blocked(self, key: str, seconds: float) -> bool:
+        """쿨다운 중이면 True. allow()와 달리 시각을 기록하지 않는다."""
+        if seconds <= 0:
+            return False
+        with self._lock:
+            last = self._last.get(key)
+            return last is not None and self._clock() - last < seconds
+
     def allow(self, key: str, seconds: float) -> bool:
         """허용되면 True(그리고 시각 기록), 쿨다운 중이면 False."""
         if seconds <= 0:

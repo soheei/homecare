@@ -90,6 +90,15 @@ export function AppDataProvider({ children }) {
     delete requested.current.home;
   }, []);
 
+  /** ids를 주면 선택한 이벤트만, 생략하면 전체 삭제 */
+  const deleteEvents = useCallback(async (ids) => {
+    await api.events.deleteMany(ids);
+    const keep = ids ? (e) => !ids.includes(e.id) : () => false;
+    setEventList((prev) => (prev.data ? { ...prev, data: prev.data.filter(keep) } : prev));
+    setHome((prev) => (prev.data ? { ...prev, data: { ...prev.data, events: prev.data.events.filter(keep) } } : prev));
+    delete requested.current.home;
+  }, []);
+
   /** 캡처 결과로 알게 된 기기 상태를 홈 카드에 반영 (홈 데이터는 세션 동안 한 번만 불러오므로) */
   const setDeviceStatus = useCallback((id, status) => {
     setHome((prev) => (prev.data
@@ -108,7 +117,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   return (
-    <AppDataContext.Provider value={{ home, loadHome, setDeviceStatus, eventList, loadEventList, deleteEvent, briefing, generateBriefing }}>
+    <AppDataContext.Provider value={{ home, loadHome, setDeviceStatus, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
       {children}
     </AppDataContext.Provider>
   );

@@ -70,7 +70,12 @@ export const api = {
     getDailySummary: (date) =>
       request(`/api/events/summary/daily${date ? `?date=${date}` : ''}`),
     getWeeklySummary: () => request('/api/events/summary/weekly'),
-    delete: (id) => request(`/api/events/${id}`, { method: 'DELETE' })
+    delete: (id) => request(`/api/events/${id}`, { method: 'DELETE' }),
+    // ids를 주면 선택한 이벤트만, 생략하면 전체
+    deleteMany: (ids) => request('/api/events', {
+      method: 'DELETE',
+      ...(ids ? { body: JSON.stringify({ ids }) } : {})
+    })
   },
   devices: {
     list: () => request('/api/devices'),

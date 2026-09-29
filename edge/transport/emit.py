@@ -43,6 +43,13 @@ class EventEmitter:
             self._thread.join(timeout=5)
             self._thread = self._stop = None
 
+    def can_emit(self, category_id: str, source: str) -> bool:
+        """지금 emit()하면 큐에 들어갈지(전송 대상 + 쿨다운 아님). 쿨다운은 소비하지 않는다."""
+        spec = event_mapper.get_spec(category_id)
+        if spec is None or not spec.send:
+            return False
+        return not self._cooldown.is_blocked(f"{source}:{category_id}", spec.cooldown_sec)
+
     def emit(
         self,
         category_id: str,
@@ -82,11 +89,16 @@ class EventEmitter:
         if description is None and score is not None:
             text += f" (신뢰도 {score:.2f})"
 
+        occurred_at = occurred_at or datetime.now(timezone.utc)
+        if occurred_at.tzinfo is None:
+            # 시간대 없는 시각은 백엔드가 UTC로 해석해 9시간 밀림 → Pi 로컬 시간대로 간주
+            occurred_at = occurred_at.astimezone()
+
         payload = {
             "type": spec.type,
             "description": text,
             "dangerLevel": spec.danger_level,
-            "timestamp": (occurred_at or datetime.now(timezone.utc)).isoformat(),
+            "timestamp": occurred_at.isoformat(),
             "metadata": metadata,
         }
         attachments = {

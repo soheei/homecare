@@ -14,6 +14,11 @@ export const RISK_FROM_LEVEL = {
   normal: { key: 'low', label: '낮음', badgeBg: '#DCE6EC', badgeColor: '#245166', border: '#0FAE82' }
 };
 
+/** 이벤트 화면에서 눌러 재생할 영상/소리가 있는지 */
+export function hasPlayableMedia(event) {
+  return Boolean(event?.video_url || event?.audio_url);
+}
+
 export function formatRelativeTime(isoString) {
   const diffMs = Date.now() - new Date(isoString).getTime();
   const min = Math.floor(diffMs / 60000);

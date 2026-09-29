@@ -230,6 +230,17 @@ class EmitterTest(unittest.TestCase):
             self.assertIn("초인종", p["description"])
             self.assertEqual(rows["glass_impact"]["payload"]["dangerLevel"], "danger")
 
+    def test_naive_occurred_at_gets_local_timezone(self):
+        from datetime import datetime
+
+        with tempfile.TemporaryDirectory() as tmp:
+            em = EventEmitter(make_cfg(tmp))
+            naive = datetime(2026, 9, 29, 10, 39, 1)
+            em.emit("door_visitor", source="vision", occurred_at=naive)
+            sent = datetime.fromisoformat(em.outbox.fetch_due()[0]["payload"]["timestamp"])
+            self.assertIsNotNone(sent.tzinfo)
+            self.assertEqual(sent, naive.astimezone())  # 같은 순간(로컬 시각 기준)이어야 함
+
     def test_log_only_and_unknown_are_not_queued(self):
         with tempfile.TemporaryDirectory() as tmp:
             em = EventEmitter(make_cfg(tmp))

@@ -18,9 +18,12 @@ Plan.md §6 6단계. yamnet/core(추론·판정 로직)와 edge(전송)를 여�
         │
         ▼
     event_rules.evaluate_all(히스토리) — 카테고리별 판정 규칙 적용
-        │  triggered=True인 카테고리만
+        │  triggered=True인 카테고리만 (쿨다운 중이거나 이미 녹음 중이면 건너뜀)
         ▼
-    edge.transport.emit.EventEmitter.emit() — 쿨다운 체크 후 큐에 저장, 백그라운드로 백엔드 전송
+    감지 윈도우(0.96초) + 이후 CLIP_POST_SEC(5초) 오디오를 모아 wav로 저장
+        │
+        ▼
+    edge.transport.emit.EventEmitter.emit(audio_path=wav) — 큐에 저장, 백그라운드로 백엔드 전송
 
 yamnet/core 쪽 모듈(yamnet_core, category_map, event_rules)은 패키지가 아니라
 verification/mediatest.py와 같은 방식으로 sys.path에 직접 추가해서 가져온다
@@ -32,11 +35,16 @@ TensorFlow(`tensorflow_hub`)/`sounddevice`/`soundfile`는 실제로 필요한 �
 
 import argparse
 import logging
+import os
 import queue
 import sys
+import tempfile
 import time
+import wave
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
@@ -59,6 +67,37 @@ HISTORY_SEC = 3 * 3600                  # long_silence 규칙(3시간 무활동)
 MAX_HISTORY_FRAMES = int(HISTORY_SEC / HOP_SEC) + 10
 HEARTBEAT_INTERVAL_SEC = 20.0           # 이 파이프라인이 살아있는 동안 주기적으로 보낼 하트비트 간격
 RECENT_TRIGGER_FRAMES = 12              # 점수/시각을 뽑을 최근 트리거 구간(약 6초) — 가장 긴 조합 시간창(순차 6프레임)보다 넉넉히
+SOURCE = "yamnet"
+
+# 이벤트에 붙일 소리 클립: 감지를 일으킨 윈도우(0.96초) + 감지 후 CLIP_POST_SEC초
+# 녹음이 끝나야 전송하므로 알림이 CLIP_POST_SEC초 늦어진다. 0이면 녹음 없이 바로 전송.
+CLIP_POST_SEC = 5.0
+CLIP_INCLUDE_TRIGGER_WINDOW = True      # 초인종처럼 짧은 소리는 감지 시점에 거의 끝나 있어 앞부분을 붙여야 들림
+NO_CLIP_CATEGORIES = {"long_silence"}   # '소리가 없음'이 이벤트라 녹음할 게 없음
+
+
+@dataclass
+class PendingClip:
+    """감지 후 CLIP_POST_SEC초가 찰 때까지 오디오를 모으는 중인 이벤트."""
+    category_id: str
+    score: float
+    extra: dict
+    occurred_at: datetime
+    target_samples: int
+    chunks: List[np.ndarray] = field(default_factory=list)
+
+    def collected(self) -> int:
+        return sum(len(c) for c in self.chunks)
+
+
+def write_wav(path: str, audio: np.ndarray, samplerate: int = TARGET_SAMPLE_RATE) -> None:
+    """float32(-1~1) 모노 → 16bit PCM wav."""
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(samplerate)
+        w.writeframes(pcm.tobytes())
 
 
 class AudioSource:
@@ -153,6 +192,7 @@ class StreamPipeline:
         self.window_samples = int(round(WINDOW_SEC * TARGET_SAMPLE_RATE))
         self._audio_buf = np.zeros(0, dtype=np.float32)
         self._score_history = np.zeros((0, 521), dtype=np.float32)
+        self._pending_clips: Dict[str, PendingClip] = {}  # category_id → 녹음 중인 클립
 
     def _infer_latest_frame(self) -> np.ndarray:
         if len(self._audio_buf) < self.window_samples:
@@ -176,23 +216,72 @@ class StreamPipeline:
             # (지속형 규칙 kitchen_risk/long_silence는 상태가 이어지는 동안 최신 프레임을 포함하므로 쿨다운 간격으로 전송)
             if not result.triggered or latest_idx not in result.trigger_frames:
                 continue
+            cid = result.category_id
+            # 같은 소리가 이어지는 동안 녹음 중인 클립을 또 만들지 않음 / 쿨다운 중이면 녹음할 필요도 없음
+            if cid in self._pending_clips or not self.emitter.can_emit(cid, SOURCE):
+                continue
             recent = [f for f in result.trigger_frames if f >= latest_idx - RECENT_TRIGGER_FRAMES]
-            recent_scores = self._score_history[recent][:, class_ids_for(result.category_id)]
+            recent_scores = self._score_history[recent][:, class_ids_for(cid)]
             score = float(recent_scores.max())
             peak = self._score_history[recent[int(recent_scores.max(axis=1).argmax())]]
             top5 = self._top_labels(peak, k=5)
             # Plan.md §8: YAMNet top label 신뢰도가 낮으므로 "확정된 사실"이 아니라 참고용으로 metadata에 보존
-            uid = self.emitter.emit(
-                result.category_id,
-                source="yamnet",
-                score=score,
-                extra={"trigger_times_sec": [round(f * HOP_SEC, 2) for f in recent][-5:], "top5": top5},
+            extra = {"trigger_times_sec": [round(f * HOP_SEC, 2) for f in recent][-5:], "top5": top5}
+            occurred_at = datetime.now(timezone.utc)
+
+            if CLIP_POST_SEC <= 0 or cid in NO_CLIP_CATEGORIES:
+                self._emit(cid, score, extra, occurred_at)
+                continue
+
+            pre = self._audio_buf.copy() if CLIP_INCLUDE_TRIGGER_WINDOW else np.zeros(0, dtype=np.float32)
+            post_samples = int(round(CLIP_POST_SEC * TARGET_SAMPLE_RATE))
+            self._pending_clips[cid] = PendingClip(
+                category_id=cid, score=score, extra=extra, occurred_at=occurred_at,
+                target_samples=len(pre) + post_samples, chunks=[pre],
             )
-            if uid:
-                log.info(
-                    "이벤트 판정 category=%s score=%.3f top5=%s uid=%s (전송 대기열에 저장됨, 아직 백엔드로 안 나감)",
-                    result.category_id, score, top5, uid,
-                )
+            log.info("이벤트 감지 category=%s score=%.3f → %.0f초 녹음 후 전송", cid, score, CLIP_POST_SEC)
+
+    def _feed_clips(self, chunk: np.ndarray) -> None:
+        for cid in list(self._pending_clips):
+            clip = self._pending_clips[cid]
+            clip.chunks.append(chunk)
+            if clip.collected() >= clip.target_samples:
+                self._finish_clip(cid)
+
+    def _finish_clip(self, cid: str) -> None:
+        """녹음 중인 클립을 wav로 저장해 이벤트와 함께 전송 (모자라도 모인 만큼)."""
+        clip = self._pending_clips.pop(cid)
+        audio = np.concatenate(clip.chunks)[:clip.target_samples]
+        extra = {**clip.extra, "clip_sec": round(len(audio) / TARGET_SAMPLE_RATE, 2)}
+
+        fd, path = tempfile.mkstemp(suffix=".wav", prefix=f"{cid}_")
+        os.close(fd)
+        try:
+            write_wav(path, audio)
+        except Exception:
+            # 녹음 저장에 실패해도 이벤트 자체는 보냄
+            log.exception("소리 클립 저장 실패 category=%s — 소리 없이 전송", cid)
+            os.unlink(path)
+            path = None
+        try:
+            self._emit(cid, clip.score, extra, clip.occurred_at, audio_path=path)
+        finally:
+            if path:
+                os.unlink(path)  # 큐 폴더로 복사됐으므로 원본은 지움
+
+    def flush_pending_clips(self) -> None:
+        """종료 시 녹음 중이던 클립을 모인 만큼이라도 전송 (이벤트 유실 방지)."""
+        for cid in list(self._pending_clips):
+            self._finish_clip(cid)
+
+    def _emit(self, cid: str, score: float, extra: dict, occurred_at: datetime, audio_path: Optional[str] = None) -> None:
+        uid = self.emitter.emit(cid, source=SOURCE, score=score, extra=extra,
+                                audio_path=audio_path, occurred_at=occurred_at)
+        if uid:
+            log.info(
+                "이벤트 판정 category=%s score=%.3f top5=%s audio=%s uid=%s (전송 대기열에 저장됨, 아직 백엔드로 안 나감)",
+                cid, score, extra.get("top5"), "있음" if audio_path else "없음", uid,
+            )
 
     def _top_labels(self, frame_scores: np.ndarray, k: int = 5) -> List[str]:
         if not self.class_names:
@@ -206,12 +295,17 @@ class StreamPipeline:
         log.debug("프레임 top3: %s", ", ".join(self._top_labels(frame_scores, k=3)))
 
     def run(self) -> None:
-        for chunk in self.source.frames():
-            self._audio_buf = np.concatenate([self._audio_buf, chunk])[-self.window_samples:]
-            frame_scores = self._infer_latest_frame()
-            self._log_top_frame(frame_scores)
-            self._append_history(frame_scores)
-            self._handle_triggers()
+        try:
+            for chunk in self.source.frames():
+                self._audio_buf = np.concatenate([self._audio_buf, chunk])[-self.window_samples:]
+                # 새 클립은 _handle_triggers에서 이 청크가 든 _audio_buf로 시작하므로, 기존 클립부터 먼저 채움
+                self._feed_clips(chunk)
+                frame_scores = self._infer_latest_frame()
+                self._log_top_frame(frame_scores)
+                self._append_history(frame_scores)
+                self._handle_triggers()
+        finally:
+            self.flush_pending_clips()
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

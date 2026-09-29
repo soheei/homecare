@@ -191,6 +191,29 @@ const deleteEvent = async (id) => {
   }
 };
 
+/**
+ * 주어진 기기들에서 발생한 이벤트 삭제 → 삭제된 건수
+ * ids를 주면 그중 해당 기기 이벤트만, 없으면 해당 기기 이벤트 전부
+ */
+const deleteEventsByDevices = async (deviceIds, ids) => {
+  if (!deviceIds || deviceIds.length === 0) return 0;
+  try {
+    let query = supabaseAdmin
+      .from('events')
+      .delete({ count: 'exact' })
+      .in('device_id', deviceIds);
+    if (ids) query = query.in('id', ids);
+
+    const { error, count } = await query;
+    if (error) throw error;
+    logger.info(`[EventService] Deleted ${count ?? 0} events for ${deviceIds.length} devices`);
+    return count ?? 0;
+  } catch (error) {
+    logger.error('[EventService] Error deleting events by devices:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   getEvents,
   getEventById,
@@ -198,5 +221,6 @@ module.exports = {
   createEvent,
   getDailySummary,
   getWeeklySummary,
-  deleteEvent
+  deleteEvent,
+  deleteEventsByDevices
 };

@@ -56,7 +56,7 @@ DETECTION_SWEEP_CSV = os.path.join(OUTPUT_DIR, "detection_rate_sweep.csv")
 POSITIVE_ESC50_CATEGORIES = {
     "glass_impact": ["glass_breaking"],
     "fire_alarm_siren": ["siren", "clock_alarm"],  # clock_alarm은 §3에서 명시한 대리 신호
-    "baby_person_distress": ["crying_baby"],
+    "baby_cry": ["crying_baby"],  # 2026-09-29 baby_person_distress에서 분리. scream_shout은 ESC-50 대응 카테고리 없음
     "door_visitor": ["door_wood_knock"],
     "door_security": ["door_wood_knock", "door_wood_creaks"],
     "animal": [

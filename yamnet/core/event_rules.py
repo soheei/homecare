@@ -258,10 +258,19 @@ CATEGORY_RULE_CONFIG = {
             window_frames=6,
         ),
     ),
-    "baby_person_distress": dict(
+    "baby_cry": dict(
         fn=rule_majority_vote,
         kwargs=dict(
-            class_ids=_cat_class_ids("baby_person_distress"),
+            class_ids=_cat_class_ids("baby_cry"),
+            threshold=0.3,
+            window_frames=5,
+            min_votes=3,
+        ),
+    ),
+    "scream_shout": dict(
+        fn=rule_majority_vote,
+        kwargs=dict(
+            class_ids=_cat_class_ids("scream_shout"),
             threshold=0.3,
             window_frames=5,
             min_votes=3,

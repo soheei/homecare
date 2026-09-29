@@ -163,5 +163,5 @@ unit 파일은 계정/경로를 `alarmi` / `/home/alarmi/homecare`로 고정해 
 - [ ] 중복 이벤트(`event_uid`) 처리를 조회 쪽(백엔드/웹)에 반영할지 결정
 
 ### 팀 결정 필요
-- [ ] `event_mapper.py` 변환표 확정 (카테고리별 `type`/`dangerLevel`/쿨다운). 지금 값은 기본안이며 `fall_suspect`·`baby_person_distress`는 Plan.md §9 확정값(높음)을 따름
+- [ ] `event_mapper.py` 변환표 확정 (카테고리별 `type`/`dangerLevel`/쿨다운). 2026-09-29 소리 알림 등급 개편(위험: 경보음·파손 / 주의: 아기 울음·비명 및 고함·애완동물 / 일반: 초인종·문) 반영, 소리 기반 낙상·장시간 무음·주방 위험은 전송 안 함
 - [ ] DB에 남아 있는 테스트 이벤트(`[테스트] 엣지 전송 확인`)와 `schema.sql` 샘플 데이터 정리

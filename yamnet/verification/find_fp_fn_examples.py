@@ -31,7 +31,7 @@ EXAMPLES_CSV = os.path.join(OUTPUT_DIR, "fp_fn_examples.csv")
 MAX_EXAMPLES_PER_TYPE = 3
 
 TARGET_CATEGORIES = [
-    "glass_impact", "fire_alarm_siren", "baby_person_distress",
+    "glass_impact", "fire_alarm_siren", "baby_cry",
     "door_visitor", "door_security", "animal",
 ]
 

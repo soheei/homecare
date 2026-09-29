@@ -109,11 +109,20 @@ SOUND_CATEGORIES: List[SoundCategory] = [
         rule_type="combo_window",
         notes="Thud 이후 Groan/Screaming/Shout가 순차로 발생할 때만 트리거 (순서 검증 필요)",
     ),
+    # 2026-09-29: baby_person_distress(높음)를 아기 울음 / 비명·고함으로 나누고 둘 다 '중간'으로 조정
     SoundCategory(
-        category_id="baby_person_distress",
-        label="아기/사람 위급 소리",
-        class_ids=[20, 19, 11, 6, 33],
-        default_risk_level="높음",
+        category_id="baby_cry",
+        label="아기 울음",
+        class_ids=[20, 19],  # Baby cry·infant cry, Crying·sobbing
+        default_risk_level="중간",
+        locked=False,
+        rule_type="majority_vote",
+    ),
+    SoundCategory(
+        category_id="scream_shout",
+        label="비명 및 고함",
+        class_ids=[11, 6, 33],  # Screaming, Shout, Groan
+        default_risk_level="중간",
         locked=False,
         rule_type="majority_vote",
     ),
@@ -162,13 +171,11 @@ SOUND_CATEGORIES: List[SoundCategory] = [
     ),
     SoundCategory(
         category_id="animal",
-        label="동물 소리",
+        label="애완동물 울음",
         class_ids=[70, 78],
-        default_risk_level="낮음",
+        default_risk_level="중간",  # 2026-09-29: 기본 OFF(낮음) → 전송(중간)으로 변경
         locked=False,
         rule_type="threshold",
-        notes="기본 OFF 대상 — sound_categories 마스터 스키마에는 enabled 필드가 없어 "
-              "user_category_settings.enabled 기본값을 false로 두는 방식으로 구현 필요 (백엔드 확인 필요)",
     ),
     SoundCategory(
         category_id="ambient_log",

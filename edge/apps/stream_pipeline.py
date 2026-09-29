@@ -80,6 +80,8 @@ SOURCE = "yamnet"
 CLIP_POST_SEC = 5.0
 CLIP_INCLUDE_TRIGGER_WINDOW = True      # 초인종처럼 짧은 소리는 감지 시점에 거의 끝나 있어 앞부분을 붙여야 들림
 NO_CLIP_CATEGORIES = {"long_silence"}   # '소리가 없음'이 이벤트라 녹음할 게 없음
+# 소리로는 판정하지 않는 카테고리 — fall_suspect는 카메라(vision)와 SPECS를 공유해 send=False로 끌 수 없어 여기서 거름
+AUDIO_DISABLED_CATEGORIES = {"fall_suspect"}
 
 # 녹음이 끝난 뒤 vision 영상을 기다리는 최대 시간 — 영상(사후 CLIP_POST_SEC초)은 소리와 거의 같이 끝나고
 # ffmpeg 인코딩에 몇 초 걸린다. 넘으면 영상 없이 wav만 전송.
@@ -235,6 +237,8 @@ class StreamPipeline:
             if not result.triggered or latest_idx not in result.trigger_frames:
                 continue
             cid = result.category_id
+            if cid in AUDIO_DISABLED_CATEGORIES:
+                continue
             # 같은 소리가 이어지는 동안 녹음 중인 클립을 또 만들지 않음 / 쿨다운 중이면 녹음할 필요도 없음
             if cid in self._pending_clips or not self.emitter.can_emit(cid, SOURCE):
                 continue

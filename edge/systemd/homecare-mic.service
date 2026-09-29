@@ -10,6 +10,8 @@ WorkingDirectory=/home/alarmi/homecare
 ExecStart=/home/alarmi/homecare/.venv/bin/python -m edge.apps.stream_pipeline
 Restart=on-failure
 RestartSec=10
+Environment=TFHUB_CACHE_DIR=/home/alarmi/.cache/tfhub_modules
+
 
 [Install]
 WantedBy=multi-user.target

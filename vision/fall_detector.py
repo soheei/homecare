@@ -115,22 +115,20 @@ class FallDetector:
             and horizontal_posture
         )
 
+        # 1단계: 세로형 → 급하강 → 가로형이면 낙상 의심 시작
+        # 2단계: 이후 가로형이 유지되는 프레임 수를 센다
+        # (다음 프레임부터는 직전 프레임이 이미 가로형이라
+        #  fall_candidate가 다시 참이 될 수 없으므로 따로 센다)
         if fall_candidate:
+            self.candidate_count = 1
+        elif (
+            self.candidate_count > 0
+            and horizontal_posture
+        ):
             self.candidate_count += 1
         else:
-            # 현재 자세가 가로형이면
-            # 바로 count를 완전히 없애지 않고
-            # 후보를 유지
-            if (
-                current_ratio
-                > self.fall_aspect_threshold
-            ):
-                self.candidate_count = max(
-                    0,
-                    self.candidate_count - 1
-                )
-            else:
-                self.candidate_count = 0
+            # 다시 일어났으면 의심 취소
+            self.candidate_count = 0
 
         # 다음 프레임과 비교하기 위해 저장
         self.previous = person

@@ -46,8 +46,9 @@ YOLO_CONFIDENCE = 0.5
 # ==========================================
 
 FALL_VERTICAL_THRESHOLD = 25
-FALL_ASPECT_RATIO_THRESHOLD = 1.3
-FALL_REQUIRED_FRAMES = 3
+FALL_PREVIOUS_ASPECT_THRESHOLD = 0.9  # 낙상 직전 세로형 기준 (가로/세로 < 0.9)
+FALL_ASPECT_RATIO_THRESHOLD = 1.3  # 낙상 후 가로형 기준 (가로/세로 > 1.3)
+FALL_REQUIRED_FRAMES = 3  # 낙상 의심 후 가로형이 유지돼야 하는 프레임 수
 
 # ==========================================
 # Visitor / Delivery
@@ -196,7 +197,8 @@ def main():
 
     fall_detector = FallDetector(
         vertical_threshold=FALL_VERTICAL_THRESHOLD,
-        aspect_ratio_threshold=FALL_ASPECT_RATIO_THRESHOLD,
+        previous_aspect_threshold=FALL_PREVIOUS_ASPECT_THRESHOLD,
+        fall_aspect_threshold=FALL_ASPECT_RATIO_THRESHOLD,
         required_frames=FALL_REQUIRED_FRAMES,
     )
 

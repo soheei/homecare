@@ -43,8 +43,9 @@ def capture(output: Path, width: int, height: int) -> bool:
     """사진 1장을 output(.jpg)에 저장. 성공하면 True."""
     output.parent.mkdir(parents=True, exist_ok=True)
     for name in STILL_COMMANDS:
-        # -t 1000: 자동노출/초점이 잡히도록 1초 뒤 촬영, -n: 미리보기 창 없음(헤드리스)
-        cmd = [name, "-n", "-t", "1000", "--width", str(width), "--height", str(height),
+        # -t 3000: 자동노출/화이트밸런스(AWB)가 수렴하도록 3초 뒤 촬영(1초는 AWB 수렴 전이라 색 편향 발생),
+        # --awb auto: AWB 모드 명시, -n: 미리보기 창 없음(헤드리스)
+        cmd = [name, "-n", "-t", "3000", "--awb", "auto", "--width", str(width), "--height", str(height),
                "-q", "85", "-o", str(output)]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=CAPTURE_TIMEOUT_SEC)

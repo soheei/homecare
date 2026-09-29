@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-29 (낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-09-29 (Pi Remote-SSH 실패 원인 = 회선 속도, 카메라 서비스 TypeError = Pi 미push 커밋 → 낙상 2단계 판정으로 수정 / 낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -400,3 +400,16 @@
 - 원인: 원본(`HOMECARE_EVENT_DIR`)이 남는 경우 3가지 — 쿨다운으로 큐에 안 들어감(방문자 5분 쿨다운), 최종 실패(dead, 09-28에 일부러 남김), 재시도 중(원본+큐 복사본 두 벌).
 - 수정: `vision/vision_pipeline.py`에 `emit_saved_event()` 추가 — emit(큐 폴더로 복사) 직후 결과와 상관없이 원본 영상·썸네일 삭제. `delete_originals_on_sent`는 vision에서 더 이상 사용 안 함(outbox 기능 자체는 유지). 재시도용 큐 복사본(`edge/data/vision/attachments/`)만 남고 전송 성공·dead 때 기존대로 삭제. 대신 최종 실패한 영상은 Pi에서도 사라짐.
 - 검증: `vision/tests/test_pipeline_emit.py` 2건 신규(큐 저장 후 원본 삭제·큐 복사본 유지, 쿨다운으로 큐에 안 들어가도 원본 삭제) → vision 26·엣지 31 통과. **Pi 반영 전**: `git pull` 후 `sudo systemctl restart homecare-camera.service`, 기존에 쌓인 파일은 `rm -rf ~/homecare/edge/data/events/*`로 직접 정리.
+
+### Pi VS Code Remote-SSH 접속 실패 — 원인: Pi 회선 속도
+- 증상: Remote-SSH가 "Downloading VS Code Server"에서 멈춤. Tailscale(`aiarmi`, `100.115.219.47`) online, 22번 포트·비밀번호 로그인 정상 → Pi의 `wget` 다운로드 단계에서 2분 30초 뒤 `Got bad result from install script`.
+- 원인: PC↔Pi 전송 속도 10~40KB/s. Tailscale 경로 `118.235.x.x`(LG U+ 모바일 대역 추정) → Pi가 핫스팟/LTE로 인터넷 연결된 것으로 추정(**확인 필요**).
+- 조치: PC VS Code 설정 `"remote.SSH.localServerDownload": "always"`(PC가 받아 scp) + Pi `~/.vscode-server` 삭제 후 재접속 → 접속됨. 근본 해결은 Pi를 Wi-Fi/유선 LAN으로 연결.
+- 부수 확인: Tailscale 재설정됨(인수인계의 "확인 필요" 항목), Pi SSH 공개키 미등록(초기화로 삭제) → 비밀번호 입력 필요. YAMNet 캐시가 `/tmp/tfhub_modules`라 재부팅마다 재다운로드됨(느린 회선에서 감지 시작 지연).
+
+### 카메라 서비스 시작 즉시 종료 — 원인: Pi에만 있던 미push 커밋
+- 증상: `homecare-camera.service`가 `TypeError: FallDetector.__init__() got an unexpected keyword argument 'aspect_ratio_threshold'`로 재시작 반복. Pi `git pull`도 "divergent branches"로 실패.
+- 원인: 팀원(`thooni01`)이 Pi에서 직접 만든 커밋 `0550005`(push 안 됨)가 `FallDetector` 인자를 `previous_aspect_threshold`/`fall_aspect_threshold`로 바꿨는데 `vision_pipeline.py` 호출부는 옛 인자 그대로. 추가로 `required_frames=3`인데 후보 조건이 "직전 프레임 세로형"이라 2번째 프레임부터 후보가 될 수 없어 **낙상이 절대 감지되지 않는** 로직 버그도 있었음.
+- 조치: Pi에서 `git format-patch`로 받은 패치를 작성자 유지한 채 PC에 적용(`e830fa6`, Pi 결과와 파일 해시 일치 확인) → 별도 커밋 `61f96b3`로 2단계 판정(급하강으로 의심 시작 → 가로형 유지 프레임 카운트, 일어나면 취소) + 호출부 인자 수정. 같은 패치에 오디오 `door_visitor` 0.5→0.7, `door_security` 0.3→0.6 임계값 상향 포함.
+- 검증: `vision/tests/test_fall_detector.py` 5건 신규(팀원 원본 로직은 "정상 낙상" 케이스 실패 확인) → vision 31·엣지 31 통과, 파이프라인 상수로 `FallDetector` 생성 확인. **Pi 반영 전**: GitHub push 후 Pi에서 `git branch pi-thooni-0929 0550005 && git reset --hard origin/main` → 마이크·카메라 서비스 재시작.
+- 운영 메모: Pi에서 커밋/push하지 않기(GitHub 비밀번호 push 불가, 공용 기기에 토큰 저장 위험) — PC에서 push → Pi는 pull만.

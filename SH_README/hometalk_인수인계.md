@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-29 (vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-09-29 (Pi Tailscale 재설정 확인·접속 정보, Pi에서 커밋 금지 운영 규칙 / vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -35,7 +35,8 @@
 - Vercel: 프로젝트 Settings → Environment Variables (`VITE_API_URL` 등, 변경 시 Redeploy 필요)
 - Supabase: SQL Editor(스키마 변경), Table Editor(`devices`/`events` 확인)
 - 엣지(Pi): 호스트명 `alarmi`, 계정 `alarmi`, 저장소 `~/homecare`(sparse-checkout로 `edge`, `yamnet/core`만), 가상환경 `~/homecare/.venv`, 설정 `edge/.env`(git 제외)
-- Pi의 Tailscale(SSH 접속용)은 초기화 이후 재설정 여부 **확인 필요**
+- Pi의 Tailscale(SSH 접속용): 재설정됨(2026-09-29 확인) — 머신 이름 `aiarmi`(`aiarmi.tail3c4e8f.ts.net`), IP `100.115.219.47`, 계정 `alarmi`. SSH 공개키 미등록이라 비밀번호 인증. Pi 회선이 매우 느려(수십 KB/s, 모바일망 추정) VS Code Remote-SSH는 PC 설정 `"remote.SSH.localServerDownload": "always"` 필요
+- Pi 코드 반영은 **PC에서 수정·push → Pi에서 `git pull`만**. Pi에서 커밋하지 않는다(push 불가 + GitHub과 갈라져 pull 실패 — 2026-09-29 진행일지)
 - 비밀값(`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET` 등)은 이 문서·git·채팅에 적지 않는다. 값이 필요하면 각 서비스 콘솔에서 확인/재발급.
 
 ## 백엔드 환경변수 (Render, 이름만)

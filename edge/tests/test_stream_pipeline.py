@@ -186,5 +186,91 @@ class StreamPipelineTest(unittest.TestCase):
             self.assertLess(rows[0]["payload"]["metadata"]["clip_sec"], sp.CLIP_POST_SEC)
 
 
+class SoundEventVideoTest(unittest.TestCase):
+    """소리 이벤트 → vision 녹화 요청 → 영상(소리 포함)을 wav와 함께 한 이벤트로 전송."""
+
+    def setUp(self):
+        from edge.transport.av_share import AVShare
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.av = AVShare(Path(self._tmp.name) / "av")
+        self.emitter = EventEmitter(make_cfg(self._tmp.name))
+        self.now = [0.0]
+        self.hop = int(round(sp.HOP_SEC * sp.TARGET_SAMPLE_RATE))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_until_audio_done(self, vision_on=True):
+        """3번째 청크에서 초인종 감지 → 녹음 5초가 찰 때까지 흘려 보냄."""
+        if vision_on:
+            self.av.mark_vision_alive()
+        post_chunks = int(np.ceil(sp.CLIP_POST_SEC / sp.HOP_SEC))
+        pipeline = sp.StreamPipeline(
+            model=None, class_names=[], emitter=self.emitter,
+            source=FakeSource(3 + post_chunks, self.hop), infer_fn=make_fake_infer(3, 349),
+            av_share=self.av, clock=lambda: self.now[0],
+        )
+        for chunk in pipeline.source.frames():
+            self.av.push_audio(chunk, sp.TARGET_SAMPLE_RATE, pipeline._chunk_time())
+            pipeline._audio_buf = np.concatenate([pipeline._audio_buf, chunk])[-pipeline.window_samples:]
+            pipeline._feed_clips(chunk)
+            pipeline._append_history(pipeline._infer_latest_frame())
+            pipeline._handle_triggers()
+        return pipeline
+
+    def attachments(self):
+        rows = self.emitter.outbox.fetch_due()
+        self.assertEqual(len(rows), 1)
+        return {a["field"]: a for a in rows[0]["attachments"]}
+
+    def test_video_attached_with_wav(self):
+        pipeline = self.run_until_audio_done()
+        clip = pipeline._pending_clips["door_visitor"]
+        self.assertIsNotNone(clip.video_request)
+        self.assertEqual(self.emitter.outbox.counts()["pending"], 0)  # 녹음은 끝났지만 영상 기다리는 중
+
+        # vision 역할: 요청을 받아 영상을 돌려줌
+        (req,) = self.av.poll_video_requests()
+        self.assertEqual((req["category_id"], req["post_sec"]), ("door_visitor", sp.CLIP_POST_SEC))
+        video = Path(self._tmp.name) / "clip.mp4"
+        video.write_bytes(b"mp4-with-audio")
+        self.av.publish_video_result(req["id"], str(video))
+
+        pipeline._feed_clips(np.zeros(self.hop, dtype=np.float32))
+        att = self.attachments()
+        self.assertEqual(set(att), {"audio", "video"})
+        self.assertEqual(att["video"]["mime"], "video/mp4")
+        self.assertEqual(Path(att["video"]["path"]).read_bytes(), b"mp4-with-audio")
+        self.assertEqual(list(self.av.results_dir.iterdir()), [])  # 공유 폴더의 영상은 지움
+
+    def test_wav_only_when_video_times_out(self):
+        pipeline = self.run_until_audio_done()
+        pipeline._feed_clips(np.zeros(self.hop, dtype=np.float32))  # 대기 시작
+        self.assertEqual(self.emitter.outbox.counts()["pending"], 0)
+        self.now[0] += sp.VIDEO_WAIT_SEC + 1
+        pipeline._feed_clips(np.zeros(self.hop, dtype=np.float32))
+        self.assertEqual(set(self.attachments()), {"audio"})
+        self.assertEqual(self.av.poll_video_requests(), [])  # 안 읽힌 요청도 취소됨
+
+    def test_wav_only_when_vision_rejects(self):
+        pipeline = self.run_until_audio_done()
+        (req,) = self.av.poll_video_requests()
+        self.av.publish_video_result(req["id"], None)
+        pipeline._feed_clips(np.zeros(self.hop, dtype=np.float32))
+        self.assertEqual(set(self.attachments()), {"audio"})
+
+    def test_no_request_when_camera_off(self):
+        pipeline = self.run_until_audio_done(vision_on=False)
+        self.assertEqual(self.av.poll_video_requests(), [])
+        # 카메라가 꺼져 있으면 예전처럼 녹음이 끝나자마자 wav만 전송
+        self.assertEqual(pipeline._pending_clips, {})
+        self.assertEqual(set(self.attachments()), {"audio"})
+
+    def test_audio_ring_written(self):
+        self.run_until_audio_done()
+        self.assertTrue(self.av.ring_path.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

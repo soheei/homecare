@@ -1,12 +1,15 @@
 import dataclasses
 import logging
 import os
+import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
 from picamera2 import Picamera2
 
+from edge.transport.av_share import AVShare
 from edge.transport.config import load_config
 from edge.transport.emit import EventEmitter
 
@@ -77,6 +80,13 @@ DEFAULT_CAMERA_ID = "camera_01"
 
 DEFAULT_HEARTBEAT_INTERVAL_SEC = 20.0
 
+# ==========================================
+# 마이크 연동 (edge/transport/av_share.py)
+# ==========================================
+
+# 소리 이벤트 녹화 요청이 이보다 늦게 도착하면 사전 버퍼(3초)가 감지 순간을 못 담으므로 거절
+SOUND_REQUEST_MAX_AGE_SEC = 3.0
+
 
 def read_settings():
     """
@@ -129,6 +139,7 @@ def emit_saved_event(emitter, saved_event, camera_id):
             extra={
                 "camera_id": camera_id,
                 "vision_event": saved_event["event_type"],
+                "video_has_audio": bool(saved_event.get("has_audio")),
             },
             occurred_at=saved_event["event_time"],
         )
@@ -138,6 +149,107 @@ def emit_saved_event(emitter, saved_event, camera_id):
                 Path(saved_event[key]).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def publish_sound_clip(av_share, saved_event):
+    """
+    소리 이벤트 요청으로 녹화한 영상을 마이크 프로세스에 넘긴다.
+    이벤트 전송은 마이크 쪽이 wav와 함께 한 건으로 하므로 여기서는 emit하지 않는다.
+    썸네일은 쓰지 않으니 바로 지운다.
+    """
+
+    av_share.publish_video_result(
+        saved_event["request_id"],
+        saved_event["video_path"],
+    )
+
+    Path(saved_event["thumbnail_path"]).unlink(missing_ok=True)
+
+
+def detected_vision_event(fall_detected, delivery_score, visitor_detected, person):
+    """메인 루프의 우선순위(위험 > 택배 > 방문자)대로 이번 프레임의 영상 이벤트 (type, score) 또는 None."""
+
+    person_score = person["confidence"] if person is not None else None
+
+    if fall_detected:
+        return "fall_suspect", person_score
+
+    if delivery_score is not None:
+        return "delivery_suspect", delivery_score
+
+    if visitor_detected:
+        return "door_visitor", person_score
+
+    return None
+
+
+def emit_deferred_vision_event(emitter, saved_event, deferred, camera_id):
+    """
+    소리 이벤트 녹화 중에 감지된 영상 이벤트(낙상 등)를 같은 영상의 복사본으로 전송한다.
+    (녹화기가 하나라 그 사이 감지를 새로 녹화할 수 없음 — 버리면 비명 뒤 낙상 같은 경우를 놓친다)
+    원본 영상은 마이크 쪽으로 넘어가므로 복사본을 만들어 보낸다.
+    """
+
+    video_copy = saved_event["video_path"] + ".vision.mp4"
+    thumb_copy = saved_event["thumbnail_path"] + ".vision.jpg"
+
+    try:
+        shutil.copyfile(saved_event["video_path"], video_copy)
+        cv2.imwrite(thumb_copy, deferred["frame"])
+    except OSError as e:
+        print(f"[WARN] deferred vision event copy failed: {e}")
+        return None
+
+    return emit_saved_event(
+        emitter,
+        {
+            "video_path": video_copy,
+            "thumbnail_path": thumb_copy,
+            "event_type": deferred["event_type"],
+            "event_time": deferred["event_time"],
+            "score": deferred["score"],
+            "has_audio": saved_event.get("has_audio"),
+        },
+        camera_id,
+    )
+
+
+def handle_sound_requests(av_share, recorder, frame, now):
+    """
+    마이크의 소리 이벤트 녹화 요청을 처리한다.
+    녹화기가 비어 있으면 첫 요청을 녹화 시작, 나머지(이미 녹화 중·너무 늦게 온 요청)는 실패로 알려
+    마이크가 기다리지 않고 소리만 보내게 한다. 시작한 요청 id를 반환(없으면 None).
+    """
+
+    started = None
+
+    for req in av_share.poll_video_requests():
+
+        too_old = now - float(req.get("trigger_time") or 0) > SOUND_REQUEST_MAX_AGE_SEC
+
+        if recorder.recording or too_old:
+            print(
+                f"[SOUND REQUEST REJECTED] {req.get('category_id')} "
+                f"({'too old' if too_old else 'busy'})"
+            )
+            av_share.publish_video_result(req["id"], None)
+            continue
+
+        print(
+            f"[SOUND EVENT] {req.get('category_id')} -> recording with audio"
+        )
+
+        recorder.start_event(
+            event_type=req.get("category_id"),
+            frame=frame,
+            score=req.get("score"),
+            post_seconds=req.get("post_sec"),
+            request_id=req["id"],
+        )
+
+        started = req["id"]
+
+    return started
 
 
 def main():
@@ -182,6 +294,12 @@ def main():
     latest_frame = camera_service.LatestFrame()
     service_stops = []
 
+    # 마이크 프로세스와 소리 공유 / 소리 이벤트 녹화 요청 수신
+    av_share = AVShare()
+
+    # 소리 이벤트 녹화 중에 감지된 영상 이벤트 (녹화가 끝나면 같은 영상으로 전송)
+    deferred_vision_event = None
+
     # --------------------------------------
     # YOLO
     # --------------------------------------
@@ -222,6 +340,7 @@ def main():
         fps=FPS,
         pre_seconds=3,
         post_seconds=3,
+        audio_source=av_share.read_audio,
     )
 
     # --------------------------------------
@@ -259,6 +378,7 @@ def main():
     print("[VISION STARTED]")
     print(f"[EVENT DIR] {event_base_dir}")
     print(f"[CAMERA ID] {camera_id}")
+    print(f"[AV SHARE] {av_share.root}")
     print("Ctrl+C to stop")
 
     try:
@@ -273,6 +393,7 @@ def main():
             # 즉 여기서 이미 OpenCV(cv2.imencode/imwrite, YOLO)가 기대하는 BGR 순서라
             # RGB2BGR 변환을 추가로 하면 채널이 다시 뒤집혀 파란/보라 색 편향이 생긴다.
             frame = picam2.capture_array()
+            frame_time = time.time()  # 소리 링버퍼와 같은 시계(time.time())로 싱크
 
             frame_height, frame_width = (
                 frame.shape[:2]
@@ -281,19 +402,52 @@ def main():
             # 하트비트 / "현재 화면 보기"용 최신 프레임
             latest_frame.set(frame)
 
+            # 마이크 프로세스에 "카메라 켜져 있음" 알림 (꺼져 있으면 녹화 요청을 안 보냄)
+            av_share.mark_vision_alive()
+
             # ==================================
             # 2. Event Recording
             # ==================================
 
             saved_event = recorder.update(
-                frame
+                frame,
+                frame_time,
             )
 
             # ==================================
             # 3. 저장 완료된 이벤트 -> edge
             # ==================================
 
-            if saved_event is not None:
+            if saved_event is not None and saved_event.get("request_id"):
+
+                # 녹화 중 감지된 영상 이벤트가 있으면 같은 영상 복사본으로 먼저 전송
+                if deferred_vision_event is not None:
+
+                    uid = emit_deferred_vision_event(
+                        emitter,
+                        saved_event,
+                        deferred_vision_event,
+                        camera_id,
+                    )
+
+                    print(
+                        f"[EDGE EMIT] {deferred_vision_event['event_type']} "
+                        f"(during sound clip) uid={uid}"
+                    )
+
+                    deferred_vision_event = None
+
+                # 소리 이벤트용 영상 → 마이크가 wav와 함께 전송
+                publish_sound_clip(
+                    av_share,
+                    saved_event,
+                )
+
+                print(
+                    f"[SOUND CLIP READY] request={saved_event['request_id']}"
+                )
+
+            elif saved_event is not None:
 
                 print(
                     "[EVENT READY FOR EDGE]"
@@ -452,6 +606,43 @@ def main():
                         frame=frame,
                         score=score,
                     )
+
+            # 소리 이벤트 녹화 중에 감지된 영상 이벤트는 기억해 뒀다가 같은 영상으로 전송
+            elif recorder.request_id and deferred_vision_event is None:
+
+                detected = detected_vision_event(
+                    fall_detected,
+                    delivery_score,
+                    visitor_detected,
+                    person,
+                )
+
+                if detected is not None:
+
+                    print(
+                        f"[VISION EVENT] {detected[0]} "
+                        "(during sound clip recording)"
+                    )
+
+                    deferred_vision_event = {
+                        "event_type": detected[0],
+                        "score": detected[1],
+                        "frame": frame.copy(),
+                        "event_time": datetime.now().astimezone(),
+                    }
+
+            # ==================================
+            # 9. 마이크 소리 이벤트 녹화 요청
+            #
+            # 영상 이벤트가 우선 — 같은 프레임에서 위에서 녹화를 시작했으면 요청은 거절(소리만 전송)
+            # ==================================
+
+            handle_sound_requests(
+                av_share,
+                recorder,
+                frame,
+                frame_time,
+            )
 
     except KeyboardInterrupt:
         print(

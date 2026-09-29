@@ -48,22 +48,31 @@ def fake_ffmpeg(returncode=0, make_output=True):
     return run
 
 
-class EventRecorderTest(unittest.TestCase):
-    def record(self, h264_ok, run_side_effect):
-        """사전 1프레임 → 이벤트 시작 → 사후 5프레임 저장. (결과 dict, subprocess.run mock) 반환."""
+class RecordMixin:
+    def record(self, h264_ok, run_side_effect, audio_source=None, frame_interval=0.2, writer=None, **start_kw):
+        """사전 1프레임 → 이벤트 시작 → 사후 프레임 저장. (결과 dict, subprocess.run mock) 반환.
+        프레임 시각은 100초부터 frame_interval 간격."""
         tmp = tempfile.mkdtemp()
-        rec = EventRecorder(base_dir=tmp, fps=5, pre_seconds=1, post_seconds=1)
-        with mock.patch.object(event_recorder.cv2, "VideoWriter", fake_writer_factory(h264_ok)), \
+        rec = EventRecorder(base_dir=tmp, fps=5, pre_seconds=1, post_seconds=1, audio_source=audio_source)
+        t = [100.0]
+
+        def next_time():
+            t[0] += frame_interval
+            return t[0] - frame_interval
+
+        with mock.patch.object(event_recorder.cv2, "VideoWriter", writer or fake_writer_factory(h264_ok)), \
                 mock.patch.object(event_recorder.cv2, "imwrite"), \
                 mock.patch.object(event_recorder.subprocess, "run", side_effect=run_side_effect) as run, \
                 contextlib.redirect_stdout(io.StringIO()):
-            rec.update(FRAME)
-            rec.start_event("door_visitor", FRAME, score=0.9)
+            rec.update(FRAME, next_time())
+            rec.start_event("door_visitor", FRAME, score=0.9, **start_kw)
             saved = None
             while saved is None:
-                saved = rec.update(FRAME)
+                saved = rec.update(FRAME, next_time())
         return saved, run
 
+
+class EventRecorderTest(RecordMixin, unittest.TestCase):
     def test_mp4v_is_converted_to_h264(self):
         saved, run = self.record(h264_ok=False, run_side_effect=fake_ffmpeg())
         cmd = run.call_args.args[0]
@@ -89,6 +98,83 @@ class EventRecorderTest(unittest.TestCase):
         with open(saved["video_path"], "rb") as f:
             self.assertEqual(f.read(), b"mp4v-or-h264")
         self.assertFalse(os.path.exists(saved["video_path"] + ".h264.mp4"))
+
+
+class EventRecorderAudioTest(RecordMixin, unittest.TestCase):
+    """마이크 링버퍼 소리를 영상 구간에 맞춰 합치기."""
+
+    def audio_source(self, calls):
+        def read(start, end):
+            calls.append((start, end))
+            return np.zeros(int((end - start) * 16000), dtype=np.int16), 16000
+        return read
+
+    def test_audio_muxed_into_h264_video(self):
+        calls = []
+        saved, run = self.record(h264_ok=False, run_side_effect=fake_ffmpeg(),
+                                 audio_source=self.audio_source(calls))
+        self.assertTrue(saved["has_audio"])
+        cmd = run.call_args.args[0]
+        self.assertEqual(run.call_count, 1)  # 소리 합치기 + H.264 변환을 한 번에
+        self.assertIn("aac", cmd)
+        self.assertIn("libx264", cmd)
+        self.assertEqual(cmd.count("-i"), 2)
+        with open(saved["video_path"], "rb") as f:
+            self.assertEqual(f.read(), b"h264")
+        # 사전 1 + 사후 5프레임, 0.2초 간격 → 100.0 ~ 101.0 + 한 프레임(0.2초)
+        (start, end), = calls
+        self.assertAlmostEqual(start, 100.0)
+        self.assertAlmostEqual(end, 101.2)
+
+    def test_h264_video_is_copied_not_reencoded(self):
+        saved, run = self.record(h264_ok=True, run_side_effect=fake_ffmpeg(),
+                                 audio_source=self.audio_source([]))
+        cmd = run.call_args.args[0]
+        self.assertIn("copy", cmd)
+        self.assertNotIn("libx264", cmd)
+        self.assertTrue(saved["has_audio"])
+
+    def test_mic_off_gives_video_only(self):
+        saved, run = self.record(h264_ok=False, run_side_effect=fake_ffmpeg(), audio_source=lambda s, e: None)
+        self.assertFalse(saved["has_audio"])
+        self.assertNotIn("aac", run.call_args.args[0])  # H.264 변환만
+
+    def test_mux_failure_falls_back_to_h264_conversion(self):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            if "aac" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no aac")
+            return fake_ffmpeg()(cmd)
+
+        saved, _ = self.record(h264_ok=False, run_side_effect=run, audio_source=self.audio_source([]))
+        self.assertFalse(saved["has_audio"])
+        self.assertEqual(len(calls), 2)
+        with open(saved["video_path"], "rb") as f:
+            self.assertEqual(f.read(), b"h264")
+
+    def test_writer_uses_measured_fps(self):
+        fps_used = []
+        base = fake_writer_factory(True)
+
+        class Writer(base):
+            def __init__(self, path, fourcc, fps, size):
+                fps_used.append(fps)
+                super().__init__(path, fourcc, fps, size)
+
+        # 설정은 5fps지만 YOLO가 느려 실제로는 0.4초 간격(2.5fps)
+        self.record(h264_ok=True, run_side_effect=fake_ffmpeg(), frame_interval=0.4, writer=Writer)
+        self.assertAlmostEqual(fps_used[0], 2.5)
+
+    def test_request_id_and_post_seconds_override(self):
+        calls = []
+        saved, _ = self.record(h264_ok=True, run_side_effect=fake_ffmpeg(), audio_source=self.audio_source(calls),
+                               post_seconds=2, request_id="req-1")
+        self.assertEqual(saved["request_id"], "req-1")
+        # 사전 1 + 사후 10프레임(2초 × 5fps), 0.2초 간격 → 100.0 ~ 102.0 + 한 프레임
+        (start, end), = calls
+        self.assertAlmostEqual(end, 102.2)
 
 
 if __name__ == "__main__":

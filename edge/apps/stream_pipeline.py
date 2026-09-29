@@ -25,6 +25,11 @@ Plan.md §6 6단계. yamnet/core(추론·판정 로직)와 edge(전송)를 여�
         ▼
     edge.transport.emit.EventEmitter.emit(audio_path=wav) — 큐에 저장, 백그라운드로 백엔드 전송
 
+카메라 연동(edge/transport/av_share.py, 마이크 모드에서만):
+  - 매 청크를 공유 링버퍼에 써서 vision 이벤트 영상에 소리가 들어가게 한다.
+  - 소리 이벤트 감지 시 vision이 켜져 있으면 녹화를 요청하고, 녹음이 끝난 뒤 최대 VIDEO_WAIT_SEC초
+    영상(소리 포함 mp4)을 기다려 wav와 함께 전송한다. 못 받으면 지금처럼 wav만 보낸다.
+
 yamnet/core 쪽 모듈(yamnet_core, category_map, event_rules)은 패키지가 아니라
 verification/mediatest.py와 같은 방식으로 sys.path에 직접 추가해서 가져온다
 (README의 Pi sparse-checkout이 `edge yamnet/core` 두 폴더만 받는 것과 맞춤).
@@ -58,6 +63,7 @@ import event_rules  # noqa: E402
 from ..transport.config import ConfigError, load_config
 from ..transport.emit import EventEmitter
 from ..transport import heartbeat
+from ..transport.av_share import AVShare
 
 log = logging.getLogger("edge.stream_pipeline")
 
@@ -75,6 +81,10 @@ CLIP_POST_SEC = 5.0
 CLIP_INCLUDE_TRIGGER_WINDOW = True      # 초인종처럼 짧은 소리는 감지 시점에 거의 끝나 있어 앞부분을 붙여야 들림
 NO_CLIP_CATEGORIES = {"long_silence"}   # '소리가 없음'이 이벤트라 녹음할 게 없음
 
+# 녹음이 끝난 뒤 vision 영상을 기다리는 최대 시간 — 영상(사후 CLIP_POST_SEC초)은 소리와 거의 같이 끝나고
+# ffmpeg 인코딩에 몇 초 걸린다. 넘으면 영상 없이 wav만 전송.
+VIDEO_WAIT_SEC = 20.0
+
 
 @dataclass
 class PendingClip:
@@ -85,6 +95,8 @@ class PendingClip:
     occurred_at: datetime
     target_samples: int
     chunks: List[np.ndarray] = field(default_factory=list)
+    video_request: Optional[str] = None     # vision에 보낸 녹화 요청 id
+    video_deadline: Optional[float] = None  # 녹음 완료 후 영상 대기 마감(monotonic)
 
     def collected(self) -> int:
         return sum(len(c) for c in self.chunks)
@@ -126,13 +138,15 @@ class MicSource(AudioSource):
             info = sd.query_devices(device) if device is not None else sd.query_devices(kind="input")
             channels = max(1, int(info["max_input_channels"]))
         self.channels = channels
-        self._q: "queue.Queue[np.ndarray]" = queue.Queue()
+        self._q: "queue.Queue" = queue.Queue()
+        # 마지막으로 내보낸 청크의 캡처 시각(time.time()) — 추론이 밀려도 영상과 소리 싱크는 캡처 시각 기준
+        self.last_chunk_time: Optional[float] = None
 
     def _callback(self, indata, frames, time_info, status):
         if status:
             log.warning("sounddevice status: %s", status)
         chunk = indata[:, 0] if self.channels == 1 else indata.mean(axis=1)
-        self._q.put(chunk.astype(np.float32).copy())
+        self._q.put((chunk.astype(np.float32).copy(), time.time()))
 
     def frames(self):
         with self._sd.InputStream(
@@ -144,7 +158,7 @@ class MicSource(AudioSource):
             callback=self._callback,
         ):
             while True:
-                chunk = self._q.get()
+                chunk, self.last_chunk_time = self._q.get()
                 if self.samplerate != TARGET_SAMPLE_RATE:
                     chunk = preprocess(chunk, self.samplerate)
                 yield chunk
@@ -182,12 +196,16 @@ class StreamPipeline:
         emitter: EventEmitter,
         source: AudioSource,
         infer_fn: Callable = infer,
+        av_share: Optional[AVShare] = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.model = model
         self.class_names = class_names
         self.emitter = emitter
         self.source = source
         self._infer_fn = infer_fn
+        self.av_share = av_share  # None이면 카메라 연동 없음(wav 파일 테스트 모드, 유닛 테스트)
+        self._clock = clock
         self.hop_samples = int(round(HOP_SEC * TARGET_SAMPLE_RATE))
         self.window_samples = int(round(WINDOW_SEC * TARGET_SAMPLE_RATE))
         self._audio_buf = np.zeros(0, dtype=np.float32)
@@ -235,21 +253,50 @@ class StreamPipeline:
 
             pre = self._audio_buf.copy() if CLIP_INCLUDE_TRIGGER_WINDOW else np.zeros(0, dtype=np.float32)
             post_samples = int(round(CLIP_POST_SEC * TARGET_SAMPLE_RATE))
+            video_request = self._request_video(cid, score)
             self._pending_clips[cid] = PendingClip(
                 category_id=cid, score=score, extra=extra, occurred_at=occurred_at,
-                target_samples=len(pre) + post_samples, chunks=[pre],
+                target_samples=len(pre) + post_samples, chunks=[pre], video_request=video_request,
             )
-            log.info("이벤트 감지 category=%s score=%.3f → %.0f초 녹음 후 전송", cid, score, CLIP_POST_SEC)
+            log.info("이벤트 감지 category=%s score=%.3f → %.0f초 녹음 후 전송 (영상 %s)",
+                     cid, score, CLIP_POST_SEC, "요청함" if video_request else "없음")
+
+    def _request_video(self, cid: str, score: float) -> Optional[str]:
+        """카메라(vision)가 켜져 있으면 소리 포함 녹화를 요청하고 요청 id를 반환."""
+        if self.av_share is None or not self.av_share.vision_alive():
+            return None
+        try:
+            return self.av_share.request_video(cid, trigger_time=self._chunk_time(),
+                                               post_sec=CLIP_POST_SEC, score=score)
+        except OSError as e:
+            log.warning("영상 녹화 요청 실패 category=%s: %s — 소리만 전송", cid, e)
+            return None
+
+    def _chunk_time(self) -> float:
+        return getattr(self.source, "last_chunk_time", None) or time.time()
 
     def _feed_clips(self, chunk: np.ndarray) -> None:
         for cid in list(self._pending_clips):
             clip = self._pending_clips[cid]
-            clip.chunks.append(chunk)
-            if clip.collected() >= clip.target_samples:
-                self._finish_clip(cid)
+            if clip.collected() < clip.target_samples:
+                clip.chunks.append(chunk)
+                if clip.collected() < clip.target_samples:
+                    continue
+            video_path = None
+            if clip.video_request:
+                # 녹음은 끝났고 vision 영상을 기다리는 중 — 청크마다(0.48초) 확인
+                if clip.video_deadline is None:
+                    clip.video_deadline = self._clock() + VIDEO_WAIT_SEC
+                status, video_path = self.av_share.take_video_result(clip.video_request)
+                if status is None and self._clock() < clip.video_deadline:
+                    continue
+                if status != "ready":
+                    log.warning("영상 못 받음(%s) category=%s — 소리만 전송", status or "시간 초과", cid)
+                    self.av_share.cancel_request(clip.video_request)
+            self._finish_clip(cid, video_path)
 
-    def _finish_clip(self, cid: str) -> None:
-        """녹음 중인 클립을 wav로 저장해 이벤트와 함께 전송 (모자라도 모인 만큼)."""
+    def _finish_clip(self, cid: str, video_path: Optional[str] = None) -> None:
+        """녹음 중인 클립을 wav로 저장해 이벤트와 함께 전송 (모자라도 모인 만큼). video_path는 전송 후 지운다."""
         clip = self._pending_clips.pop(cid)
         audio = np.concatenate(clip.chunks)[:clip.target_samples]
         extra = {**clip.extra, "clip_sec": round(len(audio) / TARGET_SAMPLE_RATE, 2)}
@@ -264,23 +311,32 @@ class StreamPipeline:
             os.unlink(path)
             path = None
         try:
-            self._emit(cid, clip.score, extra, clip.occurred_at, audio_path=path)
+            self._emit(cid, clip.score, extra, clip.occurred_at, audio_path=path, video_path=video_path)
         finally:
-            if path:
-                os.unlink(path)  # 큐 폴더로 복사됐으므로 원본은 지움
+            # 큐 폴더로 복사됐으므로 원본은 지움
+            for p in (path, video_path):
+                if p:
+                    Path(p).unlink(missing_ok=True)
 
     def flush_pending_clips(self) -> None:
-        """종료 시 녹음 중이던 클립을 모인 만큼이라도 전송 (이벤트 유실 방지)."""
+        """종료 시 녹음 중이던 클립을 모인 만큼이라도 전송 (이벤트 유실 방지). 영상은 이미 와 있을 때만 붙임."""
         for cid in list(self._pending_clips):
-            self._finish_clip(cid)
+            clip = self._pending_clips[cid]
+            video_path = None
+            if clip.video_request:
+                status, video_path = self.av_share.take_video_result(clip.video_request)
+                if status != "ready":
+                    self.av_share.cancel_request(clip.video_request)
+            self._finish_clip(cid, video_path)
 
-    def _emit(self, cid: str, score: float, extra: dict, occurred_at: datetime, audio_path: Optional[str] = None) -> None:
+    def _emit(self, cid: str, score: float, extra: dict, occurred_at: datetime, audio_path: Optional[str] = None,
+              video_path: Optional[str] = None) -> None:
         uid = self.emitter.emit(cid, source=SOURCE, score=score, extra=extra,
-                                audio_path=audio_path, occurred_at=occurred_at)
+                                audio_path=audio_path, video_path=video_path, occurred_at=occurred_at)
         if uid:
             log.info(
-                "이벤트 판정 category=%s score=%.3f top5=%s audio=%s uid=%s (전송 대기열에 저장됨, 아직 백엔드로 안 나감)",
-                cid, score, extra.get("top5"), "있음" if audio_path else "없음", uid,
+                "이벤트 판정 category=%s score=%.3f top5=%s audio=%s video=%s uid=%s (전송 대기열에 저장됨, 아직 백엔드로 안 나감)",
+                cid, score, extra.get("top5"), "있음" if audio_path else "없음", "있음" if video_path else "없음", uid,
             )
 
     def _top_labels(self, frame_scores: np.ndarray, k: int = 5) -> List[str]:
@@ -297,6 +353,8 @@ class StreamPipeline:
     def run(self) -> None:
         try:
             for chunk in self.source.frames():
+                if self.av_share is not None:
+                    self.av_share.push_audio(chunk, TARGET_SAMPLE_RATE, self._chunk_time())
                 self._audio_buf = np.concatenate([self._audio_buf, chunk])[-self.window_samples:]
                 # 새 클립은 _handle_triggers에서 이 청크가 든 _audio_buf로 시작하므로, 기존 클립부터 먼저 채움
                 self._feed_clips(chunk)
@@ -359,7 +417,16 @@ def main() -> int:
         device = int(args.device) if args.device and args.device.isdigit() else args.device
         source = MicSource(hop_samples, samplerate=args.samplerate, device=device, channels=args.channels)
 
-    pipeline = StreamPipeline(model, class_names, emitter, source)
+    # 카메라 연동(소리 링버퍼 공유 + 소리 이벤트 녹화 요청)은 실제 마이크 모드에서만
+    av_share = None
+    if not args.wav_file:
+        try:
+            av_share = AVShare()
+            log.info("카메라 연동 공유 폴더: %s", av_share.root)
+        except OSError as e:
+            log.warning("카메라 연동 공유 폴더 생성 실패(%s) — 소리 이벤트는 wav만 전송", e)
+
+    pipeline = StreamPipeline(model, class_names, emitter, source, av_share=av_share)
     log.info("스트리밍 시작 (Ctrl+C로 종료)")
     try:
         pipeline.run()

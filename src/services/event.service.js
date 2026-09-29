@@ -11,6 +11,13 @@ const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 const { kstDateString, kstDayRange, formatKst } = require('../utils/date.utils');
 
+// 요약 목록용 미디어 유무 (채팅 AI가 get_event_media로 재생할 이벤트를 고를 수 있게)
+const mediaFlags = event => ({
+  hasImage: Boolean(event.image_url),
+  hasAudio: Boolean(event.audio_url),
+  hasVideo: Boolean(event.video_url)
+});
+
 const getEvents = async (filters = {}) => {
   try {
     const { type, startDate, endDate, limit = 20, offset = 0 } = filters;
@@ -118,10 +125,12 @@ const getDailySummary = async (date) => {
       }
 
       summary.timeline.push({
+        id: event.id,
         time: event.timestamp,
         timeKst: formatKst(event.timestamp),
         type: event.type,
-        description: event.description
+        description: event.description,
+        ...mediaFlags(event)
       });
     });
 
@@ -166,10 +175,12 @@ const getWeeklySummary = async () => {
       dailySummaries,
       // 기간 내 모든 이벤트 (요약에서 빠뜨리지 않도록 상세까지 함께 제공, 시각은 한국 시간)
       events: (data || []).map(event => ({
+        id: event.id,
         timeKst: formatKst(event.timestamp),
         type: event.type,
         description: event.description,
-        dangerLevel: event.danger_level
+        dangerLevel: event.danger_level,
+        ...mediaFlags(event)
       }))
     };
 

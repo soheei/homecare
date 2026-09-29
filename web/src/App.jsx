@@ -14,6 +14,8 @@ import BottomNav from './components/BottomNav';
 function AppShell() {
   const { session, loading } = useAuth();
   const [tab, setTab] = useState(0);
+  // 채팅 화면이 알려주는 모바일 키보드 열림 여부 → 하단바를 숨김
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   if (loading) {
     return (
@@ -39,9 +41,9 @@ function AppShell() {
       <ChatProvider key={`chat-${userId}`} userId={userId}>
         <div className="relative mx-auto min-h-screen max-w-[430px] bg-[#f7f8fa] font-sans">
           <div className="pb-24">
-            <ActiveScreen />
+            <ActiveScreen onKeyboardChange={setKeyboardOpen} />
           </div>
-          <BottomNav tab={tab} setTab={setTab} />
+          <BottomNav tab={tab} setTab={setTab} hidden={keyboardOpen} />
         </div>
       </ChatProvider>
     </AppDataProvider>

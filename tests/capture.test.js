@@ -219,6 +219,29 @@ describe('채팅 — request_capture 도구', () => {
     expect(res.content).toBe('![현재 카메라 화면](/api/devices/cam-1/captures/abc-123)\n\n현재 카메라 화면이에요.');
   });
 
+  it('get_event_media 결과면 이벤트 경로로 미디어 줄을 붙임 (서명 URL은 저장하지 않음)', async () => {
+    mockCallTool.mockResolvedValue({
+      content: JSON.stringify({ success: true, eventId: 'ev-123', hasAudio: true, hasVideo: false }),
+      isError: false
+    });
+    mockCreate
+      .mockResolvedValueOnce({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'get_event_media', input: { eventId: 'ev-123' } }] })
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '오후 3시에 감지된 비명 소리예요.' }], usage: {} });
+
+    const res = await claudeService.chat({ message: '그 소리 들려줘', userId: 'user-A' });
+    expect(res.content).toBe('![감지된 소리](/api/events/ev-123)\n\n오후 3시에 감지된 비명 소리예요.');
+  });
+
+  it('get_event_media 실패 결과면 미디어 줄을 붙이지 않음', async () => {
+    mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' }), isError: false });
+    mockCreate
+      .mockResolvedValueOnce({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'get_event_media', input: { eventId: 'ev-1' } }] })
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '저장된 소리가 없어요.' }], usage: {} });
+
+    const res = await claudeService.chat({ message: '그 소리 들려줘', userId: 'user-A' });
+    expect(res.content).toBe('저장된 소리가 없어요.');
+  });
+
   it('촬영 실패 결과면 이미지 줄을 붙이지 않음', async () => {
     mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '카메라가 꺼져 있어요' }), isError: false });
     mockCreate

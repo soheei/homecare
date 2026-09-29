@@ -3,6 +3,7 @@ import { parseChatBlocks } from '../../lib/chatBlocks';
 import { TextBlock } from './MarkdownText';
 import { AlertCard, DeviceStatusCard, EventList, ResponsiveTable, StatCard } from './ChatCards';
 import CaptureImage from '../CaptureImage';
+import EventMediaCard from './EventMediaCard';
 
 /**
  * AI 응답 한 개 렌더링
@@ -17,7 +18,8 @@ const CARD_COMPONENTS = {
   stats: StatCard,
   alert: AlertCard,
   table: ResponsiveTable,
-  image: CaptureImage // 카메라 캡처 사진 (말풍선 밖 독립 카드)
+  image: CaptureImage, // 카메라 캡처 사진 (말풍선 밖 독립 카드)
+  event_media: EventMediaCard // 이벤트 소리/영상 플레이어
 };
 
 /** 연속된 텍스트 블록은 말풍선 하나로, 카드 블록은 각각 따로 */

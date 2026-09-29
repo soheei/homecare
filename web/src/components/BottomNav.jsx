@@ -5,7 +5,9 @@ const TABS = [
   { icon: '⚙️', label: '설정' }
 ];
 
-export default function BottomNav({ tab, setTab }) {
+/** @param {boolean} hidden - 채팅 입력 중(모바일 키보드가 떠 있음)이면 숨겨 입력창만 키보드 위에 남김 */
+export default function BottomNav({ tab, setTab, hidden = false }) {
+  if (hidden) return null;
   return (
     <nav className="fixed bottom-0 left-1/2 z-20 flex h-[82px] w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/90 pb-2 backdrop-blur-lg">
       {TABS.map((t, i) => {

@@ -20,6 +20,7 @@
  *   { type: 'table', title, headers, rows }
  *   { type: 'alert', tone: 'warning' | 'danger', title, body: [text] }
  *   { type: 'image', alt, src }                      // 카메라 캡처 (서버가 붙인 "![alt](/api/devices/.../captures/...)" 줄)
+ *   { type: 'event_media', alt, eventId }            // 이벤트 소리/영상 (서버가 붙인 "![alt](/api/events/<id>)" 줄)
  *   status ={ tone: 'good' | 'offline' | 'warning' | 'danger' | 'neutral', label }
  */
 
@@ -166,6 +167,8 @@ const RULE = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/;
 const QUOTE = /^\s*>\s?/;
 // 한 줄 전체가 이미지. 인증이 필요한 우리 서버의 카메라 캡처 경로만 허용 (임의 외부 이미지 로딩 방지)
 const CAPTURE_IMAGE = /^\s*!\[([^\]\n]*)\]\((\/api\/devices\/[\w-]+\/captures\/[\w-]+)\)\s*$/;
+// 이벤트 미디어도 우리 서버의 이벤트 경로만 (재생 URL은 카드가 열릴 때마다 새로 받음)
+const EVENT_MEDIA = /^\s*!\[([^\]\n]*)\]\(\/api\/events\/([\w-]+)\)\s*$/;
 const ALERT_START = /^\s*(?:\*\*)?\s*(⚠️|⚠|🚨|❗|‼️)|^\s*(?:\*\*)?(주의|경고|위험|긴급)(?:\*\*)?\s*[:：]/u;
 
 /** 문장이 아닌 짧은 한 줄 ("등록된 장치 상태") — 카드 제목으로 쓸 수 있는지 */
@@ -298,6 +301,14 @@ function parseMarkdownBlocks(text) {
     if (image) {
       flushPara();
       blocks.push({ type: 'image', alt: image[1] || '현재 카메라 화면', src: image[2] });
+      i++;
+      continue;
+    }
+
+    const media = line.match(EVENT_MEDIA);
+    if (media) {
+      flushPara();
+      blocks.push({ type: 'event_media', alt: media[1] || '감지된 소리/영상', eventId: media[2] });
       i++;
       continue;
     }

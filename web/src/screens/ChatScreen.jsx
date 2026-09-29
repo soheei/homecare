@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import AiMessage from '../components/chat/AiMessage';
@@ -11,7 +11,58 @@ const QUICK_ACTIONS = [
   { icon: '📷', label: '카메라 상태' }
 ];
 
-export default function ChatScreen() {
+const NAV_HEIGHT = 82; // BottomNav 높이 — 평소엔 입력창을 그 위에 둠
+const IS_TOUCH = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
+
+/**
+ * 모바일 키보드 처리
+ * - 입력창에 포커스가 있는 동안(터치 기기) 키보드가 떠 있다고 보고 하단바를 숨김 → 입력창만 키보드 위로
+ * - inset: 키보드가 레이아웃 화면 아래를 가린 높이. Android(화면 자체가 줄어듦)는 0,
+ *   iOS(보이는 영역만 줄어듦)는 키보드 높이 → 입력창을 그만큼 올림
+ * - Android 뒤로가기로 키보드만 닫으면 포커스가 남아 하단바가 계속 숨겨지므로, 화면 높이가 돌아오면 포커스를 해제
+ */
+function useMobileKeyboard(inputRef) {
+  const [focused, setFocused] = useState(false);
+  const [inset, setInset] = useState(0);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    let fullHeight = vv.height; // 키보드가 없을 때 보이는 높이
+    let shrank = false;
+    const update = () => {
+      const isFocused = document.activeElement === inputRef.current;
+      if (!isFocused) {
+        fullHeight = vv.height; // 회전 등으로 바뀐 높이 반영
+        shrank = false;
+        setInset(0);
+        return;
+      }
+      if (vv.height < fullHeight - 120) shrank = true;
+      else if (shrank && vv.height >= fullHeight - 60) {
+        inputRef.current.blur(); // 키보드만 닫힘 → 하단바 복원
+        return;
+      }
+      setInset(Math.max(0, Math.round(document.documentElement.clientHeight - vv.height - vv.offsetTop)));
+    };
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [inputRef]);
+
+  const open = IS_TOUCH && focused;
+  return {
+    open,
+    inset: open ? inset : 0,
+    onFocus: () => setFocused(true),
+    onBlur: () => setFocused(false)
+  };
+}
+
+export default function ChatScreen({ onKeyboardChange }) {
   // 메시지/전송 상태는 ChatContext에 있어서 화면을 나갔다 와도 유지됨
   const { messages, sending, send: sendMessage, newConversation } = useChat();
   const [input, setInput] = useState('');
@@ -19,6 +70,19 @@ export default function ChatScreen() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const scrollRef = useRef(null);
   const prevFirstMessage = useRef(null);
+  const inputRef = useRef(null);
+  const keyboard = useMobileKeyboard(inputRef);
+
+  // 하단바 숨김은 App이 처리 (다른 탭으로 나가면 원래대로)
+  useEffect(() => {
+    onKeyboardChange?.(keyboard.open);
+  }, [keyboard.open, onKeyboardChange]);
+  useEffect(() => () => onKeyboardChange?.(false), [onKeyboardChange]);
+
+  // 키보드가 뜨면 마지막 메시지가 입력창 바로 위에 보이도록 맨 아래로
+  useEffect(() => {
+    if (keyboard.open) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+  }, [keyboard.open, keyboard.inset]);
 
   // 화면에 그리기 전에(useLayoutEffect) 스크롤 위치를 맞춘다
   // - 채팅 화면 진입 / 대화 전환(새 채팅·이전 대화 열기): 애니메이션 없이 바로 맨 아래
@@ -75,7 +139,10 @@ export default function ChatScreen() {
 
       <ChatHistoryDrawer open={drawerOpen} onClose={closeDrawer} />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-4 p-5 pb-36">
+      <div
+        className="flex min-w-0 flex-1 flex-col gap-4 p-5 pb-36"
+        style={keyboard.inset ? { paddingBottom: `calc(9rem + ${keyboard.inset}px)` } : undefined}
+      >
         {messages.map((m, i) => (
           m.role === 'ai' ? (
             // AI 응답은 블록 단위로 분리해 텍스트는 말풍선, 장치/이벤트/경고 등은 카드로 렌더링
@@ -104,7 +171,11 @@ export default function ChatScreen() {
         <div ref={scrollRef} />
       </div>
 
-      <div className="fixed bottom-[82px] left-1/2 z-10 w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/95 backdrop-blur-lg">
+      {/* 평소엔 하단바 위, 키보드가 뜨면(하단바 숨김) 키보드 바로 위 */}
+      <div
+        className="fixed left-1/2 z-10 w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/95 backdrop-blur-lg"
+        style={{ bottom: keyboard.open ? keyboard.inset : NAV_HEIGHT }}
+      >
         <div className="flex gap-2 overflow-x-auto px-5 py-3">
           {QUICK_ACTIONS.map((q) => (
             <button
@@ -120,8 +191,11 @@ export default function ChatScreen() {
 
         <div className="flex items-center gap-2.5 border-t border-black/5 px-4 py-2.5">
           <input
+            ref={inputRef}
             type="text"
             value={input}
+            onFocus={keyboard.onFocus}
+            onBlur={keyboard.onBlur}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') send(input); }}
             placeholder="메시지를 입력하세요..."
@@ -129,6 +203,7 @@ export default function ChatScreen() {
           />
           <button
             onClick={() => send(input)}
+            onMouseDown={(e) => e.preventDefault()} // 전송 버튼을 눌러도 입력창 포커스(키보드) 유지
             aria-label="전송"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-none bg-brand-600 text-base text-white shadow-md shadow-brand-900/25 transition-transform active:scale-90"
           >

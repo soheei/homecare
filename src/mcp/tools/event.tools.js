@@ -94,30 +94,56 @@ const definitions = [
         }
       }
     }
+  },
+  {
+    name: 'get_event_media',
+    description: '특정 이벤트에 저장된 소리/영상/사진을 사용자에게 보여줍니다. "그 소리 들려줘", "낙상 영상 보여줘"처럼 이벤트의 녹음·녹화를 확인하고 싶어할 때 사용합니다. eventId는 다른 이벤트 조회 도구 결과의 id이며, hasAudio/hasVideo/hasImage가 true인 이벤트만 미디어가 있습니다. 재생 플레이어는 앱이 답변에 자동으로 표시합니다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        eventId: {
+          type: 'string',
+          description: '미디어를 보여줄 이벤트 ID (이벤트 조회 결과의 id)'
+        }
+      },
+      required: ['eventId']
+    }
   }
 ];
 
-// DB 행에 한국 시간 표시를 붙임 (timestamp는 UTC라 모델이 그대로 읽으면 9시간 틀림)
-const withKstTime = e => ({ ...e, timeKst: formatKst(e.timestamp) });
+// 미디어 유무만 알려줌 — DB의 URL은 private 버킷이라 그대로는 열리지 않고, 모델이 옮겨 적지 않게 넘기지 않는다
+const mediaFlags = e => ({
+  hasImage: Boolean(e.image_url),
+  hasAudio: Boolean(e.audio_url),
+  hasVideo: Boolean(e.video_url)
+});
+
+// DB 행 → 도구 결과: 한국 시간 표시를 붙이고(timestamp는 UTC라 모델이 그대로 읽으면 9시간 틀림) 미디어 URL은 유무로 바꿈
+const toToolEvent = ({ image_url, audio_url, video_url, ...e }) => ({
+  ...e,
+  timeKst: formatKst(e.timestamp),
+  ...mediaFlags({ image_url, audio_url, video_url })
+});
 
 // 도구 핸들러
 const handlers = {
   async get_today_events({ type }) {
     const events = await eventService.getEventsByDate(kstDateString()); // 오늘 = 한국 날짜
 
-    return (type ? events.filter(e => e.type === type) : events).map(withKstTime);
+    return (type ? events.filter(e => e.type === type) : events).map(toToolEvent);
   },
 
   async get_events_by_date({ date }) {
-    return (await eventService.getEventsByDate(date)).map(withKstTime);
+    return (await eventService.getEventsByDate(date)).map(toToolEvent);
   },
 
   async get_visitor_log({ date, days = 7, limit = 10 }) {
     const toVisitor = e => ({
+      id: e.id,
       time: e.timestamp,
       timeKst: formatKst(e.timestamp),
       description: e.description,
-      imageUrl: e.image_url // DB 컬럼은 snake_case
+      ...mediaFlags(e)
     });
 
     // 특정 날짜 지정 시 그날만
@@ -151,7 +177,7 @@ const handlers = {
     // DB 컬럼은 snake_case(danger_level) — camelCase로 읽으면 항상 빈 결과가 됨
     return result.events
       .filter(e => e.danger_level === 'danger' || e.danger_level === 'warning')
-      .map(withKstTime);
+      .map(toToolEvent);
   },
 
   async get_weekly_summary() {
@@ -160,7 +186,31 @@ const handlers = {
 
   async get_daily_summary({ date }) {
     const targetDate = date || kstDateString(); // 생략 시 오늘(한국 날짜)
-    return await eventService.getDailySummary(targetDate);
+    const summary = await eventService.getDailySummary(targetDate);
+    return { ...summary, dangerEvents: (summary.dangerEvents || []).map(toToolEvent) };
+  },
+
+  // 결과의 eventId로 claude.service.js가 답변에 재생 플레이어 줄을 붙인다 (URL은 앱이 열 때마다 새로 서명)
+  async get_event_media({ eventId }) {
+    const event = typeof eventId === 'string' && eventId ? await eventService.getEventById(eventId) : null;
+    if (!event) {
+      return { success: false, error: '해당 이벤트를 찾을 수 없어요.' };
+    }
+
+    const flags = mediaFlags(event);
+    if (!flags.hasAudio && !flags.hasVideo && !flags.hasImage) {
+      return { success: false, eventId: event.id, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' };
+    }
+
+    return {
+      success: true,
+      eventId: event.id,
+      type: event.type,
+      description: event.description,
+      timeKst: formatKst(event.timestamp),
+      ...flags,
+      message: '재생 플레이어는 앱이 답변 위에 자동으로 보여주므로 링크나 URL은 쓰지 말고, 어떤 이벤트인지 짧게 안내만 하세요.'
+    };
   }
 };
 

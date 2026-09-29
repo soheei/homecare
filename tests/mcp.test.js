@@ -24,6 +24,12 @@ jest.mock('../src/services/event.service', () => {
       return { events, total: events.length, limit, offset: 0 };
     }),
     getEventsByDate: jest.fn().mockResolvedValue(rows),
+    getEventById: jest.fn(async (id) => {
+      const media = {
+        'ev-scream': { id: 'ev-scream', type: 'danger', description: '비명 감지', danger_level: 'danger', audio_url: 'https://x.supabase.co/storage/v1/object/public/events/audio/1.wav', timestamp: '2026-09-25T07:00:47Z' }
+      };
+      return media[id] || rows.find(r => r.id === id) || null;
+    }),
     getDailySummary: jest.fn(),
     getWeeklySummary: jest.fn().mockResolvedValue({ startDate: '2026-09-20', endDate: '2026-09-27', totalEvents: 3, dailySummaries: { '2026-09-22': { count: 2, types: { sound: 1, visitor: 1 } }, '2026-09-25': { count: 1, types: { danger: 1 } } } })
   };
@@ -102,12 +108,12 @@ describe('MCP Server /mcp', () => {
   });
 
   describe('MCP 프로토콜', () => {
-    it('tools/list로 도구 10개를 반환', async () => {
+    it('tools/list로 도구 11개를 반환', async () => {
       const client = await connectClient();
       const { tools } = await client.listTools();
       await client.close();
 
-      expect(tools).toHaveLength(10);
+      expect(tools).toHaveLength(11);
       expect(tools.map(t => t.name)).toEqual(expect.arrayContaining([
         'get_today_events', 'get_danger_events', 'get_device_list'
       ]));
@@ -164,14 +170,46 @@ describe('MCP Server /mcp', () => {
       expect(summary.dailySummaries['2026-09-25'].types.danger).toBe(1);
     });
 
-    it('get_visitor_log는 DB의 image_url을 imageUrl로 반환', async () => {
+    it('get_visitor_log는 이벤트 id와 미디어 유무를 반환 (URL은 넘기지 않음)', async () => {
       const client = await connectClient();
       const result = await client.callTool({ name: 'get_visitor_log', arguments: { date: '2026-09-22' } });
       await client.close();
 
       const visitors = JSON.parse(result.content[0].text);
       expect(visitors).toHaveLength(1);
-      expect(visitors[0].imageUrl).toBe('https://example.com/v.jpg');
+      expect(visitors[0]).toMatchObject({ id: 'ev-visitor', hasImage: true, hasAudio: false, hasVideo: false });
+      expect(visitors[0]).not.toHaveProperty('imageUrl');
+    });
+
+    it('이벤트 목록 도구는 미디어 URL 대신 hasAudio/hasVideo/hasImage를 반환', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_events_by_date', arguments: { date: '2026-09-22' } });
+      await client.close();
+
+      const events = JSON.parse(result.content[0].text);
+      const visitor = events.find(e => e.id === 'ev-visitor');
+      expect(visitor.hasImage).toBe(true);
+      expect(visitor).not.toHaveProperty('image_url');
+    });
+
+    it('get_event_media는 미디어가 있는 이벤트면 success + eventId (URL 없음)', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'ev-scream' } });
+      await client.close();
+
+      const media = JSON.parse(result.content[0].text);
+      expect(media).toMatchObject({ success: true, eventId: 'ev-scream', hasAudio: true, hasVideo: false });
+      expect(JSON.stringify(media)).not.toContain('supabase.co');
+    });
+
+    it('get_event_media는 미디어가 없거나 없는 이벤트면 success:false + 사용자용 문구', async () => {
+      const client = await connectClient();
+      const noMedia = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'ev-sound' } });
+      const missing = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'no-such-event' } });
+      await client.close();
+
+      expect(JSON.parse(noMedia.content[0].text)).toMatchObject({ success: false, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' });
+      expect(JSON.parse(missing.content[0].text)).toMatchObject({ success: false, error: '해당 이벤트를 찾을 수 없어요.' });
     });
 
     it('없는 도구 호출은 isError', async () => {
@@ -187,7 +225,7 @@ describe('MCP Server /mcp', () => {
     it('listTools는 Anthropic API 형식(input_schema)으로 변환', async () => {
       const tools = await mcpService.withSession(mcp => mcp.listTools());
 
-      expect(tools).toHaveLength(10);
+      expect(tools).toHaveLength(11);
       expect(tools[0]).toHaveProperty('input_schema');
       expect(tools[0]).not.toHaveProperty('inputSchema');
     });
@@ -226,7 +264,7 @@ describe('MCP Server /mcp', () => {
 
       // 1차 호출: MCP 서버에서 받은 도구 목록이 Anthropic 형식으로 전달됨
       const firstCall = mockCreate.mock.calls[0][0];
-      expect(firstCall.tools).toHaveLength(10);
+      expect(firstCall.tools).toHaveLength(11);
       expect(firstCall.tools[0]).toHaveProperty('input_schema');
 
       // 2차 호출: MCP tools/call 결과가 tool_result로 전달됨

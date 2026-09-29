@@ -223,6 +223,19 @@ describe('MCP Server /mcp', () => {
       expect(JSON.stringify(media)).not.toContain('supabase.co');
     });
 
+    it('영상을 원했는데 소리로 감지된 이벤트면 실패가 아니라 소리를 보여주고 notice로 알림', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'ev-scream', mediaType: 'video' } });
+      const videoOk = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'ev-fall', mediaType: 'video' } });
+      await client.close();
+
+      expect(JSON.parse(result.content[0].text)).toMatchObject({
+        success: true, eventId: 'ev-scream', hasVideo: false, hasAudio: true,
+        notice: '이 이벤트는 영상은 없고 소리만 있어요.'
+      });
+      expect(JSON.parse(videoOk.content[0].text)).not.toHaveProperty('notice');
+    });
+
     it('get_event_media는 eventId 없이 mediaType만 주면 최근 영상/소리 이벤트를 찾음', async () => {
       const client = await connectClient();
       const video = await client.callTool({ name: 'get_event_media', arguments: { mediaType: 'video' } });

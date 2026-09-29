@@ -245,6 +245,19 @@ describe('채팅 — request_capture 도구', () => {
     expect(res.content).toBe('![감지된 영상](/api/events/ev-fall)\n\n오전 11시에 녹화된 영상이에요.');
   });
 
+  it('영상 요청인데 소리만 있는 이벤트면 소리 플레이어를 붙임', async () => {
+    mockCallTool.mockResolvedValue({
+      content: JSON.stringify({ success: true, eventId: 'ev-scream', hasVideo: false, hasAudio: true, notice: '이 이벤트는 영상은 없고 소리만 있어요.' }),
+      isError: false
+    });
+    mockCreate
+      .mockResolvedValueOnce({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'get_event_media', input: { eventId: 'ev-scream', mediaType: 'video' } }] })
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '이 이벤트는 영상은 없고 소리만 있어요.' }], usage: {} });
+
+    const res = await claudeService.chat({ message: '위험 영상 보여줘', userId: 'user-A' });
+    expect(res.content).toBe('![감지된 소리](/api/events/ev-scream)\n\n이 이벤트는 영상은 없고 소리만 있어요.');
+  });
+
   it('get_event_media 실패 결과면 미디어 줄을 붙이지 않음', async () => {
     mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' }), isError: false });
     mockCreate

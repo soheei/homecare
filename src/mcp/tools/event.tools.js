@@ -107,7 +107,7 @@ const definitions = [
         },
         mediaType: {
           type: 'string',
-          description: 'eventId 없이 최근 이벤트를 찾을 때 미디어 종류 (video: 카메라 영상, audio: 마이크 소리)',
+          description: '사용자가 원한 미디어 종류 (video: 카메라 영상, audio: 마이크 소리). eventId와 함께 주면 그 종류가 없을 때 있는 미디어를 대신 보여주고 notice로 알려줌. eventId 없이 주면 그 종류의 최근 이벤트를 찾음',
           enum: ['video', 'audio']
         },
         days: {
@@ -220,6 +220,15 @@ const handlers = {
       return { success: false, eventId: event.id, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' };
     }
 
+    // 영상을 원했는데 소리로 감지된 이벤트처럼, 요청한 종류는 없고 다른 미디어만 있으면 있는 것을 대신 보여주고 알림
+    const missing = (mediaType === 'video' && !flags.hasVideo && '영상')
+      || (mediaType === 'audio' && !flags.hasAudio && '소리')
+      || null;
+    const available = flags.hasVideo ? '영상' : flags.hasAudio ? '소리' : '사진';
+    const TOPIC = { 영상: '영상은', 소리: '소리는' };
+    const OBJECT = { 영상: '영상을', 소리: '소리를', 사진: '사진을' };
+    const notice = missing ? `이 이벤트는 ${TOPIC[missing]} 없고 ${available}만 있어요.` : null;
+
     return {
       success: true,
       eventId: event.id,
@@ -227,7 +236,10 @@ const handlers = {
       description: event.description,
       timeKst: formatKst(event.timestamp),
       ...flags,
-      message: '재생 플레이어는 앱이 답변 위에 자동으로 보여주므로 링크나 URL은 쓰지 말고, 어떤 이벤트인지 짧게 안내만 하세요.'
+      ...(notice && { notice }),
+      message: notice
+        ? `요청한 ${missing} 대신 ${OBJECT[available]} 앱이 답변 위에 보여줍니다. 불러올 수 없다고 하지 말고 notice 내용을 그대로 안내하세요. 링크나 URL은 쓰지 마세요.`
+        : '재생 플레이어는 앱이 답변 위에 자동으로 보여주므로 링크나 URL은 쓰지 말고, 어떤 이벤트인지 짧게 안내만 하세요.'
     };
   }
 };

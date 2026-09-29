@@ -199,7 +199,8 @@ export default function ChatScreen({ onKeyboardChange }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') send(input); }}
             placeholder="메시지를 입력하세요..."
-            className="flex-1 rounded-full border border-black/10 bg-[#f2f4f6] px-4 py-2.5 text-sm text-ink outline-none transition focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-400/10"
+            // 글자 크기 16px 이상 — iOS Safari는 16px 미만 입력창에 포커스하면 화면을 자동 확대함
+            className="flex-1 rounded-full border border-black/10 bg-[#f2f4f6] px-4 py-2.5 text-base text-ink outline-none transition focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-400/10"
           />
           <button
             onClick={() => send(input)}

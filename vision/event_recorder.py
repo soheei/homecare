@@ -69,7 +69,8 @@ class EventRecorder:
         self.recording = True
 
         self.event_type = event_type
-        self.event_time = datetime.now()
+        # 시간대 없는 now()를 보내면 백엔드가 UTC로 해석해 앱에서 +9시간으로 보임 → 로컬 시간대(+09:00)를 붙인다
+        self.event_time = datetime.now().astimezone()
         self.event_frame = frame.copy()
         self.event_score = score
 

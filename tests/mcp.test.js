@@ -10,6 +10,14 @@ jest.mock('../src/services/device.service', () => ({
   getDeviceStatus: jest.fn()
 }));
 
+// 카메라(vision) 이벤트: 영상 + 썸네일 (위험도는 normal이어도 영상이 있음)
+const mockFallVideoEvent = {
+  id: 'ev-fall', type: 'motion', description: '사람 감지', danger_level: 'normal',
+  image_url: 'https://x.supabase.co/storage/v1/object/public/events/image/2.jpg',
+  video_url: 'https://x.supabase.co/storage/v1/object/public/events/video/2.mp4',
+  timestamp: '2026-09-26T02:00:00Z'
+};
+
 // 이벤트 서비스 mock: 실제 Supabase 행과 같은 snake_case 필드 사용
 jest.mock('../src/services/event.service', () => {
   const rows = [
@@ -26,10 +34,13 @@ jest.mock('../src/services/event.service', () => {
     getEventsByDate: jest.fn().mockResolvedValue(rows),
     getEventById: jest.fn(async (id) => {
       const media = {
-        'ev-scream': { id: 'ev-scream', type: 'danger', description: '비명 감지', danger_level: 'danger', audio_url: 'https://x.supabase.co/storage/v1/object/public/events/audio/1.wav', timestamp: '2026-09-25T07:00:47Z' }
+        'ev-scream': { id: 'ev-scream', type: 'danger', description: '비명 감지', danger_level: 'danger', audio_url: 'https://x.supabase.co/storage/v1/object/public/events/audio/1.wav', timestamp: '2026-09-25T07:00:47Z' },
+        'ev-fall': mockFallVideoEvent
       };
       return media[id] || rows.find(r => r.id === id) || null;
     }),
+    // 영상은 ev-fall만 있음, 소리는 없음 → null
+    getLatestEventWithMedia: jest.fn(async (mediaType) => (mediaType === 'video' ? mockFallVideoEvent : null)),
     getDailySummary: jest.fn(),
     getWeeklySummary: jest.fn().mockResolvedValue({ startDate: '2026-09-20', endDate: '2026-09-27', totalEvents: 3, dailySummaries: { '2026-09-22': { count: 2, types: { sound: 1, visitor: 1 } }, '2026-09-25': { count: 1, types: { danger: 1 } } } })
   };
@@ -200,6 +211,41 @@ describe('MCP Server /mcp', () => {
       const media = JSON.parse(result.content[0].text);
       expect(media).toMatchObject({ success: true, eventId: 'ev-scream', hasAudio: true, hasVideo: false });
       expect(JSON.stringify(media)).not.toContain('supabase.co');
+    });
+
+    it('get_event_media는 영상 이벤트면 hasVideo와 eventId를 반환 (URL 없음)', async () => {
+      const client = await connectClient();
+      const result = await client.callTool({ name: 'get_event_media', arguments: { eventId: 'ev-fall' } });
+      await client.close();
+
+      const media = JSON.parse(result.content[0].text);
+      expect(media).toMatchObject({ success: true, eventId: 'ev-fall', hasVideo: true, hasImage: true });
+      expect(JSON.stringify(media)).not.toContain('supabase.co');
+    });
+
+    it('get_event_media는 eventId 없이 mediaType만 주면 최근 영상/소리 이벤트를 찾음', async () => {
+      const client = await connectClient();
+      const video = await client.callTool({ name: 'get_event_media', arguments: { mediaType: 'video' } });
+      const audio = await client.callTool({ name: 'get_event_media', arguments: { mediaType: 'audio' } });
+      const none = await client.callTool({ name: 'get_event_media', arguments: {} });
+      await client.close();
+
+      expect(JSON.parse(video.content[0].text)).toMatchObject({ success: true, eventId: 'ev-fall', hasVideo: true });
+      expect(JSON.parse(audio.content[0].text)).toMatchObject({ success: false, error: '저장된 소리가 없어요.' });
+      expect(JSON.parse(none.content[0].text).success).toBe(false);
+    });
+
+    it('get_event_media는 기본 기간 제한 없음, days를 주면 그 기간만 조회', async () => {
+      const eventService = require('../src/services/event.service');
+      eventService.getLatestEventWithMedia.mockClear();
+
+      const client = await connectClient();
+      await client.callTool({ name: 'get_event_media', arguments: { mediaType: 'video' } });
+      const inPeriod = await client.callTool({ name: 'get_event_media', arguments: { mediaType: 'audio', days: 3 } });
+      await client.close();
+
+      expect(eventService.getLatestEventWithMedia.mock.calls).toEqual([['video', undefined], ['audio', 3]]);
+      expect(JSON.parse(inPeriod.content[0].text).error).toBe('최근 3일 동안 저장된 소리가 없어요.');
     });
 
     it('get_event_media는 미디어가 없거나 없는 이벤트면 success:false + 사용자용 문구', async () => {

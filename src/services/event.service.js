@@ -9,6 +9,7 @@
 
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
+const storageService = require('./storage.service');
 const { kstDateString, kstDayRange, formatKst } = require('../utils/date.utils');
 
 // 요약 목록용 미디어 유무 (채팅 AI가 get_event_media로 재생할 이벤트를 고를 수 있게)
@@ -190,11 +191,45 @@ const getWeeklySummary = async () => {
   }
 };
 
+/**
+ * 해당 미디어(영상/소리)가 붙은 가장 최근 이벤트 (없으면 null)
+ * 채팅에서 "최근 영상 보여줘"처럼 이벤트를 지목하지 않고 물을 때 사용
+ * @param {number} [days] - 주면 최근 days일 안에서만, 생략하면 기간 제한 없음
+ */
+const MEDIA_COLUMNS = { video: 'video_url', audio: 'audio_url' };
+const getLatestEventWithMedia = async (mediaType, days) => {
+  const column = MEDIA_COLUMNS[mediaType];
+  if (!column) return null;
+  try {
+    let query = supabaseAdmin
+      .from('events')
+      .select('*')
+      .not(column, 'is', null)
+      .order('timestamp', { ascending: false })
+      .limit(1);
+    if (days > 0) {
+      query = query.gte('timestamp', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data?.[0] || null;
+
+  } catch (error) {
+    logger.error('[EventService] Error fetching latest media event:', error);
+    return null;
+  }
+};
+
+// 삭제하면서 지워진 행의 미디어 URL을 돌려받아 Storage 파일도 지운다
+const DELETED_MEDIA_COLUMNS = 'id, image_url, audio_url, video_url';
+
 const deleteEvent = async (id) => {
   try {
-    const { error } = await supabaseAdmin.from('events').delete().eq('id', id);
+    const { data, error } = await supabaseAdmin.from('events').delete().eq('id', id).select(DELETED_MEDIA_COLUMNS);
     if (error) throw error;
     logger.info(`[EventService] Event deleted: ${id}`);
+    await storageService.removeEventMedia(data);
     return true;
   } catch (error) {
     logger.error('[EventService] Error deleting event:', error);
@@ -211,14 +246,16 @@ const deleteEventsByDevices = async (deviceIds, ids) => {
   try {
     let query = supabaseAdmin
       .from('events')
-      .delete({ count: 'exact' })
+      .delete()
       .in('device_id', deviceIds);
     if (ids) query = query.in('id', ids);
 
-    const { error, count } = await query;
+    const { data, error } = await query.select(DELETED_MEDIA_COLUMNS);
     if (error) throw error;
-    logger.info(`[EventService] Deleted ${count ?? 0} events for ${deviceIds.length} devices`);
-    return count ?? 0;
+    const deleted = (data || []).length;
+    logger.info(`[EventService] Deleted ${deleted} events for ${deviceIds.length} devices`);
+    await storageService.removeEventMedia(data);
+    return deleted;
   } catch (error) {
     logger.error('[EventService] Error deleting events by devices:', error);
     throw error;
@@ -232,6 +269,7 @@ module.exports = {
   createEvent,
   getDailySummary,
   getWeeklySummary,
+  getLatestEventWithMedia,
   deleteEvent,
   deleteEventsByDevices
 };

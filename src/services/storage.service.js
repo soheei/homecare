@@ -53,6 +53,28 @@ const signEventMedia = async (events, bucket = 'events', expiresIn = SIGNED_URL_
 };
 
 /**
+ * 삭제된 이벤트들의 사진/소리/영상 파일을 Storage에서 한 번에 지운다 → 지운 파일 수
+ * DB 행을 지워도 Storage 파일은 자동으로 지워지지 않기 때문. 외부 URL은 건드리지 않는다.
+ * 실패해도 throw하지 않음 (이벤트 삭제는 이미 끝났으므로 로그만 남김)
+ */
+const removeEventMedia = async (events, bucket = 'events') => {
+  const paths = [...new Set(
+    (events || []).flatMap(e => MEDIA_FIELDS.map(f => extractStoragePath(e[f], bucket)).filter(Boolean))
+  )];
+  if (paths.length === 0) return 0;
+
+  try {
+    const { error } = await supabaseAdmin.storage.from(bucket).remove(paths);
+    if (error) throw error;
+    logger.info(`[Storage] Removed ${paths.length} media files of deleted events`);
+    return paths.length;
+  } catch (error) {
+    logger.error(`[Storage] Failed to remove media files (${paths.join(', ')}):`, error);
+    return 0;
+  }
+};
+
+/**
  * Supabase Storage에 파일 업로드
  * @param {Object} file - Multer 파일 객체
  * @param {string} bucket - 스토리지 버킷 이름 (events, profiles 등)
@@ -133,5 +155,6 @@ const deleteFile = async (publicUrl, bucket = 'events') => {
 module.exports = {
   uploadFile,
   deleteFile,
-  signEventMedia
+  signEventMedia,
+  removeEventMedia
 };

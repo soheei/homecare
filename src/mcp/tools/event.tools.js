@@ -97,16 +97,24 @@ const definitions = [
   },
   {
     name: 'get_event_media',
-    description: '특정 이벤트에 저장된 소리/영상/사진을 사용자에게 보여줍니다. "그 소리 들려줘", "낙상 영상 보여줘"처럼 이벤트의 녹음·녹화를 확인하고 싶어할 때 사용합니다. eventId는 다른 이벤트 조회 도구 결과의 id이며, hasAudio/hasVideo/hasImage가 true인 이벤트만 미디어가 있습니다. 재생 플레이어는 앱이 답변에 자동으로 표시합니다.',
+    description: '이벤트에 저장된 영상/소리/사진을 사용자에게 보여줍니다. "그 소리 들려줘", "낙상 영상 보여줘", "최근 영상 보여줘"처럼 이벤트의 녹화·녹음을 확인하고 싶어할 때 사용합니다. 특정 이벤트면 eventId(다른 이벤트 조회 결과의 id, hasVideo/hasAudio/hasImage가 true인 것)를, 특정 이벤트 없이 "최근 영상/소리"면 eventId 없이 mediaType만 주면 기간 제한 없이 가장 최근 것을 찾고, 사용자가 기간을 말하면("이번 주", "최근 3일") days로 그 기간 안에서만 찾습니다. 재생 플레이어는 앱이 답변에 자동으로 표시합니다.',
     inputSchema: {
       type: 'object',
       properties: {
         eventId: {
           type: 'string',
           description: '미디어를 보여줄 이벤트 ID (이벤트 조회 결과의 id)'
+        },
+        mediaType: {
+          type: 'string',
+          description: 'eventId 없이 최근 이벤트를 찾을 때 미디어 종류 (video: 카메라 영상, audio: 마이크 소리)',
+          enum: ['video', 'audio']
+        },
+        days: {
+          type: 'number',
+          description: 'mediaType으로 찾을 때 최근 며칠 안에서만 찾을지 (사용자가 기간을 말했을 때만. 생략하면 기간 제한 없음)'
         }
-      },
-      required: ['eventId']
+      }
     }
   }
 ];
@@ -191,10 +199,20 @@ const handlers = {
   },
 
   // 결과의 eventId로 claude.service.js가 답변에 재생 플레이어 줄을 붙인다 (URL은 앱이 열 때마다 새로 서명)
-  async get_event_media({ eventId }) {
-    const event = typeof eventId === 'string' && eventId ? await eventService.getEventById(eventId) : null;
-    if (!event) {
-      return { success: false, error: '해당 이벤트를 찾을 수 없어요.' };
+  async get_event_media({ eventId, mediaType, days } = {}) {
+    let event;
+    if (typeof eventId === 'string' && eventId) {
+      event = await eventService.getEventById(eventId);
+      if (!event) return { success: false, error: '해당 이벤트를 찾을 수 없어요.' };
+    } else if (mediaType === 'video' || mediaType === 'audio') {
+      const period = Number(days) > 0 ? Number(days) : undefined; // 기간을 말하지 않았으면 제한 없음
+      event = await eventService.getLatestEventWithMedia(mediaType, period);
+      if (!event) {
+        const what = mediaType === 'video' ? '영상이' : '소리가';
+        return { success: false, error: period ? `최근 ${period}일 동안 저장된 ${what} 없어요.` : `저장된 ${what} 없어요.` };
+      }
+    } else {
+      return { success: false, error: '어떤 이벤트의 영상/소리인지 알 수 없어요.' };
     }
 
     const flags = mediaFlags(event);

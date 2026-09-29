@@ -8,23 +8,26 @@ const STORAGE = 'https://proj.supabase.co/storage/v1/object/public/events';
 
 const mockRows = [
   {
-    id: 'ev-fall', type: 'danger', description: '낙상 의심',
+    id: 'ev-fall', type: 'danger', description: '낙상 의심', device_id: 'dev-1',
     image_url: `${STORAGE}/image/1_1.jpg`, audio_url: null, video_url: `${STORAGE}/video/1_2.mp4`
   },
   {
-    id: 'ev-ext', type: 'visitor', description: '외부 URL 사진',
+    id: 'ev-ext', type: 'visitor', description: '외부 URL 사진', device_id: 'dev-1',
     image_url: 'https://example.com/a.jpg', audio_url: null, video_url: null
   }
 ];
 
 const mockCreateSignedUrls = jest.fn();
+const mockRemove = jest.fn();
 const mockFrom = () => {
   let rows = [...mockRows];
   const q = {
     select: () => q,
+    delete: () => q,
     order: () => q,
     range: () => q,
     eq: (col, v) => { rows = rows.filter(r => r[col] === v); return q; },
+    in: (col, vs) => { rows = rows.filter(r => vs.includes(r[col])); return q; },
     single: () => Promise.resolve(rows[0] ? { data: rows[0], error: null } : { data: null, error: new Error('none') }),
     then: (resolve, reject) => Promise.resolve({ data: rows, error: null, count: rows.length }).then(resolve, reject)
   };
@@ -34,10 +37,20 @@ const mockFrom = () => {
 jest.mock('../src/config/supabase', () => {
   const admin = {
     from: (...args) => mockFrom(...args),
-    storage: { from: () => ({ createSignedUrls: (...args) => mockCreateSignedUrls(...args) }) }
+    storage: {
+      from: () => ({
+        createSignedUrls: (...args) => mockCreateSignedUrls(...args),
+        remove: (...args) => mockRemove(...args)
+      })
+    }
   };
   return { supabase: admin, supabaseAdmin: admin };
 });
+
+// 로그인 사용자의 기기 = dev-1 (전체/선택 삭제 대상)
+jest.mock('../src/services/device.service', () => ({
+  getDevices: jest.fn().mockResolvedValue([{ id: 'dev-1' }])
+}));
 
 jest.mock('../src/middlewares/auth.middleware', () => {
   const pass = (req, res, next) => next();
@@ -57,7 +70,45 @@ const signAll = (paths, expiresIn) => Promise.resolve({
   error: null
 });
 
-beforeEach(() => mockCreateSignedUrls.mockReset());
+beforeEach(() => {
+  mockCreateSignedUrls.mockReset();
+  mockRemove.mockReset().mockResolvedValue({ data: [], error: null });
+});
+
+describe('이벤트 삭제 시 Storage 파일도 삭제', () => {
+  test('단건 삭제: 해당 이벤트의 Storage 파일을 한 번에 지움', async () => {
+    const res = await request(app).delete('/api/events/ev-fall');
+
+    expect(res.status).toBe(200);
+    expect(mockRemove).toHaveBeenCalledTimes(1);
+    expect(mockRemove).toHaveBeenCalledWith(['image/1_1.jpg', 'video/1_2.mp4']);
+  });
+
+  test('선택/전체 삭제: 지워진 이벤트들의 Storage 파일만, 외부 URL은 건드리지 않음', async () => {
+    const res = await request(app).delete('/api/events');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.deleted).toBe(2);
+    expect(mockRemove).toHaveBeenCalledWith(['image/1_1.jpg', 'video/1_2.mp4']);
+  });
+
+  test('Storage 파일이 없는 이벤트는 삭제 요청을 보내지 않음', async () => {
+    const res = await request(app).delete('/api/events').send({ ids: ['ev-ext'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.deleted).toBe(1);
+    expect(mockRemove).not.toHaveBeenCalled();
+  });
+
+  test('파일 삭제가 실패해도 이벤트 삭제는 성공', async () => {
+    mockRemove.mockResolvedValue({ data: null, error: new Error('storage down') });
+
+    const res = await request(app).delete('/api/events/ev-fall');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
 
 describe('이벤트 미디어 서명 URL', () => {
   test('목록: Storage URL은 한 번의 요청으로 서명 URL로 바뀌고 외부 URL/null은 그대로', async () => {

@@ -38,7 +38,7 @@ function AppShell() {
     <AppDataProvider key={`data-${userId}`}>
       <ChatProvider key={`chat-${userId}`} userId={userId}>
         <div className="relative mx-auto min-h-screen max-w-[430px] bg-[#f7f8fa] font-sans">
-          <div className="pb-20">
+          <div className="pb-24">
             <ActiveScreen />
           </div>
           <BottomNav tab={tab} setTab={setTab} />

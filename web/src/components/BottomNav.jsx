@@ -7,7 +7,7 @@ const TABS = [
 
 export default function BottomNav({ tab, setTab }) {
   return (
-    <nav className="fixed bottom-0 left-1/2 z-20 flex h-[70px] w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/90 pb-2 backdrop-blur-lg">
+    <nav className="fixed bottom-0 left-1/2 z-20 flex h-[82px] w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/90 pb-2 backdrop-blur-lg">
       {TABS.map((t, i) => {
         const active = tab === i;
         return (

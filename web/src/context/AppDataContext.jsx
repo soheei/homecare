@@ -66,8 +66,8 @@ export function AppDataProvider({ children }) {
   // 이미 불러왔거나 불러오는 중인 리소스 표시 (StrictMode 이중 실행/빠른 탭 전환에도 중복 호출 방지)
   const requested = useRef({});
 
-  const load = useCallback((key, fetcher, setResource) => {
-    if (requested.current[key]) return;
+  const load = useCallback((key, fetcher, setResource, force = false) => {
+    if (requested.current[key] && !force) return;
     requested.current[key] = true;
     // 갱신 중에도 기존 데이터는 계속 보여준다
     setResource((prev) => ({ ...prev, status: 'loading', error: '' }));
@@ -80,7 +80,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   const loadHome = useCallback(() => load('home', fetchHome, setHome), [load]);
-  const loadEventList = useCallback(() => load('eventList', fetchEventList, setEventList), [load]);
+  const loadEventList = useCallback((force = false) => load('eventList', fetchEventList, setEventList, force), [load]);
 
   const deleteEvent = useCallback(async (id) => {
     await api.events.delete(id);

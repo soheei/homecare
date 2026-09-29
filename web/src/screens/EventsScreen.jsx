@@ -24,7 +24,10 @@ export default function EventsScreen() {
 
   const events = eventList.data ?? [];
   const loading = !eventList.data && (eventList.status === 'idle' || eventList.status === 'loading');
+  const refreshing = !!eventList.data && eventList.status === 'loading';
   const error = eventList.error;
+
+  const handleRefresh = () => loadEventList(true);
 
   const filtered = filter === 'all'
     ? events
@@ -44,9 +47,33 @@ export default function EventsScreen() {
 
   return (
     <div>
-      <div className="grain-surface bg-brand-600 px-5 pb-6 pt-6 text-white">
-        <div className="text-2xl font-bold tracking-tight">이벤트</div>
-        <div className="mt-1 text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
+      <div className="grain-surface flex items-start justify-between bg-brand-600 px-5 pb-6 pt-6 text-white">
+        <div>
+          <div className="text-2xl font-bold tracking-tight">이벤트</div>
+          <div className="mt-1 text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
+        </div>
+        <button
+          type="button"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          aria-label="이벤트 새로고침"
+          className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white/70 transition-transform active:scale-90 disabled:opacity-60"
+        >
+          <svg
+            className={refreshing ? 'animate-spin' : ''}
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
       </div>
 
       <div className="sticky top-0 z-[5] flex gap-2 overflow-x-auto border-b border-black/5 bg-white/90 px-5 py-3.5 backdrop-blur-lg">

@@ -10,7 +10,7 @@
 
 ## 0. 테스트 전 준비
 
-- [ ] **변경사항 커밋·push** (현재 로컬에만 있음: 서명 URL 백엔드, 소리 반복 전송 수정, 방문자·택배 감지, 카메라 서비스 통합)
+- [x] **변경사항 커밋·push** (현재 로컬에만 있음: 서명 URL 백엔드, 소리 반복 전송 수정, 방문자·택배 감지, 카메라 서비스 통합)
   - push하면 Render가 백엔드를 자동 재배포한다.
 - [x] **Pi 코드 받기 + 서비스 파일 재설치** (2026-09-28 완료, 카메라=`vision.vision_pipeline`, `HOMECARE_EVENT_DIR=edge/data/events` 추가) (엣지 폴더 재구성으로 실행 명령이 바뀜)
   ```bash
@@ -93,7 +93,7 @@
   ```bash
   python -c "import cv2; w=cv2.VideoWriter('/tmp/t.mp4', cv2.VideoWriter_fourcc(*'avc1'), 5, (640,480)); print('H.264 가능' if w.isOpened() else 'H.264 불가 → mp4v로 저장됨(브라우저 재생 불가)')"
   ```
-- [ ] **영상 저장 폴더** — 기본 `/mnt/ssd/events`인데 Pi에 `/mnt/ssd` 없음(2026-09-28). `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 추가 (코드 수정 A안 반영됨 2026-09-28 — `.env` 값이 적용됨, 상대 경로는 저장소 루트 기준). 서비스 시작 로그 `[EVENT DIR] /home/alarmi/homecare/edge/data/events` 확인
+- [x] **영상 저장 폴더** — 기본 `/mnt/ssd/events`인데 Pi에 `/mnt/ssd` 없음(2026-09-28). `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 추가 (코드 수정 A안 반영됨 2026-09-28 — `.env` 값이 적용됨, 상대 경로는 저장소 루트 기준). 서비스 시작 로그 `[EVENT DIR] /home/alarmi/homecare/edge/data/events` 확인
 - [ ] **`edge/.env`에 `HOMECARE_CAMERA_DEVICE_ID`** 가 있는지 (없으면 vision이 "설정 오류"로 바로 종료)
 
 실행: `sudo systemctl start homecare-camera.service` → `journalctl -u homecare-camera.service -f`

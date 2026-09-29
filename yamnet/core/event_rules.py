@@ -269,11 +269,11 @@ CATEGORY_RULE_CONFIG = {
     ),
     "door_visitor": dict(
         fn=rule_threshold,
-        kwargs=dict(class_ids=_cat_class_ids("door_visitor"), threshold=0.5),
+        kwargs=dict(class_ids=_cat_class_ids("door_visitor"), threshold=0.7),
     ),
     "door_security": dict(
         fn=rule_threshold,
-        kwargs=dict(class_ids=_cat_class_ids("door_security"), threshold=0.3),
+        kwargs=dict(class_ids=_cat_class_ids("door_security"), threshold=0.6),
     ),
     "long_silence": dict(
         fn=rule_meta_absence,

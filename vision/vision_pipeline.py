@@ -45,9 +45,9 @@ YOLO_CONFIDENCE = 0.5
 # Fall
 # ==========================================
 
-FALL_VERTICAL_THRESHOLD = 15
-FALL_ASPECT_RATIO_THRESHOLD = 1.2
-FALL_REQUIRED_FRAMES = 1
+FALL_VERTICAL_THRESHOLD = 25
+FALL_ASPECT_RATIO_THRESHOLD = 1.3
+FALL_REQUIRED_FRAMES = 3
 
 # ==========================================
 # Visitor / Delivery

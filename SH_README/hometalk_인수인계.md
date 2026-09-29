@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-28 (카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-09-29 (vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -118,7 +118,7 @@
   sudo systemctl stop  homecare-camera.service
   systemctl is-active  homecare-camera.service
   ```
-  - `homecare-camera.service`(2026-09-28부터 `python -m vision.vision_pipeline`)는 **YOLO 이벤트 감지** + **하트비트** + **앱/채팅의 "현재 화면 보기" 요청 대기**(아래 "현재 화면 캡처")를 함께 돌린다. 이 서비스가 꺼져 있으면 현재 화면 보기는 "카메라가 꺼져 있어…"로 안내된다. 필요 환경: `edge/.env`의 `HOMECARE_CAMERA_DEVICE_ID`, vision 의존성(`ultralytics`, `opencv`, `picamera2` — 설치 여부 **확인 필요**), 영상 저장 폴더 `HOMECARE_EVENT_DIR`(전송 성공하면 원본 영상·썸네일은 Pi에서 삭제, 최종 실패분만 남음 / 기본 `/mnt/ssd/events` — Pi에 없으므로 `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 지정, 상대 경로는 저장소 루트 기준). 이벤트로 DB에 남기는 수동 촬영(`capture_photo`)은 카메라를 따로 열기 때문에 **이 서비스를 끈 상태에서만** 동작.
+  - `homecare-camera.service`(2026-09-28부터 `python -m vision.vision_pipeline`)는 **YOLO 이벤트 감지** + **하트비트** + **앱/채팅의 "현재 화면 보기" 요청 대기**(아래 "현재 화면 캡처")를 함께 돌린다. 이 서비스가 꺼져 있으면 현재 화면 보기는 "카메라가 꺼져 있어…"로 안내된다. 필요 환경: `edge/.env`의 `HOMECARE_CAMERA_DEVICE_ID`, vision 의존성(`ultralytics`, `opencv`, `picamera2` — 설치 여부 **확인 필요**), 영상 저장 폴더 `HOMECARE_EVENT_DIR`(2026-09-29부터 전송 큐에 넣은 직후 원본 영상·썸네일을 삭제 — 쿨다운·최종 실패분도 Pi에 남지 않음, 재시도 중에만 `edge/data/vision/attachments/`에 복사본 1벌 / 기본 `/mnt/ssd/events` — Pi에 없으므로 `edge/.env`에 `HOMECARE_EVENT_DIR=edge/data/events` 지정, 상대 경로는 저장소 루트 기준). 이벤트로 DB에 남기는 수동 촬영(`capture_photo`)은 카메라를 따로 열기 때문에 **이 서비스를 끈 상태에서만** 동작.
 
 ## 현재 화면 캡처 — 홈 카메라 카드 / 채팅 "현재 화면 보여줘" (2026-09-27 추가)
 
@@ -204,7 +204,7 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 - 채팅 "이번주 요약"이 3건 중 1건만·UTC 시각("오전 7시")으로 답한 원인은 **미확정**(로컬 프론트→로컬 백엔드, 새 코드로 동작 중이었음을 확인). 후보: 이전 대화 기록 재사용(대화 기록엔 최종 답변 텍스트만 저장, 도구 결과는 저장 안 됨) / 다른 도구 선택. 새 대화에서 재질문 후 로그의 `[MCP] Tool called:` 도구명으로 판별할 것.
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
 - 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부 + 수동 사진 촬영(`edge.apps.capture_photo`, 2026-09-27)만
-- `edge.apps.capture_photo` Pi 실기 검증 **미완료**(로컬 단위 테스트만 통과). Supabase Storage `events` 버킷은 **private**(2026-09-28 사용자 확인) — 조회는 서명 URL로(아래 "이벤트 미디어 조회")
+- `edge.apps.capture_photo` Pi 실기 검증 **미완료**(로컬 단위 테스트만 통과). Supabase Storage `events` 버킷은 **private**(2026-09-28 사용자 확인) — **단, 2026-09-29 Render 로그에 `Bucket not found`**: Render가 쓰는 Supabase 프로젝트에 `events` 버킷이 없어 사진·영상이 저장되지 않음(이벤트는 파일 없이 201 저장). 같은 프로젝트에 버킷 생성 필요 — 조회는 서명 URL로(아래 "이벤트 미디어 조회")
 - 현재 화면 캡처(홈/채팅)는 2026-09-27 배포(`03634f2`) 후 실제 동작 확인됨. 홈 화면 마이크 카드가 "미등록"으로 보이는 건 `GET /api/devices`가 로그인 사용자 `user_id`로 거르기 때문으로 추정(마이크 기기의 `user_id`가 다를 가능성) — **확인 필요**
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건

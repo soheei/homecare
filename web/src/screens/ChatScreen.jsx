@@ -104,7 +104,7 @@ export default function ChatScreen() {
         <div ref={scrollRef} />
       </div>
 
-      <div className="fixed bottom-[70px] left-1/2 z-10 w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/95 backdrop-blur-lg">
+      <div className="fixed bottom-[82px] left-1/2 z-10 w-full max-w-[430px] -translate-x-1/2 border-t border-black/5 bg-white/95 backdrop-blur-lg">
         <div className="flex gap-2 overflow-x-auto px-5 py-3">
           {QUICK_ACTIONS.map((q) => (
             <button

@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-28 (이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-09-29 (낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -385,4 +385,18 @@
 - 대안: emit 직후 원본 삭제(`capture_photo` 방식 — 최종 실패 시 영상이 사라짐) / **큐에 원본 경로를 함께 기록해 전송 성공 때 삭제(선택 — 실패분은 Pi에 남음, 재부팅에도 유지)**.
 - 수정: `edge/transport/outbox.py` `enqueue(..., delete_originals_on_sent=False)` — True면 첨부 항목에 `original` 경로 기록, `mark_sent`에서 원본까지 삭제, `mark_dead`는 큐 복사본만 삭제. `emit.py`에 같은 인자 전달. `vision_pipeline.py`만 True로 호출(마이크·capture_photo 등 기존 동작 불변). 원본 경로는 큐 DB에만 있고 백엔드로 보내지 않음.
 - 검증: 엣지 테스트 3건 신규(성공 시 원본 삭제·재시작 후에도, 실패 시 원본 유지, 기본값은 원본 유지) — 수정 전 실패 확인 후 통과, 엣지 28·vision 24. 실제 녹화→큐→가짜 전송 스크립트로 201이면 원본 삭제·400이면 유지 확인.
-- 참고: 쿨다운 등으로 큐에 안 들어간 이벤트의 원본은 전송되지 않으므로 그대로 남음.
+- ~~참고: 쿨다운 등으로 큐에 안 들어간 이벤트의 원본은 전송되지 않으므로 그대로 남음.~~ → 2026-09-29 emit 직후 원본 삭제로 변경(해결됨)
+
+## 2026-09-29
+
+### 낙상 이벤트 영상이 Supabase Storage에 없음 — 원인: `events` 버킷 없음
+- 증상(사용자): Pi vision 낙상 이벤트를 보냈는데 Storage에 영상이 안 보임.
+- 확인: 영상 전송 코드는 이미 끝까지 연결돼 있음(`vision_pipeline` → `video_path` → outbox `video/mp4` → multipart `video` → `events/video/`). Render 로그(01:30:44 UTC, 카메라 `2a418d81…`): `[Storage] Supabase upload error: Bucket not found`가 썸네일·영상 모두에서 발생 → 이벤트는 사진·영상 없이 201 저장(`29d2c6f6…`), Pi는 성공으로 보고 원본 삭제(해당 영상 복구 불가).
+- 인수인계의 "`events` 버킷 private(2026-09-28 사용자 확인)"과 불일치 — Render `SUPABASE_URL`과 다른 프로젝트에 만들었거나 이름 불일치 추정. **조치 필요(사용자)**: 같은 프로젝트에 `events`(private) 버킷 생성 후 낙상 재현 → Render 로그 `[Event] 영상 업로드 완료` 확인.
+- 남은 문제: Storage 실패에도 백엔드가 201을 줘서 파일이 유실됨. 대안(첨부 업로드 실패 시 503 → Pi 재시도 / 201 유지 + 별도 재업로드) — **사용자 결정 대기**.
+
+### vision 이벤트 영상 — Pi에 원본을 남기지 않음
+- 요청(사용자): 전송 안 된 영상이 Pi에 그대로 저장되는데 Pi에 저장하지 않게.
+- 원인: 원본(`HOMECARE_EVENT_DIR`)이 남는 경우 3가지 — 쿨다운으로 큐에 안 들어감(방문자 5분 쿨다운), 최종 실패(dead, 09-28에 일부러 남김), 재시도 중(원본+큐 복사본 두 벌).
+- 수정: `vision/vision_pipeline.py`에 `emit_saved_event()` 추가 — emit(큐 폴더로 복사) 직후 결과와 상관없이 원본 영상·썸네일 삭제. `delete_originals_on_sent`는 vision에서 더 이상 사용 안 함(outbox 기능 자체는 유지). 재시도용 큐 복사본(`edge/data/vision/attachments/`)만 남고 전송 성공·dead 때 기존대로 삭제. 대신 최종 실패한 영상은 Pi에서도 사라짐.
+- 검증: `vision/tests/test_pipeline_emit.py` 2건 신규(큐 저장 후 원본 삭제·큐 복사본 유지, 쿨다운으로 큐에 안 들어가도 원본 삭제) → vision 26·엣지 31 통과. **Pi 반영 전**: `git pull` 후 `sudo systemctl restart homecare-camera.service`, 기존에 쌓인 파일은 `rm -rf ~/homecare/edge/data/events/*`로 직접 정리.

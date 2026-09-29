@@ -1,7 +1,7 @@
 # HomeCare 실기 테스트 TODO + 남은 수정사항
 
 > 작성일시: 2026-09-28
-> 최근 수정일시: 2026-09-28 (카메라 서비스를 vision으로 통합 — 3-1·3-5·5번 갱신 / 최초 작성 — 엣지 폴더 재구성, 서명 URL, 소리 반복 전송 수정, 방문자·택배 감지 재설계 이후 실기 확인 목록)
+> 최근 수정일시: 2026-09-29 (vision 영상 Pi 원본 즉시 삭제 — 3-5·5번 갱신 / 이전 2026-09-28: 카메라 서비스를 vision으로 통합 — 3-1·3-5·5번 갱신 / 최초 작성 — 엣지 폴더 재구성, 서명 URL, 소리 반복 전송 수정, 방문자·택배 감지 재설계 이후 실기 확인 목록)
 > 이 문서의 역할: **코드로는 검증했지만 실제 Pi / Render / Supabase에서 아직 확인 안 한 것**의 체크리스트와 확인 방법,
 > 그리고 **소리·영상 융합 계획에서 남은 수정사항**. 확인이 끝난 항목은 `[x]`로 체크하고 결과를 한 줄 적는다.
 > 날짜별 작업 기록은 `hometalk_진행일지.md`, 현재 운영 상태는 `hometalk_인수인계.md`.
@@ -143,7 +143,7 @@
 
 - [ ] vision 이벤트의 `device_id` — **카메라 기기 id**(`HOMECARE_CAMERA_DEVICE_ID`)여야 함 (2026-09-28 통합 때 수정됨)
 - [ ] vision 이벤트의 `timestamp` — 실제 시각과 **9시간 어긋나는지** 확인(시간대 누락 의심, 0-5)
-- [ ] Pi 원본 정리: 이벤트 전송 로그(`전송 완료 uid=…`) 뒤 `ls -R ~/homecare/edge/data/events`에 그 영상·썸네일이 **없어야** 함. 전송 대기 중(`edge/data/vision/`)엔 남아 있음
+- [ ] Pi 원본 정리: 이벤트 저장(`[EDGE EMIT]`) 직후 `ls -R ~/homecare/edge/data/events`에 그 영상·썸네일이 **없어야** 함(2026-09-29부터 전송 성공 여부와 무관). 전송 대기 중에만 `edge/data/vision/attachments/`에 복사본이 있음
 - [ ] `video_url`/`image_url`이 채워졌는지 → 1번 섹션 방법으로 서명 URL을 받아 **휴대폰 브라우저에서 영상 재생** 확인
 
 ---
@@ -175,6 +175,7 @@
   - 이벤트 시각에 한국 시간대 붙이기 (`datetime.now()` → 시간대 포함)
   - [x] H.264: 저장 후 ffmpeg(libx264)로 변환 (`event_recorder.py`, 2026-09-28) — 실패해도 원본 mp4v로 전송
   - [x] Pi 로컬 영상 정리: 전송 성공하면 원본(영상·썸네일) 삭제, 최종 실패하면 남김 (`edge/transport/outbox.py` `delete_originals_on_sent`, 2026-09-28)
+  - [x] → 2026-09-29 변경: 큐에 넣은 직후 원본 삭제, 최종 실패·쿨다운분도 Pi에 남기지 않음 (`vision_pipeline.py` `emit_saved_event`)
 - [x] 0-6 카메라 서비스를 vision으로 통합 — vision이 하트비트 + "현재 화면 보기"(메모리 최신 프레임) 처리, `homecare-camera.service`가 `vision.vision_pipeline` 실행, 이벤트는 카메라 기기 id + `edge/data/vision/` 큐 (`vision/camera_service.py`) — 2026-09-28
 - [ ] **vision 의존성 정리** — `ultralytics`, `opencv`, `picamera2` 설치 방법을 문서/requirements에 반영 (3-1 결과에 따라)
 

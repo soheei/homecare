@@ -108,6 +108,37 @@ def read_settings():
     }
 
 
+def emit_saved_event(emitter, saved_event, camera_id):
+    """
+    저장된 이벤트(영상·썸네일)를 전송 큐에 넣고, Pi의 원본 파일은 바로 지운다.
+
+    emit()이 첨부를 큐 폴더(edge/data/vision/attachments)로 복사한 뒤 반환하므로
+    원본은 더 필요 없다. 쿨다운 등으로 큐에 안 들어가도 원본은 지운다 — Pi에 영상을 쌓지 않기 위함.
+    큐 복사본은 재시도용으로만 남고, 전송 성공·최종 실패(dead) 때 outbox가 지운다.
+    """
+
+    try:
+        return emitter.emit(
+            category_id=saved_event["event_type"],
+            source="vision",
+            score=saved_event.get("score"),
+            description=None,
+            image_path=saved_event["thumbnail_path"],
+            video_path=saved_event["video_path"],
+            extra={
+                "camera_id": camera_id,
+                "vision_event": saved_event["event_type"],
+            },
+            occurred_at=saved_event["event_time"],
+        )
+    finally:
+        for key in ("video_path", "thumbnail_path"):
+            try:
+                Path(saved_event[key]).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def main():
     print("====================================")
     print(" HomeCare Vision Pipeline")
@@ -266,34 +297,10 @@ def main():
                     "[EVENT READY FOR EDGE]"
                 )
 
-                uid = emitter.emit(
-                    category_id=saved_event[
-                        "event_type"
-                    ],
-                    source="vision",
-                    score=saved_event.get(
-                        "score"
-                    ),
-                    description=None,
-                    image_path=saved_event[
-                        "thumbnail_path"
-                    ],
-                    video_path=saved_event[
-                        "video_path"
-                    ],
-                    extra={
-                        "camera_id": camera_id,
-                        "vision_event":
-                            saved_event[
-                                "event_type"
-                            ],
-                    },
-                    occurred_at=saved_event[
-                        "event_time"
-                    ],
-                    # 전송 성공하면 Pi 원본(영상·썸네일) 삭제 — Storage에 올라갔으므로.
-                    # 최종 실패하면 원본은 남겨 둔다.
-                    delete_originals_on_sent=True,
+                uid = emit_saved_event(
+                    emitter,
+                    saved_event,
+                    camera_id,
                 )
 
                 print(

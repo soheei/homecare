@@ -235,12 +235,11 @@ def main():
             # 1. Camera Frame
             # ==================================
 
+            # Picamera2는 format="RGB888"로 설정해도 실제로는 BGR 순서로 배열을 반환한다
+            # (라즈베리파이 재단 공식 문서에 명시된 알려진 이름/실제 채널 순서 불일치).
+            # 즉 여기서 이미 OpenCV(cv2.imencode/imwrite, YOLO)가 기대하는 BGR 순서라
+            # RGB2BGR 변환을 추가로 하면 채널이 다시 뒤집혀 파란/보라 색 편향이 생긴다.
             frame = picam2.capture_array()
-
-            frame = cv2.cvtColor(
-                frame,
-                cv2.COLOR_RGB2BGR,
-            )
 
             frame_height, frame_width = (
                 frame.shape[:2]

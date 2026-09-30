@@ -258,18 +258,42 @@ describe('채팅 — request_capture 도구', () => {
     expect(res.content).toBe('![감지된 소리](/api/events/ev-scream)\n\n이 이벤트는 영상은 없고 소리만 있어요.');
   });
 
-  it('모델이 직접 쓴 미디어 줄은 지우고 서버가 붙인 줄만 남김 (따라 쓰다 틀린 id로 "삭제됨" 카드가 뜨지 않게)', async () => {
-    // 틀린 id → 서버가 대신 호출한 get_event_media도 실패 → 아무것도 붙이지 않음
-    mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '해당 이벤트를 찾을 수 없어요.' }), isError: false });
-    mockCreate.mockResolvedValueOnce({
-      stop_reason: 'end_turn',
-      content: [{ type: 'text', text: '![감지된 영상](/api/events/wrong-id)\n\n다시 보여드릴게요.' }],
-      usage: {}
+  it('모델이 도구 없이 지어낸 eventId를 쓰면 한 번 교정해 도구로 다시 찾게 함 (로그 07:08 방문자 영상)', async () => {
+    const fakeId = '5e3c2b8a-7f94-4d2e-b1a8-6c9d4e2f1a3b';
+    mockCallTool.mockImplementation(async (name, args) => {
+      if (name === 'get_visitor_log') return { content: JSON.stringify([{ id: 'ev-visitor', hasVideo: true }]), isError: false };
+      if (name === 'get_event_media' && args.eventId === 'ev-visitor') {
+        return { content: JSON.stringify({ success: true, eventId: 'ev-visitor', hasVideo: true }), isError: false };
+      }
+      return { content: JSON.stringify({ success: false, error: '해당 이벤트를 찾을 수 없어요.' }), isError: false };
     });
+    mockCreate
+      // 1) 도구 없이 메모 줄 + 지어낸 id
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: `[앞서 보여준 감지된 영상 — eventId: ${fakeId}]\n방문자 감지 영상입니다.` }], usage: {} })
+      // 2) 교정 후: 방문자 조회 → 영상 → 답변
+      .mockResolvedValueOnce({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't1', name: 'get_visitor_log', input: {} }] })
+      .mockResolvedValueOnce({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't2', name: 'get_event_media', input: { eventId: 'ev-visitor', mediaType: 'video' } }] })
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '오후 2시 방문자 영상이에요.' }], usage: {} });
 
+    const res = await claudeService.chat({ message: '방문자 감지 영상 보여줘', userId: 'user-A' });
+    expect(res.content).toBe('![감지된 영상](/api/events/ev-visitor)\n\n오후 2시 방문자 영상이에요.');
+    // 교정 메시지가 모델에게 전달됨 (messages 배열은 같은 객체를 계속 쓰므로 전체에서 찾음)
+    const sent = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0].messages;
+    expect(sent.some(m => typeof m.content === 'string' && m.content.startsWith('[시스템 안내]'))).toBe(true);
+    expect(res.content).not.toContain('시스템 안내');
+    mockCallTool.mockReset();
+  });
+
+  it('교정 후에도 도구를 안 쓰면 더 반복하지 않고 미디어 줄만 지운 답변을 돌려줌', async () => {
+    mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '해당 이벤트를 찾을 수 없어요.' }), isError: false });
+    mockCreate
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '![감지된 영상](/api/events/wrong-id)\n\n다시 보여드릴게요.' }], usage: {} })
+      .mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '![감지된 영상](/api/events/wrong-id-2)\n\n영상이에요.' }], usage: {} });
+
+    const before = mockCreate.mock.calls.length;
     const res = await claudeService.chat({ message: '다시 보여줘', userId: 'user-A' });
-    expect(res.content).toBe('다시 보여드릴게요.');
-    expect(mockCallTool).toHaveBeenLastCalledWith('get_event_media', { eventId: 'wrong-id' });
+    expect(res.content).toBe('영상이에요.');
+    expect(mockCreate.mock.calls.length - before).toBe(2);
   });
 
   it('모델이 도구 없이 메모 줄만 옮겨 쓰면 메모는 지우고 그 eventId로 영상 플레이어를 붙임', async () => {

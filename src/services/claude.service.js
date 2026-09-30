@@ -116,6 +116,17 @@ const MODEL_ONLY_LINES = [EVENT_MEDIA_LINE, CAPTURE_LINE, MEDIA_MEMO_LINE, CAPTU
 const stripModelMediaLines = (text) =>
   text.split('\n').filter(line => !MODEL_ONLY_LINES.some(re => re.test(line))).join('\n').trim();
 
+const hasModelMediaLines = (text) =>
+  text.split('\n').some(line => MODEL_ONLY_LINES.some(re => re.test(line)));
+
+// Claude 응답의 텍스트 블록만 이어 붙임
+const textOf = (res) => res.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+
+// 모델이 도구 없이 미디어 줄/메모를 지어 썼을 때 한 번 되돌려 보내는 교정 메시지 (DB에는 저장하지 않음)
+const MEDIA_RETRY_MESSAGE = '[시스템 안내] 방금 답변에 직접 쓴 미디어 줄이나 "[앞서 보여준 … eventId: …]" 메모는 앱에 표시되지 않고, 그 eventId는 실제 이벤트가 아닙니다. '
+  + '영상/소리를 보여주려면 조회 도구(방문자 → get_visitor_log, 위험 → get_danger_events, 날짜 → get_events_by_date 등)로 이벤트를 찾고 '
+  + '그 결과의 id로 get_event_media를 호출하세요. 사용자에게 할 답변만 쓰고, 이 안내는 언급하지 마세요.';
+
 /**
  * 모델이 도구를 부르지 않고 미디어 줄/메모 줄만 쓴 경우, 거기 적힌 eventId들 (중복 제거, 최대 3개)
  */
@@ -194,7 +205,7 @@ const chat = async ({ message, conversationId, userId }) => {
       // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
       const tools = await mcp.listTools();
 
-      let res = await anthropic.messages.create({
+      const createResponse = () => anthropic.messages.create({
         model: config.anthropic.model,
         max_tokens: config.anthropic.maxTokens,
         system: systemPrompt,
@@ -202,59 +213,67 @@ const chat = async ({ message, conversationId, userId }) => {
         messages
       });
 
-      logger.debug(`[Claude] stop_reason: ${res.stop_reason}`);
-
       // 5. [버그 2 수정] tool_use 루프 - Claude가 도구 사용을 완료할 때까지 반복
-      let loopCount = 0;
-      const MAX_TOOL_LOOPS = 5; // 무한루프 방지
+      const runToolLoop = async (res) => {
+        let loopCount = 0;
+        const MAX_TOOL_LOOPS = 5; // 무한루프 방지
 
-      while (res.stop_reason === 'tool_use' && loopCount < MAX_TOOL_LOOPS) {
-        loopCount++;
+        while (res.stop_reason === 'tool_use' && loopCount < MAX_TOOL_LOOPS) {
+          loopCount++;
 
-        // tool_use 블록 추출 (동시에 여러 개 요청할 수 있음)
-        const toolUseBlocks = res.content.filter(b => b.type === 'tool_use');
+          // tool_use 블록 추출 (동시에 여러 개 요청할 수 있음)
+          const toolUseBlocks = res.content.filter(b => b.type === 'tool_use');
 
-        // assistant 메시지(tool_use 포함)를 히스토리에 추가
-        messages.push({ role: 'assistant', content: res.content });
+          // assistant 메시지(tool_use 포함)를 히스토리에 추가
+          messages.push({ role: 'assistant', content: res.content });
 
-        // 각 도구를 MCP 서버로 병렬 호출 후 tool_result 수집
-        const toolResults = await Promise.all(
-          toolUseBlocks.map(async (toolBlock) => {
-            const result = await mcp.callTool(toolBlock.name, toolBlock.input);
-            const attachment = extractAttachment(toolBlock.name, result);
-            if (attachment) attachments.push(attachment);
-            return {
-              type: 'tool_result',
-              tool_use_id: toolBlock.id,
-              content: result.content,
-              is_error: result.isError
-            };
-          })
-        );
+          // 각 도구를 MCP 서버로 병렬 호출 후 tool_result 수집
+          const toolResults = await Promise.all(
+            toolUseBlocks.map(async (toolBlock) => {
+              const result = await mcp.callTool(toolBlock.name, toolBlock.input);
+              const attachment = extractAttachment(toolBlock.name, result);
+              if (attachment) attachments.push(attachment);
+              return {
+                type: 'tool_result',
+                tool_use_id: toolBlock.id,
+                content: result.content,
+                is_error: result.isError
+              };
+            })
+          );
 
-        // tool_result를 user 역할로 히스토리에 추가
-        messages.push({ role: 'user', content: toolResults });
+          // tool_result를 user 역할로 히스토리에 추가
+          messages.push({ role: 'user', content: toolResults });
 
-        // Claude에 도구 결과를 전달하고 다시 응답 요청
-        res = await anthropic.messages.create({
-          model: config.anthropic.model,
-          max_tokens: config.anthropic.maxTokens,
-          system: systemPrompt,
-          tools,
-          messages
-        });
+          // Claude에 도구 결과를 전달하고 다시 응답 요청
+          res = await createResponse();
 
-        logger.debug(`[Claude] Tool loop ${loopCount}, stop_reason: ${res.stop_reason}`);
-      }
+          logger.debug(`[Claude] Tool loop ${loopCount}, stop_reason: ${res.stop_reason}`);
+        }
+        return res;
+      };
 
-      // "다시 보여줘"에 모델이 get_event_media를 부르지 않고 이전 줄/메모만 옮겨 쓴 경우 → 그 eventId로 서버가 직접 호출
-      // (도구가 이벤트를 확인한 경우에만 플레이어를 붙이므로 틀린 id면 아무것도 붙지 않음)
+      let res = await createResponse();
+      logger.debug(`[Claude] stop_reason: ${res.stop_reason}`);
+      res = await runToolLoop(res);
+
       if (attachments.length === 0) {
-        const finalText = res.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+        const finalText = textOf(res);
+        // "다시 보여줘"에 모델이 get_event_media를 부르지 않고 이전 줄/메모만 옮겨 쓴 경우 → 그 eventId로 서버가 직접 호출
+        // (도구가 이벤트를 확인한 경우에만 플레이어를 붙이므로 틀린 id면 아무것도 붙지 않음)
         for (const eventId of referencedEventIds(finalText)) {
           const result = await mcp.callTool('get_event_media', { eventId });
           const attachment = extractAttachment('get_event_media', result);
           if (attachment) attachments.push(attachment);
+        }
+
+        // 도구 없이 미디어 줄/메모를 지어 써서(로그: 없는 eventId) 아무것도 못 붙였으면 → 한 번만 도구로 다시 하게 함
+        // (이 교정 메시지는 DB 대화 기록에 저장되지 않음)
+        if (attachments.length === 0 && hasModelMediaLines(finalText)) {
+          logger.warn('[Claude] Model wrote media lines without a successful tool call, asking it to use tools');
+          messages.push({ role: 'assistant', content: res.content });
+          messages.push({ role: 'user', content: MEDIA_RETRY_MESSAGE });
+          res = await runToolLoop(await createResponse());
         }
       }
 
@@ -262,10 +281,7 @@ const chat = async ({ message, conversationId, userId }) => {
     });
 
     // 6. 최종 텍스트 응답 추출
-    const text = stripModelMediaLines(response.content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n'));
+    const text = stripModelMediaLines(textOf(response));
 
     // 촬영 이미지·이벤트 미디어는 Markdown 이미지 줄로 앞에 붙임 → 앱(chatBlocks.js)이 카드로 그리고, 대화 기록에도 남음
     const content = [...new Set(attachments), text]

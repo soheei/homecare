@@ -269,6 +269,8 @@ describe('MCP Server /mcp', () => {
 
       expect(JSON.parse(noMedia.content[0].text)).toMatchObject({ success: false, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' });
       expect(JSON.parse(missing.content[0].text)).toMatchObject({ success: false, error: '해당 이벤트를 찾을 수 없어요.' });
+      // 지어낸 id면 조회 도구로 찾은 뒤 다시 호출하라는 안내를 함께 줌
+      expect(JSON.parse(missing.content[0].text).retry).toContain('get_danger_events');
     });
 
     it('없는 도구 호출은 isError', async () => {

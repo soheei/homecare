@@ -103,7 +103,7 @@ const definitions = [
       properties: {
         eventId: {
           type: 'string',
-          description: '미디어를 보여줄 이벤트 ID (이벤트 조회 결과의 id)'
+          description: '미디어를 보여줄 이벤트 ID (이번 답변에서 부른 이벤트 조회 도구 결과의 id, UUID 형식). 모르면 추측하지 말고 먼저 조회 도구를 호출'
         },
         mediaType: {
           type: 'string',
@@ -203,7 +203,14 @@ const handlers = {
     let event;
     if (typeof eventId === 'string' && eventId) {
       event = await eventService.getEventById(eventId);
-      if (!event) return { success: false, error: '해당 이벤트를 찾을 수 없어요.' };
+      // 모델이 id를 지어내는 경우가 있음(로그: eventId "1727600340000") → 바로 "영상 없음"이라 답하지 않고 조회 후 재호출하게 안내
+      if (!event) {
+        return {
+          success: false,
+          error: '해당 이벤트를 찾을 수 없어요.',
+          retry: 'eventId가 실제 이벤트 id가 아닙니다. id를 추측하지 말고 get_danger_events, get_events_by_date, get_weekly_summary 등 조회 도구로 이벤트를 먼저 찾은 뒤, 그 결과의 id로 get_event_media를 다시 호출하세요. 조회해도 해당 이벤트가 없을 때만 사용자에게 없다고 알리세요.'
+        };
+      }
     } else if (mediaType === 'video' || mediaType === 'audio') {
       const period = Number(days) > 0 ? Number(days) : undefined; // 기간을 말하지 않았으면 제한 없음
       event = await eventService.getLatestEventWithMedia(mediaType, period);

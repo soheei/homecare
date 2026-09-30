@@ -259,6 +259,8 @@ describe('채팅 — request_capture 도구', () => {
   });
 
   it('모델이 직접 쓴 미디어 줄은 지우고 서버가 붙인 줄만 남김 (따라 쓰다 틀린 id로 "삭제됨" 카드가 뜨지 않게)', async () => {
+    // 틀린 id → 서버가 대신 호출한 get_event_media도 실패 → 아무것도 붙이지 않음
+    mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '해당 이벤트를 찾을 수 없어요.' }), isError: false });
     mockCreate.mockResolvedValueOnce({
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: '![감지된 영상](/api/events/wrong-id)\n\n다시 보여드릴게요.' }],
@@ -267,6 +269,24 @@ describe('채팅 — request_capture 도구', () => {
 
     const res = await claudeService.chat({ message: '다시 보여줘', userId: 'user-A' });
     expect(res.content).toBe('다시 보여드릴게요.');
+    expect(mockCallTool).toHaveBeenLastCalledWith('get_event_media', { eventId: 'wrong-id' });
+  });
+
+  it('모델이 도구 없이 메모 줄만 옮겨 쓰면 메모는 지우고 그 eventId로 영상 플레이어를 붙임', async () => {
+    const id = 'b42e1c7f-9a3d-4f6e-8b2c-3e5a9d7f4c2a';
+    mockCallTool.mockResolvedValue({
+      content: JSON.stringify({ success: true, eventId: id, hasVideo: true, hasAudio: false }),
+      isError: false
+    });
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: `앞서 보여준 감지된 영상 — eventId: ${id}]\n9월 29일 오후 7:18분 낙상 의심 감지 영상입니다.` }],
+      usage: {}
+    });
+
+    const res = await claudeService.chat({ message: '다시 보여줘', userId: 'user-A' });
+    expect(res.content).toBe(`![감지된 영상](/api/events/${id})\n\n9월 29일 오후 7:18분 낙상 의심 감지 영상입니다.`);
+    expect(mockCallTool).toHaveBeenLastCalledWith('get_event_media', { eventId: id });
   });
 
   it('이전 답변의 미디어 줄은 eventId 메모로 바꿔 모델에 넘김 (다시 보여달라면 도구를 다시 호출하도록)', async () => {

@@ -45,7 +45,7 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 - 오늘 또는 특정 날짜 → get_daily_summary / get_events_by_date (날짜는 아래 현재 날짜 기준으로 계산)
 - "현재 화면 보여줘", "지금 카메라 보여줘", "카메라 확인해줘" 등 지금 모습 → request_capture (실제 촬영, deviceId 생략 가능). 사진은 앱이 답변에 자동으로 붙이므로 이미지 링크/URL은 쓰지 않고 짧게 안내합니다. 실패하면 결과의 error 문장을 그대로 전합니다
 - "그 소리 들려줘", "낙상 영상 보여줘" 등 지난 이벤트의 녹화·녹음 → 이벤트 조회 결과의 id로 get_event_media (hasVideo/hasAudio/hasImage가 true인 이벤트만). 카메라 영상은 위험도와 상관없이 움직임·방문 이벤트에도 있습니다. 이벤트를 특정하지 않은 "최근 영상/녹화 보여줘"는 eventId 없이 mediaType "video", "최근 소리 들려줘"는 mediaType "audio" (기간 제한 없음, 사용자가 "이번 주", "최근 3일"처럼 기간을 말할 때만 days를 지정). 오래된 영상이면 결과의 timeKst로 언제 것인지 함께 알립니다. 여러 이벤트를 보여달라면 이벤트마다 호출합니다. "위험 영상 보여줘"처럼 종류가 붙으면 먼저 해당 이벤트 조회 도구(위험 → get_danger_events)로 이벤트를 찾고, 그 id와 원한 mediaType("video"/"audio")을 함께 넘깁니다. 결과에 notice가 있으면(예: 소리로 감지돼 영상은 없고 소리만 있음) 불러올 수 없다고 하지 말고 notice 내용을 그대로 알리고 소리를 들려줍니다. 플레이어는 앱이 답변에 자동으로 붙이므로 링크/URL은 쓰지 않고 어떤 이벤트인지 짧게 안내합니다. 이벤트 id는 답변에 쓰지 않습니다
-- 앞서 보여준 영상/소리를 "다시 보여줘"라고 하면 이전 답변의 "[앞서 보여준 … — eventId: …]"에 적힌 eventId로 get_event_media를 다시 호출합니다. 시간이 지났다고 볼 수 없다거나 삭제됐다고 추측하지 않고, 도구 결과로만 판단합니다
+- 앞서 보여준 영상/소리를 "다시 보여줘"라고 하면 이전 답변의 "[앞서 보여준 … — eventId: …]"에 적힌 eventId로 get_event_media를 다시 호출합니다. 이 "[앞서 보여준 …]" 메모는 기록용이므로 답변에 옮겨 쓰지 않습니다. 시간이 지났다고 볼 수 없다거나 삭제됐다고 추측하지 않고, 도구 결과로만 판단합니다
 
 답변 형식 (앱이 아래 형식을 카드/경고 UI로 바꿔 보여줍니다):
 - 장치 상태는 표로: | 장치명 | 유형 | 위치 | 상태 |
@@ -103,13 +103,26 @@ const extractAttachment = (toolName, result) => {
 // 서버가 붙이는 미디어 줄 (앱의 chatBlocks.js가 카드로 그리는 형식)
 const EVENT_MEDIA_LINE = /^\s*!\[([^\]\n]*)\]\(\/api\/events\/([\w-]+)\)\s*$/;
 const CAPTURE_LINE = /^\s*!\[[^\]\n]*\]\(\/api\/devices\/[\w-]+\/captures\/[\w-]+\)\s*$/;
+// describeMediaLines가 만든 메모 줄 (모델이 이전 답변을 흉내 내며 그대로 옮겨 쓰는 경우가 있음)
+const MEDIA_MEMO_LINE = /^\s*\[?\s*앞서 보여준[^\n]*eventId:\s*([\w-]+)\s*\]?\s*$/;
+const CAPTURE_MEMO_LINE = /^\s*\[?\s*앞서 촬영한 카메라 화면\s*\]?\s*$/;
+const MODEL_ONLY_LINES = [EVENT_MEDIA_LINE, CAPTURE_LINE, MEDIA_MEMO_LINE, CAPTURE_MEMO_LINE];
 
 /**
- * 모델이 직접 쓴 미디어 줄 제거 — 미디어 줄은 도구가 성공했을 때 서버가 붙인 것만 인정한다
+ * 모델이 직접 쓴 미디어 줄·메모 줄 제거 — 미디어 줄은 도구가 성공했을 때 서버가 붙인 것만 인정한다
  * (모델이 이전 답변의 줄을 따라 쓰며 UUID를 틀리게 옮기면 앱에 "이벤트가 삭제돼…" 카드가 뜸)
  */
 const stripModelMediaLines = (text) =>
-  text.split('\n').filter(line => !EVENT_MEDIA_LINE.test(line) && !CAPTURE_LINE.test(line)).join('\n').trim();
+  text.split('\n').filter(line => !MODEL_ONLY_LINES.some(re => re.test(line))).join('\n').trim();
+
+/**
+ * 모델이 도구를 부르지 않고 미디어 줄/메모 줄만 쓴 경우, 거기 적힌 eventId들 (중복 제거, 최대 3개)
+ */
+const referencedEventIds = (text) => [...new Set(
+  text.split('\n')
+    .map(line => (line.match(EVENT_MEDIA_LINE) || [])[2] || (line.match(MEDIA_MEMO_LINE) || [])[1])
+    .filter(Boolean)
+)].slice(0, 3);
 
 /**
  * 모델에게 넘길 이전 답변의 미디어 줄 → eventId 메모 (DB에 저장된 대화 내용은 그대로)
@@ -231,6 +244,17 @@ const chat = async ({ message, conversationId, userId }) => {
         });
 
         logger.debug(`[Claude] Tool loop ${loopCount}, stop_reason: ${res.stop_reason}`);
+      }
+
+      // "다시 보여줘"에 모델이 get_event_media를 부르지 않고 이전 줄/메모만 옮겨 쓴 경우 → 그 eventId로 서버가 직접 호출
+      // (도구가 이벤트를 확인한 경우에만 플레이어를 붙이므로 틀린 id면 아무것도 붙지 않음)
+      if (attachments.length === 0) {
+        const finalText = res.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
+        for (const eventId of referencedEventIds(finalText)) {
+          const result = await mcp.callTool('get_event_media', { eventId });
+          const attachment = extractAttachment('get_event_media', result);
+          if (attachment) attachments.push(attachment);
+        }
       }
 
       return res;

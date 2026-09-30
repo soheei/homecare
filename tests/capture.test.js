@@ -258,6 +258,31 @@ describe('채팅 — request_capture 도구', () => {
     expect(res.content).toBe('![감지된 소리](/api/events/ev-scream)\n\n이 이벤트는 영상은 없고 소리만 있어요.');
   });
 
+  it('모델이 직접 쓴 미디어 줄은 지우고 서버가 붙인 줄만 남김 (따라 쓰다 틀린 id로 "삭제됨" 카드가 뜨지 않게)', async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '![감지된 영상](/api/events/wrong-id)\n\n다시 보여드릴게요.' }],
+      usage: {}
+    });
+
+    const res = await claudeService.chat({ message: '다시 보여줘', userId: 'user-A' });
+    expect(res.content).toBe('다시 보여드릴게요.');
+  });
+
+  it('이전 답변의 미디어 줄은 eventId 메모로 바꿔 모델에 넘김 (다시 보여달라면 도구를 다시 호출하도록)', async () => {
+    const conversationService = require('../src/services/conversation.service');
+    const spy = jest.spyOn(conversationService, 'getMessages').mockResolvedValue([
+      { role: 'user', content: '영상 보여줘' },
+      { role: 'assistant', content: '![감지된 영상](/api/events/ev-fall)\n\n어제 녹화된 영상이에요.' }
+    ]);
+    mockCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '네' }], usage: {} });
+
+    await claudeService.chat({ message: '다시 보여줘', userId: 'user-A' });
+    const sent = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0].messages;
+    expect(sent[1].content).toBe('[앞서 보여준 감지된 영상 — eventId: ev-fall]\n\n어제 녹화된 영상이에요.');
+    spy.mockRestore();
+  });
+
   it('get_event_media 실패 결과면 미디어 줄을 붙이지 않음', async () => {
     mockCallTool.mockResolvedValue({ content: JSON.stringify({ success: false, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' }), isError: false });
     mockCreate

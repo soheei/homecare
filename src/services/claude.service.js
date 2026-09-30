@@ -45,6 +45,7 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 - 오늘 또는 특정 날짜 → get_daily_summary / get_events_by_date (날짜는 아래 현재 날짜 기준으로 계산)
 - "현재 화면 보여줘", "지금 카메라 보여줘", "카메라 확인해줘" 등 지금 모습 → request_capture (실제 촬영, deviceId 생략 가능). 사진은 앱이 답변에 자동으로 붙이므로 이미지 링크/URL은 쓰지 않고 짧게 안내합니다. 실패하면 결과의 error 문장을 그대로 전합니다
 - "그 소리 들려줘", "낙상 영상 보여줘" 등 지난 이벤트의 녹화·녹음 → 이벤트 조회 결과의 id로 get_event_media (hasVideo/hasAudio/hasImage가 true인 이벤트만). 카메라 영상은 위험도와 상관없이 움직임·방문 이벤트에도 있습니다. 이벤트를 특정하지 않은 "최근 영상/녹화 보여줘"는 eventId 없이 mediaType "video", "최근 소리 들려줘"는 mediaType "audio" (기간 제한 없음, 사용자가 "이번 주", "최근 3일"처럼 기간을 말할 때만 days를 지정). 오래된 영상이면 결과의 timeKst로 언제 것인지 함께 알립니다. 여러 이벤트를 보여달라면 이벤트마다 호출합니다. "위험 영상 보여줘"처럼 종류가 붙으면 먼저 해당 이벤트 조회 도구(위험 → get_danger_events)로 이벤트를 찾고, 그 id와 원한 mediaType("video"/"audio")을 함께 넘깁니다. 결과에 notice가 있으면(예: 소리로 감지돼 영상은 없고 소리만 있음) 불러올 수 없다고 하지 말고 notice 내용을 그대로 알리고 소리를 들려줍니다. 플레이어는 앱이 답변에 자동으로 붙이므로 링크/URL은 쓰지 않고 어떤 이벤트인지 짧게 안내합니다. 이벤트 id는 답변에 쓰지 않습니다
+- 앞서 보여준 영상/소리를 "다시 보여줘"라고 하면 이전 답변의 "[앞서 보여준 … — eventId: …]"에 적힌 eventId로 get_event_media를 다시 호출합니다. 시간이 지났다고 볼 수 없다거나 삭제됐다고 추측하지 않고, 도구 결과로만 판단합니다
 
 답변 형식 (앱이 아래 형식을 카드/경고 UI로 바꿔 보여줍니다):
 - 장치 상태는 표로: | 장치명 | 유형 | 위치 | 상태 |
@@ -99,6 +100,29 @@ const extractAttachment = (toolName, result) => {
   return null;
 };
 
+// 서버가 붙이는 미디어 줄 (앱의 chatBlocks.js가 카드로 그리는 형식)
+const EVENT_MEDIA_LINE = /^\s*!\[([^\]\n]*)\]\(\/api\/events\/([\w-]+)\)\s*$/;
+const CAPTURE_LINE = /^\s*!\[[^\]\n]*\]\(\/api\/devices\/[\w-]+\/captures\/[\w-]+\)\s*$/;
+
+/**
+ * 모델이 직접 쓴 미디어 줄 제거 — 미디어 줄은 도구가 성공했을 때 서버가 붙인 것만 인정한다
+ * (모델이 이전 답변의 줄을 따라 쓰며 UUID를 틀리게 옮기면 앱에 "이벤트가 삭제돼…" 카드가 뜸)
+ */
+const stripModelMediaLines = (text) =>
+  text.split('\n').filter(line => !EVENT_MEDIA_LINE.test(line) && !CAPTURE_LINE.test(line)).join('\n').trim();
+
+/**
+ * 모델에게 넘길 이전 답변의 미디어 줄 → eventId 메모 (DB에 저장된 대화 내용은 그대로)
+ * "다시 보여줘"에 줄을 복사하지 않고 이 eventId로 get_event_media를 다시 호출하게 함
+ */
+const describeMediaLines = (content) =>
+  content.split('\n').map(line => {
+    const media = line.match(EVENT_MEDIA_LINE);
+    if (media) return `[앞서 보여준 ${media[1] || '미디어'} — eventId: ${media[2]}]`;
+    if (CAPTURE_LINE.test(line)) return '[앞서 촬영한 카메라 화면]';
+    return line;
+  }).join('\n');
+
 /**
  * DB에서 대화 히스토리 로드 (호출 전에 isOwnConversation으로 소유자 확인)
  * @returns {Array} Claude messages 형식 [{ role, content }]
@@ -106,7 +130,10 @@ const extractAttachment = (toolName, result) => {
 const loadMessages = async (conversationId) => {
   try {
     const rows = await conversationService.getMessages(conversationId, HISTORY_LIMIT);
-    return rows.map(msg => ({ role: msg.role, content: msg.content }));
+    return rows.map(msg => ({
+      role: msg.role,
+      content: msg.role === 'assistant' && typeof msg.content === 'string' ? describeMediaLines(msg.content) : msg.content
+    }));
   } catch (error) {
     logger.warn('[Claude] Failed to load message history:', error.message);
     return [];
@@ -210,10 +237,10 @@ const chat = async ({ message, conversationId, userId }) => {
     });
 
     // 6. 최종 텍스트 응답 추출
-    const text = response.content
+    const text = stripModelMediaLines(response.content
       .filter(block => block.type === 'text')
       .map(block => block.text)
-      .join('\n');
+      .join('\n'));
 
     // 촬영 이미지·이벤트 미디어는 Markdown 이미지 줄로 앞에 붙임 → 앱(chatBlocks.js)이 카드로 그리고, 대화 기록에도 남음
     const content = [...new Set(attachments), text]

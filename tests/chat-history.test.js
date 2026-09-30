@@ -123,13 +123,20 @@ beforeEach(() => {
   });
 });
 
+// 모델에 넘길 때 사용자 메시지 앞에 붙는 "(… 보낸 메시지)" 시각 표시를 뗀 원문
+const withoutSentTime = (content) => content.replace(/^\([^\n]*에 보낸 메시지\)\n/, '');
+
 describe('claude.service 대화 기록', () => {
   it('본인 대화면 이전 메시지를 불러와 Claude에 함께 전달', async () => {
     const result = await claudeService.chat({ message: '그게 언제였어?', conversationId: 'conv-mine', userId: 'user-A' });
 
     expect(result.conversationId).toBe('conv-mine');
     const sent = mockCreate.mock.calls[0][0].messages;
-    expect(sent.map(m => m.content)).toEqual(['최근 무슨 일 있었어?', '낙상 감지가 1건 있었어요.', '그게 언제였어?']);
+    expect(sent.map(m => withoutSentTime(m.content))).toEqual(['최근 무슨 일 있었어?', '낙상 감지가 1건 있었어요.', '그게 언제였어?']);
+    // 이전 질문과 현재 질문 모두 시각 표시가 붙음 (저장된 원문에는 없음)
+    expect(sent[0].content).toMatch(/^\(.+에 보낸 메시지\)\n/);
+    expect(sent[2].content).toMatch(/^\(지금 .+에 보낸 메시지\)\n/);
+    expect(mockDb.messages.some(m => m.content === '그게 언제였어?')).toBe(true);
 
     // 새 질문/답변이 같은 대화에 저장됨
     expect(mockDb.messages.filter(m => m.conversation_id === 'conv-mine')).toHaveLength(4);
@@ -168,9 +175,9 @@ describe('claude.service 대화 기록', () => {
 
     const sent = mockCreate.mock.calls[0][0].messages;
     expect(sent).toHaveLength(51);
-    expect(sent[0].content).toBe('msg-10');
+    expect(withoutSentTime(sent[0].content)).toBe('msg-10');
     expect(sent[49].content).toBe('msg-59');
-    expect(sent[50].content).toBe('새 질문');
+    expect(withoutSentTime(sent[50].content)).toBe('새 질문');
   });
 });
 

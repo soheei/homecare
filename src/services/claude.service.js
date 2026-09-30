@@ -37,6 +37,7 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 - 도구를 사용해 실제 데이터를 조회한 후 답변합니다
 - 모든 시각은 한국 시간입니다. 도구 결과의 timeKst를 그대로 쓰고, UTC timestamp를 직접 읽어 시각을 말하지 않습니다
 - 건수와 이벤트는 도구 결과에 있는 것만 말하고, 결과에 있는 이벤트는 빠짐없이 정리합니다
+- 이전 대화의 답변(이벤트, 건수, 요약, 장치 상태)은 그 질문을 보낸 시각 기준이라 지금과 다를 수 있습니다. 사용자 메시지 앞의 "(… 보낸 메시지)"로 시점을 확인하고, 같은 질문을 다시 받거나 이벤트·요약·상태를 물으면 이전 답변이 있어도 반드시 도구로 새로 조회해 답합니다. 이전 답변만 보고 답해도 되는 건 "방금 뭐라고 했어?"처럼 이전 답변 자체를 묻는 경우뿐입니다. "(… 보낸 메시지)" 표시는 답변에 쓰지 않습니다
 
 도구 선택:
 - "이번 주", "최근 며칠", "요즘" 등 기간 요약 → get_weekly_summary (기간 내 모든 이벤트 목록 포함)
@@ -107,7 +108,10 @@ const CAPTURE_LINE = /^\s*!\[[^\]\n]*\]\(\/api\/devices\/[\w-]+\/captures\/[\w-]
 // describeMediaLines가 만든 메모 줄 (모델이 이전 답변을 흉내 내며 그대로 옮겨 쓰는 경우가 있음)
 const MEDIA_MEMO_LINE = /^\s*\[?\s*앞서 보여준[^\n]*eventId:\s*([\w-]+)\s*\]?\s*$/;
 const CAPTURE_MEMO_LINE = /^\s*\[?\s*앞서 촬영한 카메라 화면\s*\]?\s*$/;
-const MODEL_ONLY_LINES = [EVENT_MEDIA_LINE, CAPTURE_LINE, MEDIA_MEMO_LINE, CAPTURE_MEMO_LINE];
+// withSentTime이 사용자 메시지 앞에 붙이는 시각 표시 (모델이 따라 쓰면 지움)
+const SENT_TIME_LINE = /^\s*\([^\n]*에 보낸 메시지\)\s*$/; // 안에 "(화)" 같은 괄호가 있음
+const MEDIA_LINES = [EVENT_MEDIA_LINE, CAPTURE_LINE, MEDIA_MEMO_LINE, CAPTURE_MEMO_LINE];
+const MODEL_ONLY_LINES = [...MEDIA_LINES, SENT_TIME_LINE];
 
 /**
  * 모델이 직접 쓴 미디어 줄·메모 줄 제거 — 미디어 줄은 도구가 성공했을 때 서버가 붙인 것만 인정한다
@@ -117,7 +121,7 @@ const stripModelMediaLines = (text) =>
   text.split('\n').filter(line => !MODEL_ONLY_LINES.some(re => re.test(line))).join('\n').trim();
 
 const hasModelMediaLines = (text) =>
-  text.split('\n').some(line => MODEL_ONLY_LINES.some(re => re.test(line)));
+  text.split('\n').some(line => MEDIA_LINES.some(re => re.test(line)));
 
 // Claude 응답의 텍스트 블록만 이어 붙임
 const textOf = (res) => res.content.filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -149,19 +153,35 @@ const describeMediaLines = (content) =>
   }).join('\n');
 
 /**
+ * 모델에게 넘길 사용자 메시지 앞에 보낸 시각 표시 (DB에 저장된 내용은 그대로)
+ * 시각이 없으면 아침의 "오늘 요약" 답변이 저녁에도 방금 한 답처럼 보여 다시 조회하지 않고 재사용함
+ * (답변이 아니라 질문에만 붙임 — 답변에 붙이면 모델이 그 형식을 따라 씀)
+ */
+const withSentTime = (content, sentAt, isNow = false) =>
+  `(${isNow ? '지금 ' : ''}${formatKst(sentAt)}에 보낸 메시지)\n${content}`;
+
+// 같은 질문 반복 판정용 (공백·문장부호·대소문자 무시)
+const normalizeQuestion = (text) => String(text).replace(/[\s.,!?~…'"]/g, '').toLowerCase();
+
+/**
  * DB에서 대화 히스토리 로드 (호출 전에 isOwnConversation으로 소유자 확인)
- * @returns {Array} Claude messages 형식 [{ role, content }]
+ * @returns {{ messages: Array, pastQuestions: Set<string> }}
+ *   messages: Claude messages 형식 [{ role, content }] / pastQuestions: 이전 사용자 질문(정규화) — 같은 질문 반복 판정용
  */
 const loadMessages = async (conversationId) => {
   try {
     const rows = await conversationService.getMessages(conversationId, HISTORY_LIMIT);
-    return rows.map(msg => ({
-      role: msg.role,
-      content: msg.role === 'assistant' && typeof msg.content === 'string' ? describeMediaLines(msg.content) : msg.content
-    }));
+    const pastQuestions = new Set();
+    const messages = rows.map(msg => {
+      if (typeof msg.content !== 'string') return { role: msg.role, content: msg.content };
+      if (msg.role === 'assistant') return { role: msg.role, content: describeMediaLines(msg.content) };
+      pastQuestions.add(normalizeQuestion(msg.content));
+      return { role: msg.role, content: msg.created_at ? withSentTime(msg.content, msg.created_at) : msg.content };
+    });
+    return { messages, pastQuestions };
   } catch (error) {
     logger.warn('[Claude] Failed to load message history:', error.message);
-    return [];
+    return { messages: [], pastQuestions: new Set() };
   }
 };
 
@@ -188,11 +208,14 @@ const chat = async ({ message, conversationId, userId }) => {
     }
 
     // 2. [버그 1 수정] 기존 대화 히스토리 DB에서 로드
-    const history = await loadMessages(convId);
+    const { messages: history, pastQuestions } = await loadMessages(convId);
     logger.debug(`[Claude] Loaded ${history.length} previous messages`);
 
-    // 3. 현재 유저 메시지를 히스토리에 추가
-    const messages = [...history, { role: 'user', content: message }];
+    // 3. 현재 유저 메시지를 히스토리에 추가 (이전 대화가 있으면 "지금" 보낸 시각을 붙여 이전 답변과 시점 차이를 알게 함)
+    const messages = [...history, { role: 'user', content: history.length > 0 ? withSentTime(message, new Date(), true) : message }];
+
+    // 같은 채팅방에서 같은 질문을 다시 하면(아침/저녁 "오늘 요약") 이전 답변을 재사용하지 않도록 첫 호출에서 도구 사용을 강제
+    const isRepeatedQuestion = pastQuestions.has(normalizeQuestion(message));
 
     // 현재 한국 날짜/시각 포함 (요청마다 새로 계산)
     const systemPrompt = buildSystemPrompt();
@@ -205,12 +228,13 @@ const chat = async ({ message, conversationId, userId }) => {
       // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
       const tools = await mcp.listTools();
 
-      const createResponse = () => anthropic.messages.create({
+      const createResponse = (toolChoice) => anthropic.messages.create({
         model: config.anthropic.model,
         max_tokens: config.anthropic.maxTokens,
         system: systemPrompt,
         tools,
-        messages
+        messages,
+        ...(toolChoice && { tool_choice: toolChoice })
       });
 
       // 5. [버그 2 수정] tool_use 루프 - Claude가 도구 사용을 완료할 때까지 반복
@@ -253,7 +277,10 @@ const chat = async ({ message, conversationId, userId }) => {
         return res;
       };
 
-      let res = await createResponse();
+      // tool_choice any: 도구를 최소 하나는 호출해야 함 (도구 목록이 비면 API 오류라 제외)
+      const forceTools = isRepeatedQuestion && tools.length > 0;
+      if (forceTools) logger.info('[Claude] Repeated question in this conversation, forcing a fresh tool lookup');
+      let res = await createResponse(forceTools ? { type: 'any' } : undefined);
       logger.debug(`[Claude] stop_reason: ${res.stop_reason}`);
       res = await runToolLoop(res);
 

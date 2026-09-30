@@ -38,8 +38,9 @@ jest.mock('../src/middlewares/auth.middleware', () => {
 });
 
 const mockCallTool = jest.fn();
+const mockTools = []; // 기본은 빈 목록, 필요한 테스트에서만 채움
 jest.mock('../src/services/mcp.service', () => ({
-  withSession: (fn) => fn({ listTools: async () => [], callTool: (...args) => mockCallTool(...args) })
+  withSession: (fn) => fn({ listTools: async () => mockTools, callTool: (...args) => mockCallTool(...args) })
 }));
 
 const mockCreate = jest.fn();
@@ -325,6 +326,58 @@ describe('채팅 — request_capture 도구', () => {
     const sent = mockCreate.mock.calls[mockCreate.mock.calls.length - 1][0].messages;
     expect(sent[1].content).toBe('[앞서 보여준 감지된 영상 — eventId: ev-fall]\n\n어제 녹화된 영상이에요.');
     spy.mockRestore();
+  });
+
+  describe('같은 채팅방에서 이전 답변 재사용 방지', () => {
+    const conversationService = require('../src/services/conversation.service');
+    const morning = '2026-09-30T00:05:00.000Z'; // 한국 시간 오전 9:05
+    let spy;
+    beforeEach(() => {
+      spy = jest.spyOn(conversationService, 'getMessages').mockResolvedValue([
+        { role: 'user', content: '오늘 요약', created_at: morning },
+        { role: 'assistant', content: '오늘은 방문 1건이 있었어요.', created_at: morning }
+      ]);
+      mockTools.push({ name: 'get_daily_summary', description: '', input_schema: { type: 'object', properties: {} } });
+    });
+    afterEach(() => {
+      spy.mockRestore();
+      mockTools.length = 0;
+    });
+
+    const firstCallOfLastChat = (before) => mockCreate.mock.calls[before][0];
+
+    it('이전 질문에는 보낸 시각을, 현재 질문에는 "지금" 시각을 붙여 모델에 넘김 (DB 저장 내용은 원문)', async () => {
+      mockCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '네' }], usage: {} });
+      const before = mockCreate.mock.calls.length;
+      await claudeService.chat({ message: '고마워', userId: 'user-A' });
+
+      const { messages } = firstCallOfLastChat(before);
+      expect(messages[0].content).toMatch(/^\(9월 30일 \(.\) 오전 9:05에 보낸 메시지\)\n오늘 요약$/);
+      expect(messages[1].content).toBe('오늘은 방문 1건이 있었어요.'); // 답변에는 붙이지 않음
+      expect(messages[2].content).toMatch(/^\(지금 .+에 보낸 메시지\)\n고마워$/);
+    });
+
+    it('같은 질문을 다시 하면 첫 호출에서 도구 사용을 강제 (tool_choice any)', async () => {
+      mockCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '네' }], usage: {} });
+      const before = mockCreate.mock.calls.length;
+      await claudeService.chat({ message: '오늘 요약?', userId: 'user-A' }); // 공백·문장부호 차이는 같은 질문
+
+      expect(firstCallOfLastChat(before).tool_choice).toEqual({ type: 'any' });
+    });
+
+    it('새로운 질문이면 도구 사용을 강제하지 않음', async () => {
+      mockCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '네' }], usage: {} });
+      const before = mockCreate.mock.calls.length;
+      await claudeService.chat({ message: '고마워', userId: 'user-A' });
+
+      expect(firstCallOfLastChat(before).tool_choice).toBeUndefined();
+    });
+
+    it('모델이 시각 표시 줄을 따라 쓰면 답변에서 지움', async () => {
+      mockCreate.mockResolvedValueOnce({ stop_reason: 'end_turn', content: [{ type: 'text', text: '(지금 9월 30일 (화) 오후 7:00에 보낸 메시지)\n네, 알겠어요.' }], usage: {} });
+      const res = await claudeService.chat({ message: '고마워', userId: 'user-A' });
+      expect(res.content).toBe('네, 알겠어요.');
+    });
   });
 
   it('get_event_media 실패 결과면 미디어 줄을 붙이지 않음', async () => {

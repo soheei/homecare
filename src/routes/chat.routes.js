@@ -37,4 +37,10 @@ router.get('/summary/latest', authenticateUser, chatController.getLatestSummary)
  */
 router.delete('/history/:conversationId', authenticateUser, chatController.deleteConversation);
 
+/**
+ * PATCH /api/chat/history/:conversationId
+ * 대화 제목 변경
+ */
+router.patch('/history/:conversationId', authenticateUser, chatController.renameConversation);
+
 module.exports = router;

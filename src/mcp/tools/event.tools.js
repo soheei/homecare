@@ -185,6 +185,7 @@ const handlers = {
     // DB 컬럼은 snake_case(danger_level) — camelCase로 읽으면 항상 빈 결과가 됨
     return result.events
       .filter(e => e.danger_level === 'danger' || e.danger_level === 'warning')
+      .slice(0, 30) // 도구 결과가 입력 토큰으로 쌓이므로 최신 30건까지만 (이벤트는 최신순)
       .map(toToolEvent);
   },
 

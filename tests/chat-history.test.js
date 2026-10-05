@@ -2,7 +2,8 @@
  * 채팅 대화 기록(멀티턴) 테스트
  * - 이전 메시지를 불러와 Claude에 전달하는지
  * - 남의 대화 ID로는 기록을 읽거나 메시지를 끼워 넣을 수 없는지
- * - 긴 대화는 "최근" 50개를 시간순으로 전달하는지
+ * - 긴 대화는 "최근" 20개를 시간순으로 전달하는지
+ * - 대화 제목 변경(PATCH)이 본인 대화에만 적용되는지
  */
 
 // 메모리 가짜 DB (schema.sql의 conversations/messages 컬럼 사용)
@@ -163,7 +164,7 @@ describe('claude.service 대화 기록', () => {
     expect(mockDb.conversations.find(c => c.id === 'conv-mine').updated_at > before).toBe(true);
   });
 
-  it('긴 대화는 최근 50개를 시간순으로 전달', async () => {
+  it('긴 대화는 최근 20개를 시간순으로 전달', async () => {
     mockDb.messages = Array.from({ length: 60 }, (_, i) => ({
       conversation_id: 'conv-mine',
       role: i % 2 === 0 ? 'user' : 'assistant',
@@ -174,10 +175,10 @@ describe('claude.service 대화 기록', () => {
     await claudeService.chat({ message: '새 질문', conversationId: 'conv-mine', userId: 'user-A' });
 
     const sent = mockCreate.mock.calls[0][0].messages;
-    expect(sent).toHaveLength(51);
-    expect(withoutSentTime(sent[0].content)).toBe('msg-10');
-    expect(sent[49].content).toBe('msg-59');
-    expect(withoutSentTime(sent[50].content)).toBe('새 질문');
+    expect(sent).toHaveLength(21);
+    expect(withoutSentTime(sent[0].content)).toBe('msg-40');
+    expect(sent[19].content).toBe('msg-59');
+    expect(withoutSentTime(sent[20].content)).toBe('새 질문');
   });
 });
 
@@ -219,6 +220,29 @@ describe('채팅 기록 API (사용자별)', () => {
 
     expect(res.statusCode).toBe(404);
     expect(mockDb.conversations.map(c => c.id)).toContain('conv-other');
+  });
+
+  it('PATCH: 내 대화 제목 변경 (공백 정리, 40자 제한)', async () => {
+    const res = await request(app).patch('/api/chat/history/conv-mine').set('X-Test-User', 'user-A')
+      .send({ title: `  새   이름 ${'가'.repeat(60)} ` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data.title).toHaveLength(40);
+    expect(res.body.data.title.startsWith('새 이름 ')).toBe(true);
+    expect(mockDb.conversations.find(c => c.id === 'conv-mine').title).toBe(res.body.data.title);
+  });
+
+  it('PATCH: 남의 대화는 404이고 제목이 바뀌지 않음', async () => {
+    const before = mockDb.conversations.find(c => c.id === 'conv-other').title;
+    const res = await request(app).patch('/api/chat/history/conv-other').set('X-Test-User', 'user-A').send({ title: '탈취' });
+
+    expect(res.statusCode).toBe(404);
+    expect(mockDb.conversations.find(c => c.id === 'conv-other').title).toBe(before);
+  });
+
+  it('PATCH: 제목이 비어 있으면 400', async () => {
+    const res = await request(app).patch('/api/chat/history/conv-mine').set('X-Test-User', 'user-A').send({ title: '   ' });
+    expect(res.statusCode).toBe(400);
   });
 
   it('로그인 안 하면 401', async () => {

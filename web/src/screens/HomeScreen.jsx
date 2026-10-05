@@ -19,7 +19,7 @@ function greeting() {
 export default function HomeScreen() {
   const { user } = useAuth();
   // 데이터/브리핑은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
-  const { home, loadHome, setDeviceStatus, briefing: briefingState, generateBriefing } = useAppData();
+  const { home, loadHome, refreshAll, setDeviceStatus, briefing: briefingState, generateBriefing } = useAppData();
   // 현재 카메라 화면: idle | loading | done | off | error — 결과는 "현재 집 상태" 모달로 표시
   const [capture, setCapture] = useState({ status: 'idle', data: null, error: '' });
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
@@ -92,12 +92,15 @@ export default function HomeScreen() {
     },
     { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
-    { icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink' }
+    {
+      icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink',
+      hint: '낙상·화재경보·파손 기준', hintClass: 'text-ink-light'
+    }
   ];
 
   return (
     <div>
-      <div className="grain-surface relative overflow-hidden bg-brand-600 px-5 pb-6 pt-7 text-white">
+      <div className="grain-surface relative flex min-h-[112px] flex-col justify-center overflow-hidden bg-brand-600 px-5 py-6 text-white">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-brand-300/20 blur-2xl" />
 
         <div className="relative flex items-center gap-3">
@@ -108,6 +111,15 @@ export default function HomeScreen() {
             <div className="truncate text-[22px] font-bold tracking-tight leading-tight">{greeting()}</div>
             <div className="truncate text-[13px] opacity-80">{user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요</div>
           </div>
+          <button
+            type="button"
+            onClick={refreshAll}
+            disabled={home.status === 'loading'}
+            aria-label="새로고침"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-base ring-1 ring-white/30 transition-colors hover:bg-white/25 disabled:opacity-50"
+          >
+            <span className={home.status === 'loading' ? 'inline-block animate-spin' : ''}>↻</span>
+          </button>
         </div>
       </div>
 
@@ -119,7 +131,7 @@ export default function HomeScreen() {
               <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
               <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
               <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
-              {c.hint && <div className="mt-1 text-[11px] font-semibold text-brand-500">{c.hint}</div>}
+              {c.hint && <div className={`mt-1 text-[11px] font-semibold ${c.hintClass || 'text-brand-500'}`}>{c.hint}</div>}
             </>
           );
           // 카메라 카드는 누르면 현재 화면 캡처 (촬영 중엔 비활성화)

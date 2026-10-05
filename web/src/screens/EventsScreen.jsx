@@ -262,7 +262,7 @@ export default function EventsScreen() {
                     {e.video_url && (
                       <span className="rounded-md bg-brand-50 px-2 py-[3px] text-[11px] font-semibold text-brand-600">▶ 영상</span>
                     )}
-                    {e.audio_url && (
+                    {!e.video_url && e.audio_url && (
                       <span className="rounded-md bg-brand-50 px-2 py-[3px] text-[11px] font-semibold text-brand-600">🔊 소리</span>
                     )}
                   </div>

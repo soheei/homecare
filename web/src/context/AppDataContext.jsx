@@ -71,7 +71,7 @@ export function AppDataProvider({ children }) {
     requested.current[key] = true;
     // 갱신 중에도 기존 데이터는 계속 보여준다
     setResource((prev) => ({ ...prev, status: 'loading', error: '' }));
-    fetcher()
+    return fetcher()
       .then((data) => setResource({ status: 'done', data, error: '' }))
       .catch((err) => {
         delete requested.current[key]; // 실패하면 다음 진입 때 다시 시도
@@ -79,8 +79,15 @@ export function AppDataProvider({ children }) {
       });
   }, []);
 
-  const loadHome = useCallback(() => load('home', fetchHome, setHome), [load]);
+  const loadHome = useCallback((force = false) => load('home', fetchHome, setHome, force), [load]);
   const loadEventList = useCallback((force = false) => load('eventList', fetchEventList, setEventList, force), [load]);
+
+  /** 앱 전체 새로고침 (아래로 당겨서 / 새로고침 버튼) — 이미 불러온 홈·이벤트 데이터를 다시 받는다 */
+  const refreshAll = useCallback(async () => {
+    const tasks = [load('home', fetchHome, setHome, true)];
+    if (requested.current.eventList) tasks.push(load('eventList', fetchEventList, setEventList, true));
+    await Promise.all(tasks);
+  }, [load]);
 
   const deleteEvent = useCallback(async (id) => {
     await api.events.delete(id);
@@ -117,7 +124,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   return (
-    <AppDataContext.Provider value={{ home, loadHome, setDeviceStatus, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
+    <AppDataContext.Provider value={{ home, loadHome, refreshAll, setDeviceStatus, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
       {children}
     </AppDataContext.Provider>
   );

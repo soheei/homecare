@@ -11,9 +11,11 @@ export default function ChatHistoryDrawer({ open, onClose }) {
   const { user } = useAuth();
   const {
     conversations, loadConversations, conversationId, sending, openingId,
-    newConversation, openConversation, deleteConversation
+    newConversation, openConversation, deleteConversation, renameConversation
   } = useChat();
   const [deletingId, setDeletingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [draftTitle, setDraftTitle] = useState('');
 
   // 처음 열 때 한 번만 목록을 불러옴 (이미 불러왔으면 아무것도 안 함)
   useEffect(() => {
@@ -49,6 +51,23 @@ export default function ChatHistoryDrawer({ open, onClose }) {
       alert(err.message || '대화를 삭제하지 못했어요.');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const startRename = (e, c) => {
+    e.stopPropagation();
+    setEditingId(c.id);
+    setDraftTitle(c.title || '');
+  };
+
+  const commitRename = async (c) => {
+    const next = draftTitle.trim();
+    setEditingId(null);
+    if (!next || next === c.title) return;
+    try {
+      await renameConversation(c.id, next);
+    } catch (err) {
+      alert(err.message || '이름을 바꾸지 못했어요.');
     }
   };
 
@@ -120,21 +139,49 @@ export default function ChatHistoryDrawer({ open, onClose }) {
                   key={c.id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => handleOpen(c.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleOpen(c.id); }}
+                  onClick={() => { if (editingId !== c.id) handleOpen(c.id); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && editingId !== c.id) handleOpen(c.id); }}
                   aria-current={active ? 'true' : undefined}
                   className={`group mb-0.5 flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${
                     active ? 'bg-brand-50' : 'hover:bg-black/[0.03]'
                   } ${sending && !active ? 'pointer-events-none opacity-40' : ''}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className={`truncate text-[15px] ${active ? 'font-semibold text-brand-600' : 'text-ink'}`}>
-                      {c.title || '제목 없는 대화'}
-                    </div>
+                    {editingId === c.id ? (
+                      <input
+                        autoFocus
+                        value={draftTitle}
+                        maxLength={40}
+                        onChange={(e) => setDraftTitle(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === 'Enter') commitRename(c);
+                          if (e.key === 'Escape') setEditingId(null);
+                        }}
+                        onBlur={() => commitRename(c)}
+                        className="w-full rounded-md border border-brand-600 bg-white px-2 py-1 text-[15px] text-ink outline-none"
+                      />
+                    ) : (
+                      <div className={`truncate text-[15px] ${active ? 'font-semibold text-brand-600' : 'text-ink'}`}>
+                        {c.title || '제목 없는 대화'}
+                      </div>
+                    )}
                     <div className="mt-0.5 text-xs text-ink-light">
                       {loading ? '불러오는 중...' : formatRelativeTime(c.updated_at || c.created_at)}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => startRename(e, c)}
+                    aria-label="이름 변경"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-light transition-colors hover:bg-black/[0.05] hover:text-ink"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => handleDelete(e, c.id)}

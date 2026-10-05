@@ -114,7 +114,8 @@ export default function EventMediaCard({ eventId, alt }) {
           <img src={event.image_url} alt={event.description} onError={onMediaError} className="mx-auto block max-h-[40vh] w-full object-contain" />
         </div>
       )}
-      {event.audio_url && (
+      {/* 영상이 있으면 영상(소리 포함)만, 영상 없는 옛 이벤트만 소리 플레이어 */}
+      {!event.video_url && event.audio_url && (
         <div className="px-3.5 pb-3.5 pt-2">
           <div className="mb-1.5 text-[12px] font-semibold text-ink-light">🔊 감지된 소리</div>
           <audio src={event.audio_url} controls preload="metadata" onError={onMediaError} className="w-full" />

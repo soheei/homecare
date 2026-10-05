@@ -103,13 +103,14 @@ export default function EventMediaModal({ event, onClose, onRefresh }) {
                   <img src={event.image_url} alt={event.description} className="mx-auto block max-h-[40vh] w-full object-contain" />
                 </div>
               )}
-              {event.audio_url && (
+              {/* 영상에 소리가 함께 들어 있으므로 영상이 있으면 소리 플레이어는 숨김 (영상 없는 옛 이벤트만 소리 재생) */}
+              {!event.video_url && event.audio_url && (
                 <div className="rounded-2xl bg-brand-50 p-3">
                   <div className="mb-2 text-[12px] font-semibold text-ink-light">🔊 감지된 소리</div>
                   <audio
                     src={event.audio_url}
                     controls
-                    autoPlay={!event.video_url}
+                    autoPlay
                     onError={onMediaError}
                     className="w-full"
                   />

@@ -179,6 +179,15 @@ export function ChatProvider({ userId, children }) {
     return true;
   }, []);
 
+  /** 대화 제목 변경 (서버가 정리·자른 제목으로 목록 갱신) */
+  const renameConversation = useCallback(async (id, title) => {
+    const saved = await api.chat.renameConversation(id, title);
+    setConversations((prev) => ({
+      ...prev,
+      data: prev.data.map((c) => (c.id === id ? { ...c, title: saved.title } : c))
+    }));
+  }, []);
+
   return (
     <ChatContext.Provider
       value={{
@@ -191,7 +200,8 @@ export function ChatProvider({ userId, children }) {
         loadConversations,
         newConversation,
         openConversation,
-        deleteConversation
+        deleteConversation,
+        renameConversation
       }}
     >
       {children}

@@ -320,8 +320,13 @@ describe('MCP Server /mcp', () => {
 
       // 시스템 프롬프트에 현재 한국 날짜가 들어가야 "오늘/이번 주"를 해석할 수 있음
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-      expect(mockCreate.mock.calls[0][0].system).toContain('현재 시각');
-      expect(mockCreate.mock.calls[0][0].system).toContain(today);
+      // system은 [고정 본문(캐시 지점), 현재 시각] 두 블록 — 시각은 캐시 지점 뒤에 있어야 캐시가 적중함
+      const system = mockCreate.mock.calls[0][0].system;
+      const systemText = system.map(b => b.text).join('\n');
+      expect(systemText).toContain('현재 시각');
+      expect(systemText).toContain(today);
+      expect(system[0].cache_control).toEqual({ type: 'ephemeral' });
+      expect(system[0].text).not.toContain('현재 시각:');
 
       // 1차 호출: MCP 서버에서 받은 도구 목록이 Anthropic 형식으로 전달됨
       const firstCall = mockCreate.mock.calls[0][0];

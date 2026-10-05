@@ -121,7 +121,8 @@ const getDailySummary = async (date) => {
       if (!summary.byType[event.type]) summary.byType[event.type] = 0;
       summary.byType[event.type]++;
 
-      if (event.danger_level === 'danger' || event.danger_level === 'warning') {
+      // 홈 "위험 알림" 기준: type=danger(낙상·화재경보·파손)만. 비명·울음 같은 sound warning은 제외
+      if (event.type === 'danger') {
         summary.dangerEvents.push(event);
       }
 

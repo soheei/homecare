@@ -195,6 +195,11 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 
 ## 알려진 이슈 / 남은 일
 
+- **앱 TODO 9개 진행 현황(2026-10-05, 계획: 단계 1→2→3)**
+  - **단계 1 완료(코드·단위 테스트까지, 배포·실기 미확인)**: 홈 위험 알림 = `type=danger`만 집계(`event.service.js` `getDailySummary`), 채팅방 이름 변경(`PATCH /api/chat/history/:id` + 서랍 ✏️), 아래로 당겨 새로고침·홈 ↻ 버튼(`web/src/lib/usePullToRefresh.js`, `AppDataContext.refreshAll`), 홈/설정 헤더 높이 통일(`min-h-[112px]`), 영상이 있으면 소리 플레이어 숨김(영상만 보기), 토큰 절감(히스토리 50→20, 도구 루프 5→3, 시스템 프롬프트 캐싱 `cache_control`, `usage` 로그).
+  - **프롬프트 캐싱은 실제로 적중하는지 미확인**: Haiku 4.5는 캐시 최소 길이가 커서 현재 프롬프트가 못 미치면 조용히 건너뜀. Render 로그 `[Claude] usage(chat) ... cache_read=`가 0보다 큰지 확인 필요.
+  - **남은 단계**: 2) 초인종/방문자 구분(`event_mapper.py`·`category_map.py`) + 소리 이벤트에 영상 항상 동봉(`stream_pipeline.py`·`vision_pipeline.py`), 3) 거실/현관 모드(`devices.mode` + 하트비트 응답 `mode`, 엣지 감지 집합 전환) + 경비 모드(`notification_preferences.security_armed`). 3단계에서 **Supabase ALTER 2개를 수동 실행**해야 함.
+  - 홈 "위험 알림" 기준이 바뀌어(비명·울음 같은 warning 제외) 채팅 도구 `get_daily_summary`의 `dangerEvents`도 같은 기준이 됨(`get_danger_events` 도구는 기존대로 danger+warning).
 - **실기 테스트 체크리스트와 소리·영상 융합 남은 수정사항은 [hometalk_테스트_TODO.md](hometalk_테스트_TODO.md)에 정리**(2026-09-28~). 서명 URL·소리 반복 전송 수정·방문자/택배 감지 재설계는 코드·단위 테스트만 검증됐고 Pi/Render 실기 확인은 그 문서 순서대로 진행.
 
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.

@@ -59,21 +59,38 @@ const SYSTEM_PROMPT = `당신은 HomeCare AI 어시스턴트입니다. 사용자
 /**
  * 요청마다 현재 한국 날짜/시각을 붙인 시스템 프롬프트
  * (날짜를 모르면 "오늘/어제/이번 주"를 해석할 기준이 없어 엉뚱한 날짜로 조회함)
+ *
+ * 토큰 절감: 바뀌지 않는 본문(SYSTEM_PROMPT)과 매번 바뀌는 현재 시각을 두 블록으로 나누고,
+ * 본문 블록에 cache_control(프롬프트 캐싱)을 건다. 캐시는 앞부분(tools + 본문)이 똑같아야 적중하므로
+ * 시각은 반드시 캐시 지점 뒤에 둔다. (모델별 최소 캐시 길이에 못 미치면 캐시는 조용히 건너뛰어짐)
  */
 const buildSystemPrompt = () => {
   const now = new Date();
   const today = kstDateString(now);
-  return `${SYSTEM_PROMPT}
+  return [
+    { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: `현재 시각: ${formatKst(now)} (한국 시간, 오늘 날짜 ${today})` }
+  ];
+};
 
-현재 시각: ${formatKst(now)} (한국 시간, 오늘 날짜 ${today})`;
+// API 호출마다 토큰 사용량을 기록 (캐시가 적중하는지 cache_read가 0보다 큰지로 확인)
+const logUsage = (label, usage) => {
+  if (!usage) return;
+  logger.info(
+    `[Claude] usage(${label}) input=${usage.input_tokens} output=${usage.output_tokens} `
+    + `cache_write=${usage.cache_creation_input_tokens || 0} cache_read=${usage.cache_read_input_tokens || 0}`
+  );
 };
 
 // ============================================================
 // [버그 1 수정] 대화 히스토리 DB 관리 → conversation.service.js
 // ============================================================
 
-// Claude에 전달할 최근 메시지 수
-const HISTORY_LIMIT = 50;
+// Claude에 전달할 최근 메시지 수 (매 호출마다 입력 토큰으로 다시 들어가므로 작게 유지. 50 → 20)
+const HISTORY_LIMIT = 20;
+
+// 도구 호출 반복 상한 (루프마다 지금까지의 대화 전체를 다시 보냄. 5 → 3)
+const MAX_TOOL_LOOPS = 3;
 
 /**
  * 도구 결과에서 답변에 붙일 미디어 줄 추출 (Markdown 이미지 문법 — 앱의 chatBlocks.js가 카드로 그림)
@@ -228,19 +245,22 @@ const chat = async ({ message, conversationId, userId }) => {
       // 4. [버그 2 수정] Claude API 호출 - MCP 서버에서 받은 tools 전달
       const tools = await mcp.listTools();
 
-      const createResponse = (toolChoice) => anthropic.messages.create({
-        model: config.anthropic.model,
-        max_tokens: config.anthropic.maxTokens,
-        system: systemPrompt,
-        tools,
-        messages,
-        ...(toolChoice && { tool_choice: toolChoice })
-      });
+      const createResponse = async (toolChoice) => {
+        const res = await anthropic.messages.create({
+          model: config.anthropic.model,
+          max_tokens: config.anthropic.maxTokens,
+          system: systemPrompt,
+          tools,
+          messages,
+          ...(toolChoice && { tool_choice: toolChoice })
+        });
+        logUsage('chat', res.usage);
+        return res;
+      };
 
       // 5. [버그 2 수정] tool_use 루프 - Claude가 도구 사용을 완료할 때까지 반복
       const runToolLoop = async (res) => {
         let loopCount = 0;
-        const MAX_TOOL_LOOPS = 5; // 무한루프 방지
 
         while (res.stop_reason === 'tool_use' && loopCount < MAX_TOOL_LOOPS) {
           loopCount++;
@@ -369,6 +389,7 @@ const generateDailySummary = async (events, date) => {
       system: BRIEFING_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }]
     });
+    logUsage('briefing', response.usage);
 
     const content = response.content
       .filter(block => block.type === 'text')

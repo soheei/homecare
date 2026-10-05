@@ -430,3 +430,18 @@
 - 테스트 재검증(이 PC): 처음엔 Jest 6개 스위트·엣지 2개 모듈·vision 5건이 에러 — 코드 문제가 아니라 의존성 미설치(`web-push`는 `npm install`, `numpy`/`scipy`/`opencv-python-headless`는 pip) 때문. 설치 후 **Jest 75 통과/5 실패(총 80, 실패 5건은 기존 `chat.test.js` 401·`app.test.js` 404와 같은 종류), 엣지 46 통과, vision 42 통과.**
 - 배운 점: 테스트가 "실패"해도 먼저 의존성 로드 에러인지 구분할 것(스위트가 "failed to run"이면 코드가 아니라 환경 문제). 문서에 적힌 테스트 수치(52/5, 24개 등)는 시간이 지나면 어긋나므로 CLAUDE.md에 고정하지 말 것.
 - ~~**확인 필요**: DEPLOYMENT §3의 Pi 저장소가 `edge`, `yamnet/core`만 sparse-checkout라고 되어 있는데 `vision/`이 Pi에서 돌려면 포함돼 있어야 함 — Pi에서 확인하지 못해 문구는 그대로 둠.~~ → **(해결됨, 2026-10-05)** 사용자가 Pi sparse-checkout에 `vision/`이 포함돼 있다고 확인, DEPLOYMENT §3·인수인계 "접근 / 계정" 문구에 `vision` 추가. 이 PC에서 vision 테스트는 `ultralytics` 없이(opencv·numpy만) 통과했으므로 YOLO 모델 추론 자체는 검증하지 않음.
+
+### 앱 TODO 9개 중 단계 1 (앱·백엔드 단독 6건)
+- 한 일(전체 계획은 3단계로 나눔: 1 앱 단독 → 2 이벤트 구분·영상 동봉(엣지) → 3 거실/현관 모드·경비 모드):
+  - 홈 위험 알림 기준: `getDailySummary`의 `dangerEvents`를 `danger_level in (danger, warning)` → `type === 'danger'`로. 홈 카드에 "낙상·화재경보·파손 기준" 문구 추가.
+  - 채팅방 이름 변경: `PATCH /api/chat/history/:conversationId`(`conversation.service.js` `renameConversation` — 소유자 확인, 공백 정리, 40자 제한), 서랍에 ✏️ 인라인 편집.
+  - 새로고침: `usePullToRefresh`(맨 위에서 아래로 당기기, 채팅 탭·모달·영상 위 터치는 제외) + 홈 헤더 ↻ 버튼. 홈 데이터는 세션 1회 로드였어서 `AppDataContext`에 `refreshAll`/`loadHome(force)` 추가.
+  - 홈/설정 헤더 높이: 두 헤더를 같은 `min-h-[112px]` + 세로 중앙 정렬로 통일(기존엔 `pt-7`/`pt-6`에 내용 높이가 달라 높이가 달랐음).
+  - 영상만 보기: 영상(`video_url`)이 있으면 소리 플레이어·🔊 뱃지를 숨김. 영상에 소리가 이미 들어 있기 때문. 영상 없는 옛 이벤트만 소리 재생.
+  - 토큰 절감: `HISTORY_LIMIT` 50→20, `MAX_TOOL_LOOPS` 5→3, `get_danger_events` 결과 30건 상한, 시스템 프롬프트를 [고정 본문(`cache_control`) + 현재 시각] 두 블록으로 분리, API 호출마다 `usage` 로그.
+- 결정과 이유:
+  - 위험 알림은 `type=danger`만(사용자 결정): 비명·울음(sound/warning)이 섞여 "위험"이 과대 집계된다는 판단. 푸시 알림 발송 기준(`notifyEvent`)은 type 기준이라 그대로.
+  - Claude 유지 + 절감(사용자 결정): 무료 AI로 교체하면 도구 호출 루프(`tool_use`)를 다시 짜야 하고 새 의존성·품질 리스크가 큼.
+  - 현재 시각을 캐시 지점 뒤에 둠: 시각이 본문 안에 있으면 매 요청마다 앞부분이 달라져 캐시가 절대 적중하지 않음.
+- 테스트: Jest **79 통과 / 5 실패**(실패 5건은 기존과 동일, 신규 실패 0). 새 테스트 4건(제목 변경 3건, 일일요약 위험 기준 1건) 추가, 기존 2건은 바뀐 동작(히스토리 20개, system 배열)에 맞게 수정. 웹 `npm run build` 통과. `web` lint(oxlint)는 이 PC에 네이티브 바인딩이 없어 실행 못 함(코드 문제 아님).
+- 미확인: 프롬프트 캐싱 실제 적중 여부(Haiku 최소 캐시 길이), 모바일 실기기에서의 당겨서 새로고침 동작·헤더 높이 육안 확인.

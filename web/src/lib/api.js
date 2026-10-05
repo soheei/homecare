@@ -59,7 +59,12 @@ export const api = {
       }),
     getLatestSummary: () => request('/api/chat/summary/latest'),
     deleteConversation: (conversationId) =>
-      request(`/api/chat/history/${conversationId}`, { method: 'DELETE' })
+      request(`/api/chat/history/${conversationId}`, { method: 'DELETE' }),
+    renameConversation: (conversationId, title) =>
+      request(`/api/chat/history/${conversationId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title })
+      })
   },
   events: {
     list: (params = {}) => {

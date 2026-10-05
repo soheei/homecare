@@ -10,7 +10,11 @@ const mockRows = [
   { id: 'ev-sound', type: 'sound', description: '문 소리 감지 (신뢰도 0.49)', danger_level: 'normal', timestamp: '2026-09-22T07:02:56.786649+00:00' },
   { id: 'ev-door', type: 'visitor', description: '초인종/방문 감지 (신뢰도 0.49)', danger_level: 'normal', timestamp: '2026-09-22T07:02:56.730302+00:00' },
   // 한국 9/28 새벽 5:30 (UTC로는 9/27 20:30)
-  { id: 'ev-dawn', type: 'motion', description: '새벽 움직임', danger_level: 'normal', timestamp: '2026-09-27T20:30:00+00:00' }
+  { id: 'ev-dawn', type: 'motion', description: '새벽 움직임', danger_level: 'normal', timestamp: '2026-09-27T20:30:00+00:00' },
+  // 주간 요약 범위(9/20~) 밖의 날: 일일 요약 위험 알림 기준 확인용
+  { id: 'ev-fire', type: 'danger', description: '화재경보', danger_level: 'danger', timestamp: '2026-09-10T03:00:00+00:00' },
+  { id: 'ev-scream', type: 'sound', description: '비명 감지', danger_level: 'warning', timestamp: '2026-09-10T04:00:00+00:00' },
+  { id: 'ev-bark', type: 'sound', description: '반려동물 울음', danger_level: 'warning', timestamp: '2026-09-10T05:00:00+00:00' }
 ];
 
 // 날짜 비교를 문자열이 아니라 실제 시각으로 하는 가짜 Supabase
@@ -58,6 +62,16 @@ describe('주간 요약', () => {
 
     expect(fall.timeKst).toContain('9월 25일');
     expect(fall.timeKst).toContain('오후 4:00');
+  });
+});
+
+describe('일일 요약의 위험 알림 기준 (홈 "위험 알림" 건수)', () => {
+  it('type=danger만 dangerEvents에 넣고, 비명·울음 같은 sound warning은 제외하되 전체 건수/타임라인에는 포함', async () => {
+    const summary = await eventService.getDailySummary('2026-09-10');
+
+    expect(summary.dangerEvents.map(e => e.id)).toEqual(['ev-fire']);
+    expect(summary.totalEvents).toBe(3);
+    expect(summary.timeline.map(t => t.id)).toEqual(expect.arrayContaining(['ev-scream', 'ev-bark']));
   });
 });
 

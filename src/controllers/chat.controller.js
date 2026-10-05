@@ -182,7 +182,44 @@ const deleteConversation = async (req, res, next) => {
   }
 };
 
+/**
+ * 대화 제목 변경
+ */
+const renameConversation = async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const { title } = req.body;
+    const userId = req.user?.id || 'anonymous';
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required'
+      });
+    }
+
+    const saved = await conversationService.renameConversation(conversationId, userId, title);
+
+    if (!saved) {
+      return res.status(404).json({
+        success: false,
+        error: 'Conversation not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: { id: conversationId, title: saved }
+    });
+
+  } catch (error) {
+    logger.error('[Chat] Error renaming conversation:', error);
+    next(error);
+  }
+};
+
 module.exports = {
+  renameConversation,
   sendMessage,
   getHistory,
   getDailySummary,

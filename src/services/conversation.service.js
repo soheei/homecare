@@ -141,8 +141,31 @@ const deleteConversation = async (conversationId, userId) => {
   return true;
 };
 
+/**
+ * 본인 대화 제목 변경
+ * @returns {string|null} 저장된 제목, 본인 대화가 아니거나 제목이 비어 있으면 null
+ */
+const renameConversation = async (conversationId, userId, title) => {
+  const oneLine = (title || '').replace(/\s+/g, ' ').trim();
+  if (!oneLine) return null;
+  const newTitle = oneLine.slice(0, TITLE_MAX_LENGTH);
+
+  if (!(await isOwnConversation(conversationId, userId))) return null;
+
+  const { error } = await supabaseAdmin
+    .from('conversations')
+    .update({ title: newTitle })
+    .eq('id', conversationId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  logger.info(`[Conversation] Renamed: ${conversationId}`);
+  return newTitle;
+};
+
 module.exports = {
   createConversation,
+  renameConversation,
   isOwnConversation,
   getMessages,
   saveMessage,

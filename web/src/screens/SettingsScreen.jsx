@@ -91,7 +91,7 @@ export default function SettingsScreen() {
 
   return (
     <div>
-      <div className="grain-surface relative overflow-hidden bg-brand-600 px-5 pb-6 pt-6 text-white">
+      <div className="grain-surface relative flex min-h-[112px] flex-col justify-center overflow-hidden bg-brand-600 px-5 py-6 text-white">
         <div className="pointer-events-none absolute -right-8 -top-12 h-40 w-40 rounded-full bg-brand-300/20 blur-2xl" />
         <div className="relative mb-1 text-2xl font-bold tracking-tight">설정</div>
         <div className="relative text-sm opacity-80">HOME-TALK 앱 환경설정</div>

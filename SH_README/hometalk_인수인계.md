@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-09-29 (Pi Tailscale 재설정 확인·접속 정보, Pi에서 커밋 금지 운영 규칙 / vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-10-05 (테스트 현황 실측 갱신 Jest 75/5·엣지 46·vision 42, 카메라 "YOLO 미구현" 기록 2곳을 vision 통합 사실로 정정 / 이전 2026-09-29: Pi Tailscale 재설정 확인·접속 정보, Pi에서 커밋 금지 운영 규칙 / vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -22,7 +22,7 @@
 | 프론트엔드 | Vercel — https://homecare-9sr8.vercel.app/ | 로컬: http://localhost:5173/. `VITE_API_URL`이 Render 주소로 설정·재배포됨(번들에서 확인) |
 | 백엔드 | Render Web Service (Docker 런타임) — https://homecare-9kcu.onrender.com | GitHub `main` push 시 자동 배포, `/health`로 상태 확인 |
 | DB / Storage | Supabase | `events` 테이블에 `video_url` 컬럼 추가됨(2026-09-20) |
-| 엣지 | 라즈베리파이 (`edge/` 코드) | `POST /api/events`로 이벤트 전송, 실전송 검증 완료. 마이크(ReSpeaker 2-Mic HAT)→YAMNet 실시간 파이프라인(`edge/apps/stream_pipeline.py`) 실제 가동 중(실제 "문 소리 감지" 등 이벤트 저장 확인됨, 문서상 "미구현"이던 옛 기록은 삭제). 카메라(Camera Module V3)는 하드웨어 감지만 가능, 영상 분석(YOLO 등)은 미구현 |
+| 엣지 | 라즈베리파이 (`edge/` 코드) | `POST /api/events`로 이벤트 전송, 실전송 검증 완료. 마이크(ReSpeaker 2-Mic HAT)→YAMNet 실시간 파이프라인(`edge/apps/stream_pipeline.py`) 실제 가동 중(실제 "문 소리 감지" 등 이벤트 저장 확인됨, 문서상 "미구현"이던 옛 기록은 삭제). 카메라(Camera Module V3)는 `vision/` 파이프라인(YOLO 방문자·택배·낙상 감지)으로 통합됨(2026-09-28) — Pi 실기 검증 상태는 [hometalk_테스트_TODO.md](hometalk_테스트_TODO.md) 참고 |
 
 - 백엔드는 예전에 Pi의 Docker Compose + Tailscale Funnel로 운영했으나, **Pi 초기화(2026-09-20)로 사라졌고 Render로 이전**했다. `docker-compose.yml`은 남아 있지만 현재 배포 경로가 아니다.
 - MCP 서버는 백엔드와 같은 Render 서비스의 `/mcp` 엔드포인트(Streamable HTTP)로 동작한다(2026-09-27~). 아래 "MCP 서버" 참고. stdio 버전(`src/mcp/server.js`, `npm run mcp`)은 로컬 외부 클라이언트용으로만 남아 있고 배포하지 않는다.
@@ -34,7 +34,7 @@
 - Render: 대시보드에서 서비스 로그(Logs), 환경변수(Environment) 관리. 백엔드 환경변수의 유일한 저장 위치 (`.env`는 서버에 올리지 않는다)
 - Vercel: 프로젝트 Settings → Environment Variables (`VITE_API_URL` 등, 변경 시 Redeploy 필요)
 - Supabase: SQL Editor(스키마 변경), Table Editor(`devices`/`events` 확인)
-- 엣지(Pi): 호스트명 `alarmi`, 계정 `alarmi`, 저장소 `~/homecare`(sparse-checkout로 `edge`, `yamnet/core`만), 가상환경 `~/homecare/.venv`, 설정 `edge/.env`(git 제외)
+- 엣지(Pi): 호스트명 `alarmi`, 계정 `alarmi`, 저장소 `~/homecare`(sparse-checkout로 `edge`, `vision`, `yamnet/core`만 — `vision` 포함은 2026-10-05 사용자 확인), 가상환경 `~/homecare/.venv`, 설정 `edge/.env`(git 제외)
 - Pi의 Tailscale(SSH 접속용): 재설정됨(2026-09-29 확인) — 머신 이름 `aiarmi`(`aiarmi.tail3c4e8f.ts.net`), IP `100.115.219.47`, 계정 `alarmi`. SSH 공개키 미등록이라 비밀번호 인증. Pi 회선이 매우 느려(수십 KB/s, 모바일망 추정) VS Code Remote-SSH는 PC 설정 `"remote.SSH.localServerDownload": "always"` 필요
 - Pi 코드 반영은 **PC에서 수정·push → Pi에서 `git pull`만**. Pi에서 커밋하지 않는다(push 불가 + GitHub과 갈라져 pull 실패 — 2026-09-29 진행일지)
 - 비밀값(`ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `EDGE_DEVICE_SECRET` 등)은 이 문서·git·채팅에 적지 않는다. 값이 필요하면 각 서비스 콘솔에서 확인/재발급.
@@ -204,11 +204,11 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 - 2026-09-27 작업분은 커밋·push됨(`a1559cc`, `cc1ad07`). **Render 배포 후 확인 필요**: `/health`가 `production`, 토큰 없이 `POST /mcp` 401, 웹 채팅 "이번주 요약"이 3건 모두·한국 시간으로 답하는지, 홈 브리핑이 새로고침 후에도 유지되는지(`briefings` 테이블 생성 후).
 - 채팅 "이번주 요약"이 3건 중 1건만·UTC 시각("오전 7시")으로 답한 원인은 **미확정**(로컬 프론트→로컬 백엔드, 새 코드로 동작 중이었음을 확인). 후보: 이전 대화 기록 재사용(대화 기록엔 최종 답변 텍스트만 저장, 도구 결과는 저장 안 됨) / 다른 도구 선택. 새 대화에서 재질문 후 로그의 `[MCP] Tool called:` 도구명으로 판별할 것.
 - Render 플랜 결정(무료 플랜 유휴 지연 22초대)
-- 카메라 영상 분석(YOLO 등) 파이프라인 자체가 아직 없음 — 현재는 하드웨어 인식 여부 + 수동 사진 촬영(`edge.apps.capture_photo`, 2026-09-27)만
+- 카메라 영상 분석은 `vision/` 파이프라인으로 구현됨(2026-09-28 통합). 실기 검증·남은 수정은 테스트_TODO 문서. 수동 사진 촬영은 `edge.apps.capture_photo`(2026-09-27)
 - `edge.apps.capture_photo` Pi 실기 검증 **미완료**(로컬 단위 테스트만 통과). Supabase Storage `events` 버킷은 **private**(2026-09-28 사용자 확인) — **단, 2026-09-29 Render 로그에 `Bucket not found`**: Render가 쓰는 Supabase 프로젝트에 `events` 버킷이 없어 사진·영상이 저장되지 않음(이벤트는 파일 없이 201 저장). 같은 프로젝트에 버킷 생성 필요 — 조회는 서명 URL로(아래 "이벤트 미디어 조회")
 - 현재 화면 캡처(홈/채팅)는 2026-09-27 배포(`03634f2`) 후 실제 동작 확인됨. 홈 화면 마이크 카드가 "미등록"으로 보이는 건 `GET /api/devices`가 로그인 사용자 `user_id`로 거르기 때문으로 추정(마이크 기기의 `user_id`가 다를 가능성) — **확인 필요**
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
-- `npm test` 52 통과 / 5 실패(2026-09-28 기준, `tests/event-media.test.js` 4건 추가). 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
+- 테스트 현황(2026-10-05 이 PC에서 의존성 설치 후 실측): `npm test` **75 통과 / 5 실패(총 80)**, 엣지 `python -m unittest discover -s edge/tests -t .` **46 통과**, vision `python -m unittest discover -s vision/tests -t .` **42 통과**. 의존성(`web-push`, `numpy`, `scipy`, `opencv` 등)이 없으면 스위트가 로드 실패로 "실패"처럼 보이니 수치 비교 전에 설치부터 확인. Jest 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)

@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-09-29 (Pi Remote-SSH 실패 원인 = 회선 속도, 카메라 서비스 TypeError = Pi 미push 커밋 → 낙상 2단계 판정으로 수정 / 낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-10-05 (CLAUDE.md 정리·문서 정정·테스트 재검증 기록 추가 / 이전 2026-09-29: (Pi Remote-SSH 실패 원인 = 회선 속도, 카메라 서비스 TypeError = Pi 미push 커밋 → 낙상 2단계 판정으로 수정 / 낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -413,3 +413,20 @@
 - 조치: Pi에서 `git format-patch`로 받은 패치를 작성자 유지한 채 PC에 적용(`e830fa6`, Pi 결과와 파일 해시 일치 확인) → 별도 커밋 `61f96b3`로 2단계 판정(급하강으로 의심 시작 → 가로형 유지 프레임 카운트, 일어나면 취소) + 호출부 인자 수정. 같은 패치에 오디오 `door_visitor` 0.5→0.7, `door_security` 0.3→0.6 임계값 상향 포함.
 - 검증: `vision/tests/test_fall_detector.py` 5건 신규(팀원 원본 로직은 "정상 낙상" 케이스 실패 확인) → vision 31·엣지 31 통과, 파이프라인 상수로 `FallDetector` 생성 확인. **Pi 반영 전**: GitHub push 후 Pi에서 `git branch pi-thooni-0929 0550005 && git reset --hard origin/main` → 마이크·카메라 서비스 재시작.
 - 운영 메모: Pi에서 커밋/push하지 않기(GitHub 비밀번호 push 불가, 공용 기기에 토큰 저장 위험) — PC에서 push → Pi는 pull만.
+
+## 2026-10-05
+
+### CLAUDE.md 정리 (72줄 → 64줄) — 문서만 수정, 코드 변경 없음
+- 한 일: CLAUDE.md를 7개 섹션(프로젝트 개요 / 현재 단계 / 명령어 / 구조 / 규칙 / 작업 방식 / 문서 운영)으로 재구성. `hometalk_인수인계.md`·`DEPLOYMENT.md`의 낡은 기록도 정정.
+- 점검에서 발견한 어긋남: CLAUDE.md가 "엣지 YOLO 연동 아직 없음"이라 했으나 `vision/`(YOLO 방문자·택배·낙상)이 2026-09-28 통합돼 가동 구조였음 / `vision/`·`npm run kill`·`npm run mcp`·vision 테스트 명령 누락 / 세션 시작 문서 목록에 `hometalk_테스트_TODO.md` 누락 / 인수인계 L25·L207도 같은 "YOLO 미구현" 낡은 기록 / DEPLOYMENT §3이 기기 행을 옛 이름 `raspberry-pi-5`로 적고 Tailscale을 "확인 필요"로 둠(인수인계는 이미 정정됨).
+- 결정과 이유:
+  - 코드 위치 12줄 상세 목록 → 구조 요약 1줄씩으로 압축: 코드를 읽으면 알 수 있는 내용은 CLAUDE.md에 두지 않는다는 방침.
+  - 테스트 수치·실패 사유를 CLAUDE.md에서 빼고 인수인계로 일원화: 수치가 자주 바뀌어 CLAUDE.md에 두면 곧 낡음.
+  - `frontend/`는 "레거시 프로토타입, 수정 불필요"로 확정(사용자 결정): 빌드는 안 되지만 `app.js`가 정적 서빙·SPA 폴백으로 사용하고 Dockerfile `COPY . .`로 이미지에 포함되므로 "안 쓰임"은 아님.
+  - "경로는 수정하지 않는다"의 경로 = **파일 경로(파일·폴더 이동·이름 변경)**로 확정(사용자 결정). 라우트 경로는 Code Style의 "공개 인터페이스 유지"가 이미 다룸.
+  - `process.env` 직접 읽기 금지 규칙에 예외 2곳(`src/index.js` `PORT`, `response.utils.js` `NODE_ENV`)을 명시(사용자 결정, 코드는 그대로): 실제 코드와 규칙이 어긋나 있었기 때문.
+  - `temp_` ID 201 사건은 이미 수정된 일회성 사고라 상세는 이 일지에만 남기고(2026-09-20 기록 참고), CLAUDE.md엔 "응답 `id`가 UUID인지 확인"이라는 교훈만 남김.
+  - 진행일지의 "해결 항목 취소선" 규칙은 유지(사용자 결정). 새 문서 운영 규칙 "기존 기록은 수정하지 않는다"와 충돌하므로, CLAUDE.md 작업 방식에 "해결 표시는 취소선으로만, 새 일은 새 날짜 항목"을 명시해 둘을 양립시킴.
+- 테스트 재검증(이 PC): 처음엔 Jest 6개 스위트·엣지 2개 모듈·vision 5건이 에러 — 코드 문제가 아니라 의존성 미설치(`web-push`는 `npm install`, `numpy`/`scipy`/`opencv-python-headless`는 pip) 때문. 설치 후 **Jest 75 통과/5 실패(총 80, 실패 5건은 기존 `chat.test.js` 401·`app.test.js` 404와 같은 종류), 엣지 46 통과, vision 42 통과.**
+- 배운 점: 테스트가 "실패"해도 먼저 의존성 로드 에러인지 구분할 것(스위트가 "failed to run"이면 코드가 아니라 환경 문제). 문서에 적힌 테스트 수치(52/5, 24개 등)는 시간이 지나면 어긋나므로 CLAUDE.md에 고정하지 말 것.
+- ~~**확인 필요**: DEPLOYMENT §3의 Pi 저장소가 `edge`, `yamnet/core`만 sparse-checkout라고 되어 있는데 `vision/`이 Pi에서 돌려면 포함돼 있어야 함 — Pi에서 확인하지 못해 문구는 그대로 둠.~~ → **(해결됨, 2026-10-05)** 사용자가 Pi sparse-checkout에 `vision/`이 포함돼 있다고 확인, DEPLOYMENT §3·인수인계 "접근 / 계정" 문구에 `vision` 추가. 이 PC에서 vision 테스트는 `ultralytics` 없이(opencv·numpy만) 통과했으므로 YOLO 모델 추론 자체는 검증하지 않음.

@@ -1,6 +1,6 @@
 # HomeCare 실행 명령어 & 서버 정보
 
-> 최근 수정일시: 2026-09-28 (HOMECARE_EVENT_DIR .env 반영, 카메라 서비스 = vision 파이프라인, 테스트 현황 52/5, 엣지 실행 명령 `python -m edge.xxx` → `python -m edge.apps.xxx` — edge/ 폴더 재구성 / 이전: camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 추가)
+> 최근 수정일시: 2026-10-05 (테스트 현황 실측 Jest 75/5, Supabase 기기 행 이름·Tailscale 상태를 인수인계 기준으로 정정, 엣지 의존성 설명 보강 / 이전 2026-09-28: HOMECARE_EVENT_DIR .env 반영, 카메라 서비스 = vision 파이프라인, 테스트 현황 52/5, 엣지 실행 명령 `python -m edge.xxx` → `python -m edge.apps.xxx` — edge/ 폴더 재구성 / 이전: camera_monitor 현재 화면 캡처 대기 추가, 테스트 현황 48/5, 엣지 사진 촬영·전송 추가)
 > 이 문서는 프로젝트 코드(package.json, Dockerfile, .env.example, edge/ 등)와 실제 확인한 배포 상태에서
 > 확인된 정보만 담고 있습니다. 추측/가정한 값은 넣지 않았고, 확인이 안 되는 부분은 "확인 필요"로 표시했습니다.
 > 배포 상태 변경 시 이 문서도 함께 갱신할 것. 날짜별 작업 로그는 `hometalk_진행일지.md`, 인수인계 전반은 `hometalk_인수인계.md` 참고.
@@ -18,7 +18,7 @@
 | `npm run dev:fresh` | 3000번 포트를 먼저 kill한 뒤 개발 서버 실행 |
 | `npm start` | 프로덕션 모드 실행 (`node src/index.js`) |
 | `npm run kill` | 3000번 포트를 점유 중인 프로세스 종료 |
-| `npm test` | Jest 테스트 실행 (2026-09-28 기준 52 통과/5 실패 — 실패 5건은 기존 낡은 테스트, 인수인계 "알려진 이슈" 참고) |
+| `npm test` | Jest 테스트 실행 (2026-10-05 실측 75 통과/5 실패 — 실패 5건은 기존 낡은 테스트, 인수인계 "알려진 이슈" 참고) |
 | `npm run lint` | eslint로 `src/` 검사 |
 | `npm run mcp` | MCP **stdio** 서버 단독 실행 (`node src/mcp/server.js`) — 로컬 외부 MCP 클라이언트가 stdin/stdout에 직접 붙어야 동작. 웹 채팅은 이게 아니라 백엔드의 HTTP MCP 서버(`/mcp`)를 사용. **현재 `.env`를 안 읽고 로그가 stdout에 섞여 Claude Desktop 연결용으로 부적합** — Claude Desktop은 `/mcp` + `mcp-remote`로 연결(README "MCP 서버 테스트") |
 
@@ -40,7 +40,7 @@
 |---|---|
 | `python3 -m venv .venv` | 가상환경 생성 (시스템 pip은 PEP 668 `externally-managed-environment`로 막힘) |
 | `source .venv/bin/activate` | 가상환경 활성화 (새 터미널마다 필요) |
-| `pip install -r edge/requirements.txt` | 의존성 설치 (`requests`) |
+| `pip install -r edge/requirements.txt` | 의존성 설치 (`requests` + 마이크 파이프라인용 `numpy`/`scipy`/`tensorflow` 등. vision은 별도 `vision/requirements.txt`) |
 | `python -m edge.apps.send_test_event` | 가짜 이벤트 1건을 백엔드로 전송해 경로 점검. 웹 "최근 이벤트"에 `[테스트] 엣지 전송 확인`이 보이면 성공 |
 | `python -m edge.apps.stream_pipeline` | 마이크(ReSpeaker) → YAMNet 실시간 이벤트 감지 실행. 실행 중엔 20초 간격으로 자동 하트비트 전송(홈 화면 "마이크" 상태) |
 | `python -m vision.vision_pipeline` | **카메라 서비스**(2026-09-28 통합): 카메라 영상 → YOLO 방문자·택배·낙상 이벤트 전송 + 20초 하트비트(홈 화면 "카메라" 상태, 프레임이 멈추면 중단) + "현재 화면 보여줘" 요청에 최신 프레임 업로드. 보통 `homecare-camera.service`로 실행. 필요: `HOMECARE_CAMERA_DEVICE_ID`, vision 의존성(`ultralytics`/`opencv`/`picamera2`, **확인 필요**) |
@@ -79,10 +79,10 @@
 
 - 기기: 라즈베리파이, 호스트명 `alarmi`, 계정 `alarmi`, OS Debian 13 (trixie), aarch64
 - 2026-09-20에 초기화되어 이전 Docker 배포와 Tailscale Funnel은 사라졌고, 이제 **엣지 코드만** 돈다(백엔드는 Render).
-- 코드 위치: `~/homecare` (`git clone --filter=blob:none --no-checkout` + `git sparse-checkout`으로 `edge`, `yamnet/core`만), 가상환경 `~/homecare/.venv`
+- 코드 위치: `~/homecare` (`git clone --filter=blob:none --no-checkout` + `git sparse-checkout`으로 `edge`, `vision`, `yamnet/core`만 — `vision` 포함은 2026-10-05 사용자 확인), 가상환경 `~/homecare/.venv`
 - 백엔드로 보내는 곳: `https://homecare-9kcu.onrender.com/api/events` (헤더 `X-Device-Id`, `X-Device-Secret`)
-- Supabase `devices` 테이블에 등록된 기기 행: `raspberry-pi-5` (이 행의 `id`가 `HOMECARE_DEVICE_ID`)
-- Tailscale(SSH 접속용)은 초기화 이후 재설정 여부 **확인 필요**. 백엔드 공개용 Tailscale Funnel은 더 이상 쓰지 않는다.
+- Supabase `devices` 테이블에 등록된 기기 행: `ReSpeaker 2-Mic HAT`(마이크, 이 행의 `id`가 `HOMECARE_DEVICE_ID`), `Camera Module V3`(카메라, `HOMECARE_CAMERA_DEVICE_ID`). 옛 이름 `raspberry-pi-5`는 2026-09-22에 정정되어 더 이상 쓰지 않는다.
+- Tailscale(SSH 접속용)은 재설정됨(2026-09-29 확인, 머신 이름 `aiarmi`) — 상세는 인수인계 "접근 / 계정". 백엔드 공개용 Tailscale Funnel은 더 이상 쓰지 않는다.
 
 ---
 

@@ -200,10 +200,10 @@ export default function EventsScreen() {
                 <Icon name={disp.icon} size={22} />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center">
-                  <span className="text-[15px] font-bold text-ink [overflow-wrap:anywhere]">{e.description}</span>
+                <div className="flex items-start">
+                  <span className="min-w-0 text-sm font-bold text-ink [overflow-wrap:anywhere]">{e.description}</span>
                   <span
-                    className="ml-2 inline-block rounded-[10px] px-2.5 py-[3px] text-[11px] font-bold"
+                    className="ml-2 inline-block shrink-0 whitespace-nowrap rounded-[10px] px-2.5 py-[3px] text-[11px] font-bold"
                     style={{ background: risk.badgeBg, color: risk.badgeColor }}
                   >
                     {risk.label}

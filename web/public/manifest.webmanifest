@@ -1,0 +1,16 @@
+{
+  "name": "HOME-TALK",
+  "short_name": "HOME-TALK",
+  "description": "집 상태와 이벤트를 AI가 브리핑해주는 홈케어 모니터링 앱",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#173c4f",
+  "theme_color": "#173c4f",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

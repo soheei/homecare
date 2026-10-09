@@ -21,8 +21,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'HOME-TALK';
   const options = {
     body: payload.body || '',
-    icon: '/favicon.svg',
-    badge: '/favicon.svg',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
     data: { eventId: payload.eventId || null }
   };
 

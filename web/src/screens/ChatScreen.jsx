@@ -89,6 +89,7 @@ export default function ChatScreen({ onKeyboardChange }) {
   // 화면에 그리기 전에(useLayoutEffect) 스크롤 위치를 맞춘다
   // - 채팅 화면 진입 / 대화 전환(새 채팅·이전 대화 열기): 애니메이션 없이 바로 맨 아래
   //   (html의 scroll-behavior: smooth를 덮어쓰도록 behavior: 'instant')
+  //   단, 사용자 메시지가 없는 새 채팅(인사말만 있음)은 맨 아래가 아니라 맨 위에 둬서 인사말이 헤더에 가려지지 않게 한다
   // - 대화 중 새 메시지 추가: 기존처럼 부드럽게 스크롤
   useLayoutEffect(() => {
     const first = messages[0];
@@ -97,7 +98,9 @@ export default function ChatScreen({ onKeyboardChange }) {
     prevFirstMessage.current = first;
 
     if (isEntryOrSwitch) {
-      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+      const isNewChat = !messages.some((m) => m.role === 'user');
+      const top = isNewChat ? 0 : document.documentElement.scrollHeight;
+      window.scrollTo({ top, behavior: 'instant' });
     } else {
       scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
     }

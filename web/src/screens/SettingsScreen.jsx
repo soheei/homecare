@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
-import { enablePush, disablePushIfUnused, isPushSupported } from '../lib/push';
+import { enablePush, disablePushIfUnused, getExistingSubscription, isPushSupported } from '../lib/push';
 import Icon from '../components/Icon';
 import ScreenHeader from '../components/ScreenHeader';
 
@@ -55,11 +55,52 @@ export default function SettingsScreen() {
     api.devices.list().then((d) => setDeviceCount(d.length)).catch(() => setDeviceCount(null));
   }, []);
 
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+  // 이 기기에서 푸시를 받을 수 있는 상태인지: null=확인 전/불필요, 'needed'=구독 필요, 'denied'=브라우저에서 차단됨
+  const [pushIssue, setPushIssue] = useState(null);
+  const [enablingPush, setEnablingPush] = useState(false);
+
   useEffect(() => {
     api.notifications.getPreferences()
       .then((prefs) => setToggles((t) => ({ ...t, ...prefs })))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPrefsLoaded(true));
   }, []);
+
+  // 알림 설정은 계정에 저장되지만 푸시 구독은 브라우저(기기)마다 따로라서,
+  // 설정이 켜져 있는데 이 기기에 구독이 없으면 안내한다.
+  const anyPushOn = PUSH_BACKED_KEYS.some((k) => toggles[k]);
+  useEffect(() => {
+    if (!prefsLoaded) return;
+    if (!anyPushOn || !isPushSupported()) {
+      setPushIssue(null);
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      setPushIssue('denied');
+      return;
+    }
+    let cancelled = false;
+    getExistingSubscription()
+      .then((sub) => { if (!cancelled) setPushIssue(sub && Notification.permission === 'granted' ? null : 'needed'); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [prefsLoaded, anyPushOn]);
+
+  // 권한 팝업은 반드시 사용자 클릭 안에서 띄운다
+  const handleEnableHere = async () => {
+    setEnablingPush(true);
+    setNotice('');
+    try {
+      await enablePush();
+      setPushIssue(null);
+    } catch (err) {
+      setNotice(err.message || '이 기기에서 알림을 켜지 못했습니다.');
+      if (Notification.permission === 'denied') setPushIssue('denied');
+    } finally {
+      setEnablingPush(false);
+    }
+  };
 
   const handleToggle = async (key) => {
     if (savingKey) return;
@@ -129,6 +170,24 @@ export default function SettingsScreen() {
             }
           />
         ))}
+        {pushIssue === 'needed' && (
+          <div className="flex items-center gap-3 border-t border-black/5 px-[18px] py-3">
+            <div className="flex-1 text-[13px] text-ink-light">알림은 켜져 있지만 이 기기에서는 아직 받을 수 없어요.</div>
+            <button
+              type="button"
+              onClick={handleEnableHere}
+              disabled={enablingPush}
+              className="shrink-0 rounded-full bg-brand-600 px-3.5 py-2 text-xs font-bold text-white disabled:opacity-50"
+            >
+              {enablingPush ? '켜는 중...' : '이 기기에서 알림 켜기'}
+            </button>
+          </div>
+        )}
+        {pushIssue === 'denied' && (
+          <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-danger">
+            이 브라우저에서 알림이 차단되어 있어요. 브라우저(또는 휴대폰) 사이트 설정에서 알림을 허용해 주세요.
+          </div>
+        )}
         {notice && <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-danger">{notice}</div>}
       </SettingsSection>
 

@@ -124,9 +124,10 @@ const notifyEvent = async (event) => {
       dangerLevel: event.danger_level
     };
 
+    // 사용자 알림 설정을 통과한 알림은 모두 배너로 즉시 뜨도록 높은 긴급도로 보낸다
     await Promise.all(subs.map(async (sub) => {
       try {
-        await pushService.sendToSubscription(sub, payload);
+        await pushService.sendToSubscription(sub, payload, { urgent: true });
       } catch (err) {
         // 만료/삭제된 구독은 정리
         if (err.statusCode === 404 || err.statusCode === 410) {

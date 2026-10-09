@@ -710,7 +710,7 @@ def main():
 
             fall_detected = False
             fall_person = None
-            if current_mode == "living" and not armed:
+            if current_mode == "living":
                 fall_person, changed = fall_person_tracker.update(detections)
                 if changed:
                     fall_detector.reset()

@@ -9,27 +9,22 @@ from edge.tests.test_edge import FakeResponse, FakeSession
 from edge.tests.test_stream_pipeline import FakeSource, make_cfg, make_fake_infer
 from edge.transport import event_mapper, heartbeat
 from edge.transport.emit import EventEmitter
-from edge.transport.modes import ALWAYS_ON, ENTRANCE, LIVING, ModeState, is_allowed
+from edge.transport.modes import ENTRANCE, LIVING, ModeState, is_allowed
 
 
 class IsAllowedTest(unittest.TestCase):
     def test_living_mode_categories(self):
-        for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "fall_suspect"):
+        for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect"):
             self.assertTrue(is_allowed(LIVING, cid), cid)
         for cid in ("door_visitor", "door_security", "delivery_suspect"):
             self.assertFalse(is_allowed(LIVING, cid), cid)
 
     def test_entrance_mode_categories(self):
-        for cid in ("door_visitor", "door_security", "delivery_suspect"):
+        for cid in ("door_visitor", "visitor_detected", "delivery_suspect"):
             self.assertTrue(is_allowed(ENTRANCE, cid), cid)
-        for cid in ("scream_shout", "animal", "baby_cry", "fall_suspect"):
+        for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact",
+                    "door_security", "fall_suspect"):
             self.assertFalse(is_allowed(ENTRANCE, cid), cid)
-
-    def test_always_on_categories_allowed_in_every_mode(self):
-        self.assertEqual(ALWAYS_ON, {"fire_alarm_siren", "glass_impact"})
-        for mode in (LIVING, ENTRANCE):
-            for cid in ALWAYS_ON:
-                self.assertTrue(is_allowed(mode, cid), (mode, cid))
 
     def test_unknown_mode_falls_back_to_living(self):
         self.assertTrue(is_allowed("kitchen", "scream_shout"))

@@ -140,8 +140,9 @@ class IntrusionWiringTest(unittest.TestCase):
         starts, mocks = self.run_pipeline([(True, "living", True)] * 4, sound=True, fall_frames=(2,))
         self.assertEqual(starts, [])
         emit = mocks["emit_deferred_vision_event"]
+        # 경비 ON 거실에서도 낙상을 감지하므로 침입(우선)과 낙상이 함께 보관된다
         self.assertEqual([call.args[2]["event_type"] for call in emit.call_args_list],
-                         ["intrusion_suspect"])
+                         ["intrusion_suspect", "fall_suspect"])
         self.assertEqual(emit.call_args_list[0].args[2]["score"], 0.9)
         mocks["publish_sound_clip"].assert_called_once()
 
@@ -170,15 +171,16 @@ class IntrusionWiringTest(unittest.TestCase):
     def test_camera_cleanup_on_error(self):
         self.run_pipeline([], failure=RuntimeError("camera failed"))
 
-    def test_fall_only_runs_when_unarmed_living(self):
+    def test_fall_runs_in_living_regardless_of_guard(self):
         for armed in (False, True):
             for mode in ("living", "entrance"):
                 with self.subTest(armed=armed, mode=mode):
                     starts, mocks = self.run_pipeline([(armed, mode, True)] * 2, fall_frames=(0,))
-                    expected = ["fall_suspect"] if not armed and mode == "living" else []
-                    self.assertEqual([kw["event_type"] for _, kw in starts], expected)
+                    types = [kw["event_type"] for _, kw in starts]
+                    # 낙상이 프레임 0에서 먼저 잡히므로 경비 ON/OFF 모두 낙상 녹화가 시작된다
+                    self.assertEqual(types, ["fall_suspect"] if mode == "living" else [])
                     self.assertEqual(mocks["FallDetector"].return_value.update.call_count,
-                                     2 if expected else 0)
+                                     2 if mode == "living" else 0)
 
     def test_entrance_events_are_independent_of_guard(self):
         for armed in (False, True):

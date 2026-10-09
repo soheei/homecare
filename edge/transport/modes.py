@@ -18,19 +18,16 @@ ENTRANCE = "entrance"
 DEFAULT_MODE = LIVING   # 백엔드 devices.mode 기본값. 첫 하트비트 응답 전·백엔드 연결 실패 시에도 이 모드로 동작
 
 # 모드별로 감지할 카테고리 (event_mapper.py / yamnet category_id 와 같은 이름)
+# 경비 ON/OFF와 무관한 목록이다. 경비가 켜질 때만 추가되는 감지(거실 침입)는 vision_pipeline이 따로 처리한다.
+# "문 열림"은 현관 경비 ON일 때 영상으로 감지할 예정(다른 팀원 작업)이라 마이크의 door_security는 어느 모드에도 넣지 않았다.
 MODE_CATEGORIES = {
-    LIVING: frozenset({"scream_shout", "animal", "baby_cry", "fire_alarm_siren", "fall_suspect"}),
-    ENTRANCE: frozenset({"door_visitor", "visitor_detected", "door_security", "delivery_suspect"}),
+    LIVING: frozenset({"scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect"}),
+    ENTRANCE: frozenset({"door_visitor", "visitor_detected", "delivery_suspect"}),
 }
-
-# 모드와 무관하게 항상 감지하는 안전 이벤트
-ALWAYS_ON = frozenset({"fire_alarm_siren", "glass_impact"})
 
 
 def is_allowed(mode: str, category_id: str) -> bool:
     """이 모드에서 category_id 이벤트를 만들어도 되는지. 알 수 없는 모드는 기본 모드로 취급."""
-    if category_id in ALWAYS_ON:
-        return True
     return category_id in MODE_CATEGORIES.get(mode, MODE_CATEGORIES[DEFAULT_MODE])
 
 

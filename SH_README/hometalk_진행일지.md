@@ -518,3 +518,10 @@
 - 결정과 이유: DB `type`은 둘 다 `visitor` 유지. `sound`로 바꾸면 "방문자 알림" 설정과 채팅 방문자 조회(`get_visitor_log`)에서 초인종이 빠진다. 구분은 `metadata.category_id`/description. 백엔드 변경 없음. YAMNet 규칙은 이미 노크(353)를 포함해 그대로 둠.
 - 테스트: `edge/tests` 66건, `vision/tests` 80건 통과. Pi 실기 미검증, 카메라 서비스 재시작 필요.
 - 남은 일: 웹 이벤트 화면의 아이콘·필터 구분, 기존 DB의 `door_visitor` 중 카메라 유래 이벤트는 정리하지 않음(`source`로만 구분 가능).
+
+### 거실/현관 감지 범위를 새 표로 정리 (경비 ON/OFF 반영)
+- 요청: 모드·경비별 영상/음성 감지 표를 코드와 맞추기. 확정 사항: 거실 마이크는 비명·고함, 유리 깨짐, 아기 울음, 반려동물, 경보음(경비와 무관), 낙상은 거실에서 경비 ON/OFF 모두 감지, 경비 ON일 때만 거실 침입·현관 문 열림(영상, 영상팀 구현 예정)이 추가된다.
+- 한 일: `modes.py`에서 `ALWAYS_ON` 삭제, 거실 목록에 `glass_impact` 추가, 현관 목록에서 `door_security` 제거(문 열림은 영상으로 대체). `vision_pipeline.py` 낙상 조건에서 `not armed` 제거. `edge/tests/test_modes.py`, `vision/tests/test_intrusion_wiring.py` 기대값 갱신.
+- 결정과 이유: 새 표의 현관 음성이 노크/초인종뿐이라 현관의 화재경보·유리 깨짐 상시 감지는 없앴다(표를 문자 그대로 따름). 현관에서도 필요하면 현관 목록에 추가하면 된다.
+- 검증: `edge/tests` 65건, `vision/tests` 80건 통과(로컬). Pi 실기 미검증, 카메라·마이크 서비스 재시작 필요.
+- 남은 일: 현관 경비 ON 영상 문 열림 감지(영상팀), 백엔드 `SECURITY_CATEGORIES`(`door_left_open`)와 이벤트 이름 일치 확인.

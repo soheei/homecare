@@ -1,3 +1,43 @@
+class FallPersonTracker:
+    """박스 겹침(IoU)으로 낙상 대상 한 명을 이어 본다. 모호하면 이력을 끊는다.
+
+    외형/신원 추적은 아니므로 겹치는 사람이나 큰 프레임 간 이동은 놓칠 수 있다.
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.previous = None
+
+    @staticmethod
+    def _iou(a, b):
+        width = max(0, min(a["x2"], b["x2"]) - max(a["x1"], b["x1"]))
+        height = max(0, min(a["y2"], b["y2"]) - max(a["y1"], b["y1"]))
+        intersection = width * height
+        area_a = max(0, a["x2"] - a["x1"]) * max(0, a["y2"] - a["y1"])
+        area_b = max(0, b["x2"] - b["x1"]) * max(0, b["y2"] - b["y1"])
+        union = area_a + area_b - intersection
+        return intersection / union if union > 0 else 0
+
+    def update(self, detections):
+        """(선택한 사람, 대상 변경 여부). 변경 시 낙상 이력을 초기화해야 한다."""
+        people = [d for d in detections if d["class_id"] == 0]
+        if not people:
+            self.reset()
+            return None, True
+        if self.previous is not None:
+            matches = [p for p in people if self._iou(self.previous, p) >= 0.1]
+            if len(matches) == 1:
+                self.previous = matches[0]
+                return self.previous, False
+            if len(matches) > 1:
+                self.reset()
+                return None, True
+        self.previous = max(people, key=lambda p: p["confidence"])
+        return self.previous, True
+
+
 class ActivityTracker:
     """
     화면 속 사람의 행동을 프레임 단위 상태로 추적한다.

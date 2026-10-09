@@ -13,7 +13,6 @@ from picamera2 import Picamera2
 from edge.transport.av_share import AVShare
 from edge.transport.config import load_config
 from edge.transport.emit import EventEmitter
-from edge.transport.modes import ModeState
 
 from . import camera_service
 from .yolo_detector import YOLODetector
@@ -22,8 +21,9 @@ from .visitor_detector import VisitorDetector
 from .delivery_detector import DeliveryDetector
 from .event_recorder import EventRecorder
 from .sound_clip_share import WaitingSoundRequests
+from .activity_tracker import FallPersonTracker
 from .intrusion_detector import (
-    GuardModeClient,
+    DetectionModeState,
     IntrusionDetector,
 )
 
@@ -93,9 +93,6 @@ INTRUSION_REQUIRED_FRAMES = 3
 # 사람이 5프레임 연속 사라지면
 # 다음 침입 이벤트를 감지할 수 있도록 초기화
 INTRUSION_MISSING_FRAMES_TO_RESET = 5
-
-# 앱의 경비 모드 상태 조회 간격
-GUARD_MODE_POLL_INTERVAL_SEC = 3
 
 # ==========================================
 # Storage
@@ -168,7 +165,7 @@ def emit_saved_event(
     """
 
     try:
-        return emitter.emit(
+        uid = emitter.emit(
             category_id=saved_event["event_type"],
             source="vision",
             score=saved_event.get("score"),
@@ -187,8 +184,12 @@ def emit_saved_event(
             occurred_at=saved_event["event_time"],
         )
 
-    finally:
-        # 원본 영상과 썸네일 삭제
+    except Exception:
+        # 큐 저장 예외에서는 원본을 보존하고 호출자에게 실패를 알린다.
+        logging.getLogger(__name__).exception("영상 큐 저장 실패: 원본 보존 %s", saved_event["video_path"])
+        raise
+    else:
+        # 정상 큐 저장 또는 의도적인 쿨다운 제외일 때만 정리한다.
         for key in (
             "video_path",
             "thumbnail_path",
@@ -201,6 +202,7 @@ def emit_saved_event(
                 )
             except OSError:
                 pass
+        return uid
 
 
 def publish_sound_clip(
@@ -497,14 +499,9 @@ def main():
     )
 
     # ==========================================
-    # Guard Mode Client
+    # Intrusion detector (경비 상태는 하트비트로 장소와 함께 수신)
     # ==========================================
 
-    guard_mode_client = GuardModeClient(
-        cfg,
-        poll_interval_sec=GUARD_MODE_POLL_INTERVAL_SEC,
-        request_timeout_sec=5,
-    )
     intrusion_detector = IntrusionDetector(
         required_frames=INTRUSION_REQUIRED_FRAMES,
         missing_frames_to_reset=INTRUSION_MISSING_FRAMES_TO_RESET,
@@ -519,6 +516,7 @@ def main():
         candidate_frames=FALL_CANDIDATE_FRAMES,
         movement_threshold=FALL_MOVEMENT_THRESHOLD,
     )
+    fall_person_tracker = FallPersonTracker()
 
     # ==================================
     # Visitor Detector
@@ -590,18 +588,7 @@ def main():
 
     # 카메라가 열린 후
     # 하트비트 서비스 시작
-    mode_state = ModeState()  # 거실/현관 모드 (하트비트 응답으로 갱신)
-
-    service_stops = camera_service.start(
-        cfg,
-        latest_frame,
-        interval_sec=(
-            settings[
-                "heartbeat_interval_sec"
-            ]
-        ),
-        mode_state=mode_state,
-    )
+    mode_state = DetectionModeState()  # 장소·경비를 동일 응답에서 함께 적용
 
     print("[CAMERA STARTED]")
     print("[YOLO STARTED]")
@@ -618,9 +605,16 @@ def main():
     print("Ctrl+C to stop")
 
     try:
-
-        guard_mode_client.start()
-        previous_mode = mode_state.mode
+        # 첫 응답이 프레임 미수신으로 지연되지 않도록 준비한다.
+        # 이 캡처가 실패해도 finally에서 카메라와 전송 스레드를 정리한다.
+        latest_frame.set(picam2.capture_array())
+        service_stops = camera_service.start(
+            cfg,
+            latest_frame,
+            interval_sec=settings["heartbeat_interval_sec"],
+            mode_state=mode_state,
+        )
+        previous_state = None
 
         while True:
 
@@ -703,18 +697,24 @@ def main():
             # ==================================
 
             # 프레임별 모드를 고정하고 전환 시 이전 장면의 감지 이력을 버린다.
-            current_mode = mode_state.mode
-            if current_mode != previous_mode:
+            current_state = mode_state.snapshot()
+            current_mode, armed = current_state or (None, False)
+            if current_state != previous_state:
                 fall_detector.reset()
-                visitor_detector.reset()
-                delivery_detector.reset()
-                previous_mode = current_mode
+                fall_person_tracker.reset()
+                # 경비만 바뀌면 현관 방문/택배의 진행 중 이력은 유지한다.
+                if previous_state is None or current_mode != previous_state[0]:
+                    visitor_detector.reset()
+                    delivery_detector.reset()
+                previous_state = current_state
 
-            fall_detected = (
-                fall_detector.update(
-                    person
-                )
-            )
+            fall_detected = False
+            fall_person = None
+            if current_mode == "living" and not armed:
+                fall_person, changed = fall_person_tracker.update(detections)
+                if changed:
+                    fall_detector.reset()
+                fall_detected = fall_detector.update(fall_person)
 
             # ==================================
             # 7. Visitor
@@ -745,9 +745,8 @@ def main():
             # 비활성 상태에도 호출해 이전 후보/중복 방지 상태를 초기화한다.
             intrusion_detected = intrusion_detector.update(
                 person,
-                guard_mode_client.is_armed() and current_mode == "living",
+                armed and current_mode == "living",
             )
-            fall_detected = fall_detected and current_mode == "living"
             visitor_detected = visitor_detected and current_mode == "entrance"
             if current_mode != "entrance":
                 delivery_score = None
@@ -762,7 +761,7 @@ def main():
             person_score = person["confidence"] if person is not None else None
             detected_events = [
                 ("intrusion_suspect", person_score, intrusion_detected),
-                ("fall_suspect", person_score, fall_detected),
+                ("fall_suspect", fall_person["confidence"] if fall_person else None, fall_detected),
                 ("delivery_suspect", delivery_score, delivery_score is not None),
                 ("door_visitor", person_score, visitor_detected),
             ]
@@ -802,8 +801,6 @@ def main():
     finally:
 
         print("[CLEANUP]")
-
-        guard_mode_client.stop()
 
         # ------------------------------
         # Camera service 종료

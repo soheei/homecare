@@ -8,9 +8,32 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+class DetectionModeState:
+    """영상용 모드 묶음. 유효한 하트비트 전에는 감지 정책을 확정하지 않는다."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._state = None
+
+    def snapshot(self):
+        with self._lock:
+            return self._state
+
+    def update_from_heartbeat(self, data):
+        # 부분 응답으로 새 장소와 이전 경비 상태를 섞지 않는다.
+        if not isinstance(data, dict) or data.get("success") is False:
+            return
+        mode, armed = data.get("mode"), data.get("securityArmed")
+        if mode not in ("living", "entrance") or not isinstance(armed, bool):
+            return
+        with self._lock:
+            self._state = (mode, armed)
+
+
 class GuardModeClient:
     """
-    백엔드에서 앱의 경비 모드 상태를 주기적으로 조회한다.
+    별도 경비 조회용 기존 클라이언트. 현재 vision main은 사용하지 않는다.
+    main은 DetectionModeState로 하트비트의 장소·경비 상태를 함께 적용한다.
 
     API 응답 형식:
     {

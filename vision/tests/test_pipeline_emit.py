@@ -1,4 +1,4 @@
-"""vision 이벤트 전송 후 Pi 원본(영상·썸네일) 정리 테스트 — 전송 결과와 상관없이 Pi에 남기지 않는다.
+"""vision 원본 정리: 큐 저장/쿨다운 제외 시 삭제, 큐 저장 예외 시 보존.
 실행: 저장소 루트에서 `python -m unittest discover -s vision/tests -t .`"""
 
 import sys
@@ -61,6 +61,15 @@ class EmitSavedEventTest(unittest.TestCase):
         self.assertIsNone(vp.emit_saved_event(self.emitter, self.saved_event("door_visitor"), "camera_01"))
         self.assertFalse(self.video.exists())
         self.assertFalse(self.thumb.exists())
+
+    def test_originals_preserved_when_enqueue_fails(self):
+        with mock.patch.object(self.emitter.outbox, "enqueue", side_effect=OSError("disk full")):
+            with self.assertLogs(vp.__name__, level="ERROR"):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    vp.emit_saved_event(self.emitter, self.saved_event(), "camera_01")
+        self.assertEqual(self.video.read_bytes(), b"video")
+        self.assertEqual(self.thumb.read_bytes(), b"jpg")
+        self.assertEqual(self.emitter.outbox.fetch_due(), [])
 
 
 class SoundRequestTest(unittest.TestCase):

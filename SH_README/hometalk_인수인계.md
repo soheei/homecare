@@ -1,7 +1,7 @@
 # HomeCare 서버 배포/인프라 인수인계 문서
 
 > 작성일시: 2026-08-30
-> 최근 수정일시: 2026-10-09 (거실/현관 감지 모드 + 경비 모드 섹션 추가 — `devices.mode`/`security_armed`, 하트비트 응답 `mode`, `PUT /api/devices/mode`, `GET /api/devices/:id/security-mode`, 홈 카메라 카드 UI, 경비 푸시 "침입 의심" / 이전 2026-10-05: 테스트 현황 실측 갱신 Jest 75/5·엣지 46·vision 42, 카메라 "YOLO 미구현" 기록 2곳을 vision 통합 사실로 정정 / 이전 2026-09-29: Pi Tailscale 재설정 확인·접속 정보, Pi에서 커밋 금지 운영 규칙 / vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-10-09 (origin/main d12fff4와 로컬 vision 수정 병합, 녹화 중 이벤트 보존·낙상 후보 취소·모드 전환 초기화·이력 길이 수정 / 거실/현관 감지 모드 + 경비 모드 섹션 추가 — `devices.mode`/`security_armed`, 하트비트 응답 `mode`, `PUT /api/devices/mode`, `GET /api/devices/:id/security-mode`, 홈 카메라 카드 UI, 경비 푸시 "침입 의심" / 이전 2026-10-05: 테스트 현황 실측 갱신 Jest 75/5·엣지 46·vision 42, 카메라 "YOLO 미구현" 기록 2곳을 vision 통합 사실로 정정 / 이전 2026-09-29: Pi Tailscale 재설정 확인·접속 정보, Pi에서 커밋 금지 운영 규칙 / vision 영상 Pi 원본 즉시 삭제, Storage `events` 버킷 없음(Bucket not found) 발견 / 이전 2026-09-28: 카메라 서비스를 vision 파이프라인으로 통합, 실기 테스트 TODO 문서 링크 추가, 이벤트 미디어 서명 URL — private 버킷, `GET /api/events`·`/:id` 응답만 / 엣지 폴더 재구성 — `edge/apps/`·`edge/transport/`, 실행 명령 `python -m edge.apps.xxx`로 변경, Pi systemd unit 재설치 필요 / 이전: 홈 카메라 카드·채팅 "현재 화면 보여줘" 실시간 캡처, 카메라 사진 촬영, 마이크/카메라 systemd 명령 정리)
 > #가장 최근 일시의 md를 우선시 할것.
 > 작성자: 양소희
 > 프로젝트: HomeCare — 백엔드(Render) / 프론트(Vercel) / 엣지(라즈베리파이) 배포·인프라
@@ -175,11 +175,11 @@ vision GuardModeClient ─ GET /api/devices/:id/security-mode (3초) ─→ {dat
 ```
 
 - **모드별 감지(`edge/transport/modes.py` `MODE_CATEGORIES`)**: 거실 = `scream_shout`·`animal`·`baby_cry`·`fire_alarm_siren`·`fall_suspect` / 현관 = `door_visitor`·`door_security`·`delivery_suspect`. `fire_alarm_siren`·`glass_impact`는 `ALWAYS_ON`(모드 무관). 모드에 안 맞는 이벤트는 **만들지 않고 버린다**(나중에 되살리지 않음). 바꾸려면 이 파일의 표만 수정.
-- **필터 위치**: 마이크 `edge/apps/stream_pipeline.py` `_handle_triggers`(녹음·영상 요청 전에 걸러짐), 카메라 `vision/vision_pipeline.py`(감지기는 계속 돌리고 이벤트로 만들기 직전에 `mode_state.allows()`로 거름). 모드 상태는 하트비트 응답으로만 받는다 — 반영 최대 20초 지연, 백엔드 연결 전·실패 시 기본값은 `living`·경비 꺼짐.
+- **필터 위치**: 마이크 `edge/apps/stream_pipeline.py` `_handle_triggers`(녹음·영상 요청 전에 걸러짐), 카메라 `vision/vision_pipeline.py`(프레임별 모드로 이벤트를 거르고 모드 전환 시 감지 이력을 초기화). 모드 상태는 하트비트 응답으로만 받는다 — 반영 최대 20초 지연, 백엔드 연결 전·실패 시 기본값은 `living`·경비 꺼짐.
 - **DB(수동 실행 완료)**: `devices.mode`(`living`|`entrance`, 기본 living), `devices.security_armed`(기본 false). 컬럼이 없어도 `getDeviceMode`가 기본값을 돌려줘 하트비트는 막히지 않지만, `PUT /api/devices/mode`는 컬럼이 있어야 저장된다. 경비 상태는 엣지가 하트비트로 읽어야 해서 `notification_preferences`가 아니라 `devices`에 둔다(옛 계획과 다름).
 - **경비 푸시**: `notification.service.js` `SECURITY_CATEGORIES`(`intrusion_suspect`, `door_left_open`) 이벤트는 해당 기기의 `security_armed`가 켜져 있을 때만, 알림 토글과 무관하게 "🚨 침입 의심"으로 발송한다. 경비가 꺼져 있으면 발송하지 않는다(이벤트 저장은 정상). 이 이름은 `edge/transport/event_mapper.py`·vision 이벤트와 일치해야 한다. 푸시 구독이 켜져 있어야 간다.
-- **경비 요구사항(사용자)**: 경비+거실 = 방 안에서 사람이 감지되면 위급 알림, 경비+현관 = 현관문이 5분간 닫히지 않으면(영상으로 판단) 위급 알림. 팀원이 `vision/intrusion_detector.py`(`GuardModeClient`·`IntrusionDetector`, 이벤트 `intrusion_suspect`)를 작업 중이며 **아직 `vision_pipeline.py`에 연결되지 않음**(2026-10-09 기준). `door_left_open`(문 열림 5분)은 영상팀 담당·미구현.
-- **팀원에게 전달할 것**: ① 침입 감지는 거실 모드에서만 켜도록 `IntrusionDetector.update(person, armed)`에 `guard_mode_client.is_armed() and mode_state.mode == "living"`를 넘길 것(`mode_state`는 `vision_pipeline.py`에 이미 있음) ② 문 열림 이벤트 `category_id`는 `door_left_open`으로 ③ vision 테스트 6건(`test_fall_detector.py` 5, `test_pipeline_emit.py` 1)이 팀원의 `FallDetector`/`detected_vision_event` 시그니처 변경 이후 옛 인자로 에러 중.
+- **경비 요구사항(사용자)**: 경비+거실 = 방 안에서 사람이 감지되면 위급 알림, 경비+현관 = 현관문이 5분간 닫히지 않으면(영상으로 판단) 위급 알림. `vision/intrusion_detector.py`의 `GuardModeClient`·`IntrusionDetector`를 파이프라인에 연결했으며 경비 ON + 거실 모드에서만 침입 감지를 활성화한다(2026-10-09 로컬 수정, 실행 검증 필요). `door_left_open`(문 열림 5분)은 영상팀 담당·미구현.
+- **남은 확인**: 문 열림 이벤트 category_id는 `door_left_open`으로 유지. 기존 시그니처 불일치 테스트는 로컬에서 수정했으며, 사용 가능한 Python 환경에서 전체 vision 테스트 재실행 필요.
 - 관련 코드: 백엔드 `device.service.js`(`getDeviceMode`·`setUserMode`), `device.controller.js`(`setMode`·`getSecurityMode`·하트비트 응답), `device.routes.js`, `notification.service.js`, 엣지 `edge/transport/modes.py`·`heartbeat.py`, `vision/camera_service.py`(`mode_state` 인자), 프론트 `HomeScreen.jsx`·`AppDataContext.jsx`(`setDeviceMode`)·`api.js`(`devices.setMode`), 테스트 `tests/device-mode.test.js`, `edge/tests/test_modes.py`, `vision/tests/test_mode_wiring.py`.
 - **반영 방법**: `main` push → Render·Vercel 자동 배포, Pi는 `git pull` 후 `sudo systemctl restart homecare-mic.service homecare-camera.service`(켜 둔 것만). 재시작 전 Pi는 모드와 무관하게 전부 감지한다. 배포 후 `/health`의 `environment`가 `production`인지, 토큰 없이 `PUT /api/devices/mode`가 401인지 확인.
 
@@ -213,6 +213,8 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 - 상세는 [`../edge/README.md`](../edge/README.md).
 
 ## 알려진 이슈 / 남은 일
+
+- **2026-10-09 vision 수정(로컬 코드 반영, 테스트·실기 확인 필요)**: 녹화 중 후속 이벤트를 종류별로 보관하고 원본 영상 정리 전에 같은 영상으로 각각 큐에 등록하도록 변경. 동시 침입·낙상도 모두 보관한다. 거실/현관 전환 시 낙상·방문자·택배 감지 이력을 초기화하며, 낙상 후보가 하강 전 높이로 복귀하면 취소한다. `history_frames` 설정을 실제 판정에 반영(최소 2). 관련 회귀 테스트 추가. 이 PC의 `python`은 WindowsApps 실행 별칭이며 일반/권한 확장 실행 모두 테스트 시작 실패: `python -m unittest discover -s vision/tests -t .`를 사용 가능한 Python 환경에서 재실행할 것. Pi 카메라·서버 연동 및 배포는 미검증.
 
 - **앱 TODO 9개 진행 현황(2026-10-05, 계획: 단계 1→2→3)**
   - **단계 1 완료(코드·단위 테스트까지, 배포·실기 미확인)**: 홈 위험 알림 = `type=danger`만 집계(`event.service.js` `getDailySummary`), 채팅방 이름 변경(`PATCH /api/chat/history/:id` + 서랍 ✏️), 아래로 당겨 새로고침·홈 ↻ 버튼(`web/src/lib/usePullToRefresh.js`, `AppDataContext.refreshAll`), 홈/설정 헤더 높이 통일(`min-h-[112px]`), 영상이 있으면 소리 플레이어 숨김(영상만 보기), 토큰 절감(히스토리 50→20, 도구 루프 5→3, 시스템 프롬프트 캐싱 `cache_control`, `usage` 로그).

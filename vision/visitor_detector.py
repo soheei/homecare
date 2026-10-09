@@ -27,6 +27,9 @@ class VisitorDetector:
             dwell_frames=required_frames,
         )
 
+    def reset(self):
+        self.tracker = ActivityTracker(dwell_frames=self.required_frames)
+
     def _inside_roi(
         self,
         person,

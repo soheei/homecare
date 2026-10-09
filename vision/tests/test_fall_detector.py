@@ -1,65 +1,67 @@
-"""FallDetector 2단계 판정 테스트 — 세로형→급하강→가로형(의심) 후 가로형이 required_frames 동안 유지돼야 낙상.
-실행: 저장소 루트에서 `python -m unittest discover -s vision/tests -t .`"""
-
+﻿"""현재 낙상 판정: 4프레임 급하강 후 연속 안정 프레임을 확인한다."""
 import contextlib
 import io
 import unittest
 
 from vision.fall_detector import FallDetector
 
-UPRIGHT = dict(width=40, height=100)  # 가로/세로 0.4
-LYING = dict(width=100, height=40)  # 가로/세로 2.5
-
-
-def person(center_y, shape):
-    return dict(center_y=center_y, **shape)
-
 
 class FallDetectorTest(unittest.TestCase):
     def setUp(self):
         self.detector = FallDetector(
-            vertical_threshold=25,
-            previous_aspect_threshold=0.9,
-            fall_aspect_threshold=1.3,
-            required_frames=3,
+            history_frames=4, drop_threshold=35,
+            candidate_frames=2, movement_threshold=8,
         )
 
-    def run_frames(self, frames):
-        with contextlib.redirect_stdout(io.StringIO()):  # [FALL CHECK] 출력 숨김
-            return [self.detector.update(p) for p in frames]
+    def run_frames(self, positions):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return [self.detector.update(None if y is None else {"center_y": y})
+                    for y in positions]
 
-    def test_fall_detected_after_lying_held(self):
-        results = self.run_frames([
-            person(100, UPRIGHT),
-            person(200, LYING),  # 의심 시작 (1)
-            person(200, LYING),  # 2
-            person(200, LYING),  # 3 → 낙상
-        ])
-        self.assertEqual(results, [False, False, False, True])
+    def test_fall_after_drop_and_two_stable_frames(self):
+        self.assertEqual(self.run_frames([100, 100, 100, 150, 150, 150]),
+                         [False, False, False, False, False, True])
 
-    def test_cancelled_when_getting_up(self):
-        results = self.run_frames([
-            person(100, UPRIGHT),
-            person(200, LYING),
-            person(200, LYING),
-            person(120, UPRIGHT),  # 다시 일어남 → 취소
-            person(120, UPRIGHT),
-        ])
-        self.assertNotIn(True, results)
+    def test_movement_restarts_stable_frame_count(self):
+        self.assertEqual(self.run_frames([100, 100, 100, 150, 150, 170, 170, 170]),
+                         [False] * 7 + [True])
 
-    def test_lying_without_drop_is_not_fall(self):
-        # 처음부터 누워 있는 사람(급하강 없음)은 낙상 아님
-        results = self.run_frames([person(200, LYING)] * 6)
-        self.assertNotIn(True, results)
+    def test_stationary_without_drop_is_not_fall(self):
+        self.assertNotIn(True, self.run_frames([200] * 8))
 
-    def test_walking_upright_is_not_fall(self):
-        results = self.run_frames([person(100 + i * 30, UPRIGHT) for i in range(6)])
-        self.assertNotIn(True, results)
+    def test_continuous_motion_is_not_fall(self):
+        self.assertNotIn(True, self.run_frames([100 + i * 30 for i in range(8)]))
 
-    def test_required_frames_one_detects_immediately(self):
-        self.detector.required_frames = 1
-        results = self.run_frames([person(100, UPRIGHT), person(200, LYING)])
-        self.assertEqual(results, [False, True])
+    def test_one_stable_frame_after_candidate(self):
+        self.detector.candidate_frames = 1
+        self.assertEqual(self.run_frames([100, 100, 100, 150, 150]),
+                         [False, False, False, False, True])
+
+    def test_missing_person_clears_candidate(self):
+        self.assertNotIn(True, self.run_frames([100, 100, 100, 150, None] + [150] * 6))
+
+    def test_drop_at_threshold_is_not_fall(self):
+        self.assertNotIn(True, self.run_frames([100, 100, 100, 135, 135, 135]))
+
+    def test_recovery_cancels_candidate(self):
+        self.assertNotIn(True, self.run_frames([100, 100, 100, 150, 100, 100, 100]))
+
+    def test_configured_history_lengths(self):
+        for length in (2, 3, 6):
+            with self.subTest(length=length):
+                self.detector = FallDetector(history_frames=length)
+                positions = [100] * (length - 1) + [150] * 3
+                self.assertEqual(self.run_frames(positions),
+                                 [False] * (len(positions) - 1) + [True])
+
+    def test_invalid_history_length(self):
+        with self.assertRaises(ValueError):
+            FallDetector(history_frames=1)
+
+    def test_reset_discards_candidate(self):
+        self.run_frames([100, 100, 100, 150])
+        self.detector.reset()
+        self.assertNotIn(True, self.run_frames([150] * 6))
 
 
 if __name__ == "__main__":

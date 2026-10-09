@@ -20,10 +20,7 @@ from .fall_detector import FallDetector
 from .visitor_detector import VisitorDetector
 from .delivery_detector import DeliveryDetector
 from .event_recorder import EventRecorder
-from .intrusion_detector import (
-    GuardModeClient,
-    IntrusionDetector,
-)
+
 
 # ==========================================
 # Camera
@@ -81,19 +78,6 @@ DOOR_ROI = (
 VISITOR_REQUIRED_FRAMES = 15
 DELIVERY_REQUIRED_FRAMES = 10
 
-# ==========================================
-# Intrusion
-# ==========================================
-
-# 5 FPS 기준으로 사람 3프레임 연속 감지
-INTRUSION_REQUIRED_FRAMES = 3
-
-# 사람이 5프레임 연속 사라지면
-# 다음 침입 이벤트를 감지할 수 있도록 초기화
-INTRUSION_MISSING_FRAMES_TO_RESET = 5
-
-# 앱의 경비 모드 상태 조회 간격
-GUARD_MODE_POLL_INTERVAL_SEC = 3
 
 # ==========================================
 # Storage
@@ -223,14 +207,13 @@ def publish_sound_clip(
         missing_ok=True
     )
 
+
 def detected_vision_event(
-    intrusion_detected,
     fall_detected,
     delivery_score,
     visitor_detected,
     person,
 ):
-
     """
     영상 이벤트 우선순위:
 
@@ -242,9 +225,6 @@ def detected_vision_event(
         if person is not None
         else None
     )
-
-    if intrusion_detected:
-        return "intrusion_suspect", person_score
 
     if fall_detected:
         return "fall_suspect", person_score
@@ -476,15 +456,6 @@ def main():
         confidence=YOLO_CONFIDENCE,
     )
 
-    # ==========================================
-    # Guard Mode Client
-    # ==========================================
-
-    guard_mode_client = GuardModeClient(
-        cfg,
-        poll_interval_sec=GUARD_MODE_POLL_INTERVAL_SEC,
-        request_timeout_sec=5,
-    )
     # ==================================
     # Fall Detector
     # ==================================

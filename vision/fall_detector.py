@@ -1,159 +1,170 @@
+from collections import deque
+
+
 class FallDetector:
     def __init__(
         self,
-        vertical_threshold=25,
-        previous_aspect_threshold=0.9,
-        fall_aspect_threshold=1.3,
-        required_frames=3,
+        history_frames=4,
+        drop_threshold=35,
+        candidate_frames=2,
+        movement_threshold=8,
     ):
-        self.previous = None
-
-        self.vertical_threshold = vertical_threshold
-
-        # 낙상 직전의 세로형 상태 기준
-        self.previous_aspect_threshold = (
-            previous_aspect_threshold
+        # 최근 center_y 저장
+        self.history = deque(
+            maxlen=history_frames
         )
 
-        # 낙상 후의 가로형 상태 기준
-        self.fall_aspect_threshold = (
-            fall_aspect_threshold
-        )
+        # 최근 몇 프레임 동안의 하강량
+        self.drop_threshold = drop_threshold
 
-        # 최종 자세가 몇 프레임 유지되어야 하는가
-        self.required_frames = required_frames
+        # 낙상 후보 후 안정 상태 확인 프레임
+        self.candidate_frames = candidate_frames
 
+        # 낙상 후 움직임이 이 값보다 작으면
+        # 움직임이 멈췄다고 판단
+        self.movement_threshold = movement_threshold
+
+        # 현재 낙상 후보 상태인지
+        self.fall_candidate = False
+
+        # 후보 상태가 몇 프레임 유지됐는지
         self.candidate_count = 0
 
     def update(self, person):
-        # 사람이 사라지면 상태 초기화
+        """
+        person:
+        {
+            "center_x": ...,
+            "center_y": ...,
+            "width": ...,
+            "height": ...,
+            "confidence": ...
+        }
+
+        반환:
+            True  -> 낙상 감지
+            False -> 정상
+        """
+
+        # -----------------------------------
+        # 사람이 사라짐
+        # -----------------------------------
+
         if person is None:
-            self.previous = None
+            self.history.clear()
+            self.fall_candidate = False
             self.candidate_count = 0
+
             return False
 
-        # 첫 번째 프레임
-        if self.previous is None:
-            self.previous = person
-            return False
-
-        # ---------------------------------
-        # 현재 위치 변화
-        # ---------------------------------
-
-        previous_y = self.previous["center_y"]
         current_y = person["center_y"]
 
-        dy = current_y - previous_y
+        # 현재 위치 저장
+        self.history.append(current_y)
 
-        # ---------------------------------
-        # 이전 프레임 자세
-        # ---------------------------------
+        # -----------------------------------
+        # 충분한 프레임이 모이지 않았으면
+        # 판단하지 않음
+        # -----------------------------------
 
-        previous_width = self.previous["width"]
-        previous_height = self.previous["height"]
-
-        if previous_height <= 0:
-            self.previous = person
-            self.candidate_count = 0
+        if len(self.history) < 4:
             return False
 
-        previous_ratio = (
-            previous_width / previous_height
-        )
+        # -----------------------------------
+        # 최근 구간의 하강량
+        # -----------------------------------
 
-        # ---------------------------------
-        # 현재 프레임 자세
-        # ---------------------------------
+        old_y = self.history[0]
 
-        width = person["width"]
-        height = person["height"]
+        drop = current_y - old_y
 
-        if height <= 0:
-            self.previous = person
-            self.candidate_count = 0
-            return False
+        # -----------------------------------
+        # 현재 프레임과 이전 프레임의 이동량
+        # -----------------------------------
 
-        current_ratio = width / height
+        previous_y = self.history[-2]
 
-        # ---------------------------------
-        # 조건 1
-        # 낙상 직전에는 세로형이어야 함
-        # ---------------------------------
+        frame_dy = current_y - previous_y
 
-        was_upright = (
-            previous_ratio
-            < self.previous_aspect_threshold
-        )
-
-        # ---------------------------------
-        # 조건 2
-        # 아래로 충분히 이동
-        # ---------------------------------
+        # -----------------------------------
+        # 1단계:
+        # 짧은 시간에 크게 아래로 이동
+        # -----------------------------------
 
         rapid_downward_motion = (
-            dy > self.vertical_threshold
+            drop > self.drop_threshold
         )
 
-        # ---------------------------------
-        # 조건 3
-        # 현재 몸이 확실히 가로형
-        # ---------------------------------
+        # -----------------------------------
+        # 낙상 후보가 아니라면
+        # -----------------------------------
 
-        horizontal_posture = (
-            current_ratio
-            > self.fall_aspect_threshold
-        )
+        if not self.fall_candidate:
 
-        # ---------------------------------
-        # 낙상 후보
-        # ---------------------------------
+            if rapid_downward_motion:
 
-        fall_candidate = (
-            was_upright
-            and rapid_downward_motion
-            and horizontal_posture
-        )
+                self.fall_candidate = True
+                self.candidate_count = 0
 
-        # 1단계: 세로형 → 급하강 → 가로형이면 낙상 의심 시작
-        # 2단계: 이후 가로형이 유지되는 프레임 수를 센다
-        # (다음 프레임부터는 직전 프레임이 이미 가로형이라
-        #  fall_candidate가 다시 참이 될 수 없으므로 따로 센다)
-        if fall_candidate:
-            self.candidate_count = 1
-        elif (
-            self.candidate_count > 0
-            and horizontal_posture
-        ):
-            self.candidate_count += 1
+                print(
+                    f"[FALL CANDIDATE] "
+                    f"drop={drop:.1f}, "
+                    f"frame_dy={frame_dy:.1f}"
+                )
+
+        # -----------------------------------
+        # 낙상 후보 상태
+        # -----------------------------------
+
         else:
-            # 다시 일어났으면 의심 취소
-            self.candidate_count = 0
 
-        # 다음 프레임과 비교하기 위해 저장
-        self.previous = person
+            # 낙상 직후 움직임이 크게 줄었는지 확인
+            movement_stopped = (
+                abs(frame_dy)
+                <= self.movement_threshold
+            )
+
+            if movement_stopped:
+
+                self.candidate_count += 1
+
+            else:
+
+                self.candidate_count = 0
+
+            # --------------------------------
+            # 일정 프레임 동안 움직임이
+            # 줄어들었다면 실제 낙상으로 판단
+            # --------------------------------
+
+            if (
+                self.candidate_count
+                >= self.candidate_frames
+            ):
+
+                self.fall_candidate = False
+                self.candidate_count = 0
+
+                print(
+                    "[FALL DETECTED] "
+                    f"drop={drop:.1f}"
+                )
+
+                # 다음 이벤트를 위해 초기화
+                self.history.clear()
+
+                return True
+
+        # -----------------------------------
+        # 디버깅 로그
+        # -----------------------------------
 
         print(
             f"[FALL CHECK] "
-            f"dy={dy:.1f}, "
-            f"prev_ratio={previous_ratio:.2f}, "
-            f"ratio={current_ratio:.2f}, "
-            f"candidate={fall_candidate}, "
+            f"drop={drop:.1f}, "
+            f"frame_dy={frame_dy:.1f}, "
+            f"candidate={self.fall_candidate}, "
             f"count={self.candidate_count}"
         )
-
-        # ---------------------------------
-        # 최종 낙상 판정
-        # ---------------------------------
-
-        if (
-            self.candidate_count
-            >= self.required_frames
-        ):
-            self.candidate_count = 0
-
-            print("[FALL DETECTED]")
-
-            return True
 
         return False

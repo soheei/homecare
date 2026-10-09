@@ -21,6 +21,7 @@ from .fall_detector import FallDetector
 from .visitor_detector import VisitorDetector
 from .delivery_detector import DeliveryDetector
 from .event_recorder import EventRecorder
+from .sound_clip_share import WaitingSoundRequests
 from .intrusion_detector import (
     GuardModeClient,
     IntrusionDetector,
@@ -323,10 +324,14 @@ def handle_sound_requests(
     recorder,
     frame,
     now,
+    waiting=None,
 ):
     """
     마이크 프로세스에서 들어온
     카메라 영상 녹화 요청을 처리한다.
+
+    waiting을 주면, 이미 녹화 중일 때 요청을 거절하지 않고
+    진행 중인 녹화가 끝난 뒤 같은 영상을 받도록 기다리게 한다.
     """
 
     started = None
@@ -341,6 +346,19 @@ def handle_sound_requests(
             now - float(trigger_time)
             > SOUND_REQUEST_MAX_AGE_SEC
         )
+
+        # 이미 녹화 중인데 늦지 않은 요청은 그 녹화 영상을 같이 쓴다
+        if waiting is not None and recorder.recording and not too_old:
+
+            print(
+                f"[SOUND REQUEST WAITING] "
+                f"{req.get('category_id')} "
+                "(sharing the recording in progress)"
+            )
+
+            waiting.add(req["id"])
+
+            continue
 
         # 이미 녹화 중이거나 너무 늦은 요청
         if recorder.recording or too_old:
@@ -463,6 +481,9 @@ def main():
     # ==================================
 
     av_share = AVShare()
+
+    # 녹화 중에 들어온 소리 이벤트 요청 (녹화가 끝나면 같은 영상을 받음)
+    waiting_sound_requests = WaitingSoundRequests()
 
     # 소리 이벤트 녹화 중 발생한
     # 영상 이벤트 보관
@@ -634,6 +655,13 @@ def main():
                 frame,
                 frame_time,
             )
+
+            # 녹화 중에 들어온 소리 이벤트 요청에 같은 영상 복사본 전달 (원본이 넘어가기 전에)
+            if saved_event is not None:
+                waiting_sound_requests.publish(
+                    av_share,
+                    saved_event["video_path"],
+                )
 
             # ==================================
             # 4. Saved Event
@@ -908,6 +936,7 @@ def main():
                 recorder,
                 frame,
                 frame_time,
+                waiting=waiting_sound_requests,
             )
 
     except KeyboardInterrupt:

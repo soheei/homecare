@@ -8,6 +8,12 @@ import CameraCaptureModal from '../components/CameraCaptureModal';
 
 const CAMERA_OFF_MESSAGE = '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.';
 
+// Pi가 1대라 같은 카메라·마이크의 감지 대상을 모드로 바꾼다 (서버 devices.mode 값과 같은 문자열)
+const DETECT_MODES = [
+  { value: 'living', label: '거실' },
+  { value: 'entrance', label: '현관' }
+];
+
 function greeting() {
   const h = new Date().getHours();
   if (h < 6) return '늦은 밤이네요 🌙';
@@ -19,12 +25,15 @@ function greeting() {
 export default function HomeScreen() {
   const { user } = useAuth();
   // 데이터/브리핑은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
-  const { home, loadHome, refreshAll, setDeviceStatus, briefing: briefingState, generateBriefing } = useAppData();
+  const { home, loadHome, refreshAll, setDeviceStatus, setDeviceMode, briefing: briefingState, generateBriefing } = useAppData();
   // 현재 카메라 화면: idle | loading | done | off | error — 결과는 "현재 집 상태" 모달로 표시
   const [capture, setCapture] = useState({ status: 'idle', data: null, error: '' });
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const closeCameraModal = useCallback(() => setCameraModalOpen(false), []);
   const capturingRef = useRef(false); // 연속 클릭 시 중복 요청 방지 (state 반영 전 두 번째 클릭까지 막음)
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeError, setModeError] = useState('');
+  const modeBusyRef = useRef(false);
 
   // 이미 불러온 상태면 loadHome()은 아무것도 하지 않음
   useEffect(() => {
@@ -46,6 +55,29 @@ export default function HomeScreen() {
   const micDevice = devices.find((d) => d.type === 'microphone');
   const deviceLabel = (d) => (!d ? '미등록' : d.status === 'online' ? '켜짐' : '꺼짐');
   const deviceColor = (d) => (d?.status === 'online' ? 'text-success' : 'text-ink-light');
+
+  const currentMode = cameraDevice?.mode === 'entrance' ? 'entrance' : 'living';
+  const securityArmed = cameraDevice?.security_armed === true;
+
+  /** 거실/현관 모드, 경비 켜기·끄기 — 화면에 먼저 반영하고 서버 저장이 실패하면 되돌린다 (Pi는 최대 20초 뒤 반영) */
+  const changeMode = async (patch) => {
+    if (modeBusyRef.current || !cameraDevice) return;
+    const before = { mode: currentMode, securityArmed };
+    modeBusyRef.current = true;
+    setModeBusy(true);
+    setModeError('');
+    setDeviceMode(patch);
+    try {
+      await api.devices.setMode(patch);
+    } catch (err) {
+      console.warn('[Home] set mode failed:', err);
+      setDeviceMode(before);
+      setModeError(err.status === 404 ? '모드를 바꿀 카메라/마이크가 등록돼 있지 않아요.' : '모드를 바꾸지 못했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      modeBusyRef.current = false;
+      setModeBusy(false);
+    }
+  };
 
   const initial = user?.email?.[0]?.toUpperCase() || '?';
 
@@ -88,7 +120,7 @@ export default function HomeScreen() {
   const cards = [
     {
       icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice),
-      onClick: openCameraModal, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›'
+      onClick: openCameraModal, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›', modeControls: true
     },
     { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
@@ -134,7 +166,55 @@ export default function HomeScreen() {
               {c.hint && <div className={`mt-1 text-[11px] font-semibold ${c.hintClass || 'text-brand-500'}`}>{c.hint}</div>}
             </>
           );
-          // 카메라 카드는 누르면 현재 화면 캡처 (촬영 중엔 비활성화)
+          // 카메라 카드: 윗부분을 누르면 현재 화면 캡처 + 아래에 거실/현관 모드·경비 버튼 (버튼 안에 버튼을 넣을 수 없어 분리)
+          if (c.modeControls) {
+            return (
+              <div key={c.label} className={cardClass}>
+                <button
+                  type="button"
+                  onClick={c.onClick}
+                  disabled={capturing}
+                  aria-label="카메라 현재 화면 보기"
+                  className="block w-full cursor-pointer text-left active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
+                >
+                  {body}
+                </button>
+
+                <div className="mt-3 border-t border-black/5 pt-3">
+                  <div role="group" aria-label="감지 모드" className="flex rounded-lg bg-brand-100 p-0.5">
+                    {DETECT_MODES.map((m) => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => currentMode !== m.value && changeMode({ mode: m.value })}
+                        disabled={!cameraDevice || modeBusy}
+                        aria-pressed={currentMode === m.value}
+                        className={`flex-1 rounded-md py-1.5 text-xs font-bold transition-colors disabled:opacity-60 ${
+                          currentMode === m.value ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-light'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => changeMode({ securityArmed: !securityArmed })}
+                    disabled={!cameraDevice || modeBusy}
+                    aria-pressed={securityArmed}
+                    className={`mt-2 w-full rounded-lg border py-1.5 text-xs font-bold transition-colors disabled:opacity-60 ${
+                      securityArmed ? 'border-danger/40 bg-danger/12 text-danger' : 'border-black/10 text-ink-light'
+                    }`}
+                  >
+                    🛡️ 경비 {securityArmed ? '켜짐' : '꺼짐'}
+                  </button>
+                  {modeError && <div className="mt-1.5 text-[11px] leading-snug text-danger">{modeError}</div>}
+                </div>
+              </div>
+            );
+          }
+
+          // 그 외 카드는 onClick이 있으면 버튼
           return c.onClick ? (
             <button
               key={c.label}

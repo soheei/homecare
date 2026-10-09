@@ -117,12 +117,12 @@ export default function EventsScreen() {
 
   return (
     <div>
-      <div className="grain-surface flex items-start justify-between bg-brand-600 px-5 pb-6 pt-6 text-white">
+      <div className="grain-surface flex min-h-[112px] items-center justify-between bg-brand-600 px-5 py-6 text-white">
         <div>
-          <div className="text-2xl font-bold tracking-tight">이벤트</div>
-          <div className="mt-1 text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
+          <div className="mb-1 text-2xl font-bold tracking-tight">이벤트</div>
+          <div className="text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
         </div>
-        <div className="mt-1 flex shrink-0 gap-2">
+        <div className="flex shrink-0 gap-2">
           {selectMode ? (
             <button
               type="button"

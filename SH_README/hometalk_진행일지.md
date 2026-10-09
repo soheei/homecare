@@ -1,6 +1,6 @@
 # HomeCare 서버 배포/인프라 진행일지
 
-> 최근 수정일시: 2026-10-05 (CLAUDE.md 정리·문서 정정·테스트 재검증 기록 추가 / 이전 2026-09-29: (Pi Remote-SSH 실패 원인 = 회선 속도, 카메라 서비스 TypeError = Pi 미push 커밋 → 낙상 2단계 판정으로 수정 / 낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
+> 최근 수정일시: 2026-10-09 (거실/현관 감지 모드 + 경비 모드 구현 기록, 팀원 vision 변경 병합 / 이전 2026-10-05: CLAUDE.md 정리·문서 정정·테스트 재검증 기록 추가 / 이전 2026-09-29: (Pi Remote-SSH 실패 원인 = 회선 속도, 카메라 서비스 TypeError = Pi 미push 커밋 → 낙상 2단계 판정으로 수정 / 낙상 영상 Storage 미저장 원인 = `events` 버킷 없음(Bucket not found), vision 영상 Pi 원본 즉시 삭제 / 이전 2026-09-28: 이벤트 미디어 서명 URL, 엣지 폴더 재구성 `edge/apps/`·`edge/transport/` / 이전: 홈/채팅 현재 화면 캡처 구현, 카메라 사진 촬영·DB 전송 스크립트 추가, 마이크/카메라 systemd 명령 정리)
 > 이 파일의 역할: **날짜별 작업 로그**(무엇을 했고, 무엇을 검증했고, 무엇을 발견했는지)만 기록.
 > 설계/계획/인계 항목 등 구조적인 내용은 `hometalk_인수인계.md`에 남기고,
 > 이 파일에는 실제로 실행한 작업과 그 결과만 시간순으로 append한다. 해결된 항목은 취소선 그어두어 업데이트한다.
@@ -445,3 +445,35 @@
   - 현재 시각을 캐시 지점 뒤에 둠: 시각이 본문 안에 있으면 매 요청마다 앞부분이 달라져 캐시가 절대 적중하지 않음.
 - 테스트: Jest **79 통과 / 5 실패**(실패 5건은 기존과 동일, 신규 실패 0). 새 테스트 4건(제목 변경 3건, 일일요약 위험 기준 1건) 추가, 기존 2건은 바뀐 동작(히스토리 20개, system 배열)에 맞게 수정. 웹 `npm run build` 통과. `web` lint(oxlint)는 이 PC에 네이티브 바인딩이 없어 실행 못 함(코드 문제 아님).
 - 미확인: 프롬프트 캐싱 실제 적중 여부(Haiku 최소 캐시 길이), 모바일 실기기에서의 당겨서 새로고침 동작·헤더 높이 육안 확인.
+
+## 2026-10-09
+
+### 거실/현관 감지 모드 + 경비 모드 (앱 TODO 단계 3) — 백엔드·엣지·웹 구현
+- 요구(사용자): Pi 1대라 거실/현관을 같은 Pi의 **감지 모드 전환**으로 구현. 거실 = 비명·고함·반려동물 울음·아기 울음·화재경보·낙상, 현관 = 초인종·노크·문 열고 닫힘·택배(·방문자). 화재경보·유리 깨짐은 모드와 무관하게 항상. 경비+거실 = 방 안 사람 감지 시 위급 알림, 경비+현관 = 문이 5분 넘게 안 닫히면(영상 판단) 위급 알림. 홈 카메라 카드 1개 안에 거실/현관/경비 버튼.
+- 대안과 결정:
+  - 경비 상태 저장 위치: 계획 문서(TODO §6)는 `notification_preferences.security_armed`였으나, 엣지가 하트비트로 읽어야 해서 **`devices.security_armed`**로 결정(`devices.mode`와 함께). 푸시 판단(`notifyEvent`)도 `event.device_id`로 이미 devices를 조회한다.
+  - 엣지 전달: 별도 폴링을 새로 만들지 않고 **하트비트 응답에 `{mode, securityArmed}`를 실음**(최대 20초 지연). 컬럼이 없거나 조회가 실패해도 하트비트를 막지 않도록 `getDeviceMode`가 기본값(거실·경비 꺼짐)을 돌려줌.
+  - 필터: `edge/transport/modes.py` 하나를 마이크·카메라가 공유. 마이크는 `_handle_triggers`에서 녹음·영상 요청 전에 거르고, 카메라는 감지기를 계속 돌린 채 이벤트로 만들기 직전에 거름(감지기 상태 유지).
+  - 모드 변경 API는 사용자의 **카메라+마이크 행을 함께 갱신**(두 프로세스가 별도 기기 행이라서).
+- 백엔드: `device.service.js`(`getDeviceMode`·`setUserMode`), `device.controller.js`(하트비트 응답에 모드, `setMode`, `getSecurityMode`), `device.routes.js`(`PUT /api/devices/mode`, `GET /api/devices/:id/security-mode`), `notification.service.js`(`SECURITY_CATEGORIES` 이벤트는 경비 ON일 때만 토글 무관 "🚨 침입 의심" 푸시), `database/schema.sql`(ALTER 2줄).
+- 엣지: `edge/transport/modes.py` 신규, `heartbeat.py`(응답 JSON을 `on_response` 콜백으로, 파싱 실패해도 하트비트는 성공 처리), `stream_pipeline.py`(마이크 필터), `event_mapper.py`(`intrusion_suspect` 추가). vision은 사용자 요청으로 **기존 줄을 건드리지 않고 줄 추가만**: `camera_service.py` +2줄, `vision_pipeline.py` +10줄.
+- 웹: `HomeScreen.jsx` 카메라 카드를 윗부분(현재 화면 촬영 버튼)과 아랫부분([거실][현관] 선택 + 🛡️ 경비 토글)으로 나눔(버튼 안에 버튼 불가). 낙관적 반영 후 저장 실패 시 되돌림. `AppDataContext.setDeviceMode`, `api.devices.setMode`.
+- 팀원 vision 변경 병합: 팀원이 같은 시기에 `vision/intrusion_detector.py`(경비 모드: `GuardModeClient`가 3초마다 `GET /api/devices/:id/security-mode` 호출 → `data.armed_mode`, 이벤트 `intrusion_suspect`)와 `FallDetector` 재작성을 push함(`569a6d3`). 우리 이름(`intruder_suspect`, 하트비트 `securityArmed`)과 어긋나 **백엔드를 팀원 쪽에 맞춤**: `security-mode` API 추가, 카테고리 이름 `intrusion_suspect`. `git pull` 시 `vision_pipeline.py` 한 곳(`camera_service.start` 호출부)이 충돌 → stash 후 pull, 팀원 코드 유지하고 `mode_state` 인자만 합쳐 해결.
+- 아기 울음: 처음엔 어느 모드에도 없어 꺼졌으나 사용자 결정으로 거실 모드에 포함.
+- 검증: 신규 테스트 — Jest `tests/device-mode.test.js` 11건(하트비트 응답 모드, `PUT /mode` 인증·검증·404, `security-mode` 응답·403, 경비 ON/OFF 푸시), 엣지 `test_modes.py` 15건(모드별 허용, ModeState, 하트비트 응답 파싱·오류 내성, 마이크 필터, 이벤트 스펙), vision `test_mode_wiring.py` 2건. 결과: Jest **90 통과/5 실패**(기존 5건 그대로), 엣지 **61 통과**, vision 44개 중 **6건 에러**, 웹 `npm run build` 통과·lint 에러 0.
+- ~~vision 에러 6건~~은 이번 변경이 아니라 팀원의 시그니처 변경(`FallDetector.__init__`의 `vertical_threshold` 제거 5건, `detected_vision_event`에 `intrusion_detected` 인자 추가 1건)으로 옛 테스트가 깨진 것 — 팀원 수리 대기.
+- 운영 DB: 사용자가 Supabase SQL Editor에서 `devices.mode`·`devices.security_armed` ALTER 실행 완료.
+- 미완료/확인 필요:
+  - push → Render·Vercel 배포, Pi `git pull` + `homecare-mic`/`homecare-camera` 서비스 재시작 후 실기 확인(`hometalk_테스트_TODO.md` §6 단계 3). 재시작 전 Pi는 모드와 무관하게 전부 감지.
+  - 팀원 `GuardModeClient.start()`·`IntrusionDetector`가 `vision_pipeline.py`에 아직 연결 안 됨 — 연결 시 거실 모드에서만 켜도록 `guard_mode_client.is_armed() and mode_state.mode == "living"` 전달 요청.
+  - `door_left_open`(문 5분 열림, 영상 판단)은 영상팀 담당·미구현.
+  - 카메라 카드가 커져 같은 줄의 마이크 카드가 늘어남 — 모바일 폭 육안 확인 필요.
+
+### 소리 이벤트에 영상 함께 전송 — 녹화 중 요청 거절 → 진행 중인 영상 공유 (앱 TODO 단계 2)
+- 증상(사용자): 소리 이벤트가 소리(wav)만 전송되는 경우가 있음. 영상이 있으면 영상 하나만 재생해 영상 속 소리가 들리게.
+- 확인: 마이크→영상 요청→vision 녹화(소리 합성)→wav와 함께 전송하는 경로는 이미 구현돼 있음(`stream_pipeline.py` `_request_video`, `vision_pipeline.py` `handle_sound_requests`). 영상 없이 가는 원인 후보: ① 카메라 서비스 꺼짐(`vision_alive`) ② 요청이 3초 넘게 늦음(`SOUND_REQUEST_MAX_AGE_SEC`) ③ **녹화기가 이미 다른 이벤트를 녹화 중이면 요청을 거절(`busy`)** → 소리만 전송. Pi 로그에서 어느 쪽인지는 아직 미확인(`[SOUND REQUEST REJECTED] … (busy|too old)`, `영상 못 받음`).
+- 대안: 요청 유효시간 완화(원인 ②만 해결) / 녹화 끝난 뒤 다시 시작(소리 순간을 놓침) / **녹화 중이면 그 녹화 영상을 같이 쓰기(선택 — 마이크도 vision도 구조 변경 없이 ③ 해결)**.
+- 수정: `vision/sound_clip_share.py` 신규(`WaitingSoundRequests` — 기다리는 요청 id 기억, 녹화가 끝나면 요청마다 영상 **복사본**을 넘김. 마이크가 받은 영상을 전송 후 지우기 때문). `vision/vision_pipeline.py`는 줄 추가만: import, `handle_sound_requests(..., waiting=None)`에서 busy이면서 늦지 않은 요청은 거절 대신 대기, `recorder.update()` 직후 대기 요청에 영상 전달(원본이 넘어가기 전). `waiting`을 안 주면 예전처럼 거절(기존 동작 호환), too old는 그대로 거절.
+- 재생: 별도 수정 없음. 영상(`video_url`)이 있으면 소리 플레이어를 숨기고 영상만 재생(2026-10-05, 이벤트 목록·상세 모달·채팅 카드) — 영상에 마이크 소리가 합성돼 있어 같이 들림.
+- 검증: `vision/tests/test_sound_clip_share.py` 6건 신규(대기·복사본 전달·요청별 별도 복사본·too old 거절 유지·기본 호환·복사 실패 시 영상 없음 응답) 통과. vision 50개 중 6건 에러는 팀원 `FallDetector`/`detected_vision_event` 시그니처 변경으로 인한 기존 에러(이번 변경과 무관).
+- 미확인: Pi 실기(낙상 녹화 중 비명 → 한 이벤트로 영상+소리 전송 / 연달아 두 소리 이벤트), 원인 ①②는 로그 확인 후 필요하면 별도 대응(① 카메라 서비스를 켜 둬야 영상이 붙음).

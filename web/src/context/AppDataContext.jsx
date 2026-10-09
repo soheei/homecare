@@ -113,6 +113,23 @@ export function AppDataProvider({ children }) {
       : prev));
   }, []);
 
+  /** 감지 모드/경비 상태를 홈 카드에 반영 — 서버는 마이크·카메라를 함께 바꾸므로 둘 다 갱신 */
+  const setDeviceMode = useCallback(({ mode, securityArmed }) => {
+    const patch = {
+      ...(mode !== undefined && { mode }),
+      ...(securityArmed !== undefined && { security_armed: securityArmed })
+    };
+    setHome((prev) => (prev.data
+      ? {
+        ...prev,
+        data: {
+          ...prev.data,
+          devices: prev.data.devices.map((d) => (d.type === 'camera' || d.type === 'microphone' ? { ...d, ...patch } : d))
+        }
+      }
+      : prev));
+  }, []);
+
   const generateBriefing = useCallback(async () => {
     setBriefing((prev) => ({ ...prev, status: 'loading', error: '' }));
     try {
@@ -124,7 +141,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   return (
-    <AppDataContext.Provider value={{ home, loadHome, refreshAll, setDeviceStatus, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
+    <AppDataContext.Provider value={{ home, loadHome, refreshAll, setDeviceStatus, setDeviceMode, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
       {children}
     </AppDataContext.Provider>
   );

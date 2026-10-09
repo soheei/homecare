@@ -90,6 +90,12 @@ export const api = {
         body: JSON.stringify(device)
       }),
     getStatus: (id) => request(`/api/devices/${id}/status`),
+    // 거실/현관 감지 모드, 경비 모드 변경 — { mode?: 'living'|'entrance', securityArmed?: boolean } (마이크·카메라 함께 적용)
+    setMode: (patch) =>
+      request('/api/devices/mode', {
+        method: 'PUT',
+        body: JSON.stringify(patch)
+      }),
     // 라즈베리파이 카메라로 실제 촬영 → { captureId, imageUrl, capturedAt, ... } (촬영이 끝날 때까지 기다림)
     requestCapture: (id) =>
       request(`/api/devices/${id}/capture`, { method: 'POST' }),

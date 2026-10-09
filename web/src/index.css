@@ -74,8 +74,12 @@ input {
 }
 
 .grain-surface > * {
-  position: relative;
   z-index: 1;
+}
+
+/* absolute 장식(헤더의 흐린 원 등)까지 relative로 바꾸면 레이아웃 높이를 차지해 헤더가 커진다 */
+.grain-surface > *:not(.absolute) {
+  position: relative;
 }
 
 @keyframes fade-in {

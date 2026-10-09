@@ -66,7 +66,7 @@ class LatestFrame:
         return buf.tobytes(), None
 
 
-def start(cfg, latest, interval_sec=20.0):
+def start(cfg, latest, interval_sec=20.0, mode_state=None):
     """하트비트 + 캡처 요청 대기 스레드 시작. 멈출 때 set()할 stop 이벤트 목록을 반환.
 
     cfg: 카메라 기기 id가 들어간 edge Config
@@ -80,6 +80,7 @@ def start(cfg, latest, interval_sec=20.0):
         timeout=cfg.request_timeout,
         should_send=latest.is_fresh,
         get_metrics=lambda: {"hardware_detected": True, "pipeline": "vision"},
+        on_response=mode_state.update_from_heartbeat if mode_state is not None else None,
     )
 
     _, capture_stop = camera_monitor.start_capture_listener(

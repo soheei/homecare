@@ -96,13 +96,78 @@ const updateHeartbeat = async (req, res, next) => {
 
     await deviceService.updateHeartbeat(id, { status, metrics });
 
+    // 엣지가 다음 하트비트(최대 20초)부터 이 모드로 감지 대상을 바꾼다
+    const { mode, securityArmed } = await deviceService.getDeviceMode(id);
+
     res.json({
       success: true,
-      message: 'Heartbeat updated'
+      message: 'Heartbeat updated',
+      mode,
+      securityArmed
     });
 
   } catch (error) {
     logger.error('[Device] Error updating heartbeat:', error);
+    next(error);
+  }
+};
+
+/**
+ * [Edge] 경비 모드 상태 조회 — vision GuardModeClient가 3초마다 폴링 (응답: data.armed_mode)
+ */
+const getSecurityMode = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (req.device?.id !== id) {
+      return res.status(403).json({ success: false, error: 'Device id mismatch' });
+    }
+
+    const { securityArmed } = await deviceService.getDeviceMode(id);
+
+    res.json({
+      success: true,
+      data: { armed_mode: securityArmed }
+    });
+
+  } catch (error) {
+    logger.error('[Device] Error fetching security mode:', error);
+    next(error);
+  }
+};
+
+/**
+ * 거실/현관 모드, 경비 모드 변경 — 로그인 사용자의 마이크·카메라 기기에 함께 적용
+ */
+const setMode = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const { mode, securityArmed } = req.body || {};
+
+    if (mode !== undefined && !deviceService.VALID_MODES.includes(mode)) {
+      return res.status(400).json({
+        success: false,
+        error: `mode must be one of: ${deviceService.VALID_MODES.join(', ')}`
+      });
+    }
+    if (securityArmed !== undefined && typeof securityArmed !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'securityArmed must be a boolean' });
+    }
+    if (mode === undefined && securityArmed === undefined) {
+      return res.status(400).json({ success: false, error: 'mode or securityArmed is required' });
+    }
+
+    const updated = await deviceService.setUserMode(userId, { mode, securityArmed });
+    if (updated === 0) {
+      return res.status(404).json({ success: false, error: '모드를 바꿀 카메라/마이크 기기가 없습니다.' });
+    }
+
+    res.json({
+      success: true,
+      data: { ...(mode !== undefined && { mode }), ...(securityArmed !== undefined && { securityArmed }) }
+    });
+
+  } catch (error) {
+    logger.error('[Device] Error setting mode:', error);
     next(error);
   }
 };
@@ -247,6 +312,8 @@ module.exports = {
   registerDevice,
   getDeviceStatus,
   updateHeartbeat,
+  setMode,
+  getSecurityMode,
   requestCapture,
   getCaptureImage,
   pollCaptureRequest,

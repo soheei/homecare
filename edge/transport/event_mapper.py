@@ -37,6 +37,8 @@ SPECS = {
     "fire_alarm_siren":      EventSpec("경보음/사이렌", "danger", "danger", 10),
     "glass_impact":          EventSpec("파손/충격음", "danger", "danger", 10),
     "fall_suspect":          EventSpec("낙상 의심", "danger", "danger", 10),  # 카메라 전용(소리 쪽은 꺼짐)
+    # 경비 모드 + 거실에서 카메라가 사람을 감지(vision/intrusion_detector.py). 앱 푸시는 백엔드가 "침입 의심"으로 발송
+    "intrusion_suspect":     EventSpec("침입 의심", "danger", "danger", 30),
     # 주의
     "baby_cry":              EventSpec("아기 울음", "sound", "warning", 30),
     "scream_shout":          EventSpec("비명 및 고함", "sound", "warning", 30),

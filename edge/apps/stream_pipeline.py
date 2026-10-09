@@ -64,6 +64,7 @@ from ..transport.config import ConfigError, load_config
 from ..transport.emit import EventEmitter
 from ..transport import heartbeat
 from ..transport.av_share import AVShare
+from ..transport.modes import ModeState
 
 log = logging.getLogger("edge.stream_pipeline")
 
@@ -200,8 +201,10 @@ class StreamPipeline:
         infer_fn: Callable = infer,
         av_share: Optional[AVShare] = None,
         clock: Callable[[], float] = time.monotonic,
+        mode_state: Optional[ModeState] = None,
     ):
         self.model = model
+        self.mode_state = mode_state  # None이면 모드 필터 없음(wav 파일 테스트 모드, 유닛 테스트)
         self.class_names = class_names
         self.emitter = emitter
         self.source = source
@@ -238,6 +241,9 @@ class StreamPipeline:
                 continue
             cid = result.category_id
             if cid in AUDIO_DISABLED_CATEGORIES:
+                continue
+            # 거실/현관 모드에 속하지 않는 소리는 이벤트·녹음·영상 요청 모두 만들지 않음
+            if self.mode_state is not None and not self.mode_state.allows(cid):
                 continue
             # 같은 소리가 이어지는 동안 녹음 중인 클립을 또 만들지 않음 / 쿨다운 중이면 녹음할 필요도 없음
             if cid in self._pending_clips or not self.emitter.can_emit(cid, SOURCE):
@@ -408,10 +414,14 @@ def main() -> int:
 
     # 마이크 파이프라인이 살아있는 동안(--wav-file 테스트 모드 제외) 하트비트 전송
     # → 홈 화면의 "마이크 켜짐/꺼짐" 표시가 이 값을 근거로 계산됨(device.service.js HEARTBEAT_STALE_MS)
+    # 하트비트 응답에 실려 오는 거실/현관 모드로 감지할 소리를 거른다(wav 테스트 모드는 필터 없음)
     hb_thread = hb_stop = None
+    mode_state = None
     if not args.wav_file:
+        mode_state = ModeState()
         hb_thread, hb_stop = heartbeat.start_background(
-            cfg.backend_url, cfg.device_id, cfg.device_secret, interval_sec=HEARTBEAT_INTERVAL_SEC
+            cfg.backend_url, cfg.device_id, cfg.device_secret, interval_sec=HEARTBEAT_INTERVAL_SEC,
+            on_response=mode_state.update_from_heartbeat,
         )
 
     hop_samples = int(round(HOP_SEC * TARGET_SAMPLE_RATE))
@@ -430,7 +440,7 @@ def main() -> int:
         except OSError as e:
             log.warning("카메라 연동 공유 폴더 생성 실패(%s) — 소리 이벤트는 wav만 전송", e)
 
-    pipeline = StreamPipeline(model, class_names, emitter, source, av_share=av_share)
+    pipeline = StreamPipeline(model, class_names, emitter, source, av_share=av_share, mode_state=mode_state)
     log.info("스트리밍 시작 (Ctrl+C로 종료)")
     try:
         pipeline.run()

@@ -116,6 +116,59 @@ const updateHeartbeat = async (deviceId, { status, metrics }) => {
   }
 };
 
+// 거실/현관 감지 모드 + 경비 모드 (devices.mode / devices.security_armed)
+const VALID_MODES = ['living', 'entrance'];
+const DEFAULT_MODE_STATE = { mode: 'living', securityArmed: false };
+
+/**
+ * 기기의 감지 모드 조회 — 하트비트 응답에 실려 엣지로 전달된다.
+ * 운영 DB에 컬럼이 아직 없거나 조회가 실패해도 하트비트 자체는 막지 않도록 기본값을 돌려준다.
+ */
+const getDeviceMode = async (deviceId) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('devices')
+      .select('mode, security_armed')
+      .eq('id', deviceId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return { ...DEFAULT_MODE_STATE };
+
+    return {
+      mode: VALID_MODES.includes(data.mode) ? data.mode : DEFAULT_MODE_STATE.mode,
+      securityArmed: data.security_armed === true
+    };
+
+  } catch (error) {
+    logger.warn(`[DeviceService] Could not read device mode (${deviceId}): ${error.message}`);
+    return { ...DEFAULT_MODE_STATE };
+  }
+};
+
+/**
+ * 사용자의 마이크·카메라 기기 전체에 모드/경비 상태 저장.
+ * Pi가 1대라 마이크와 카메라가 별도 프로세스(별도 기기 행)여도 같은 모드로 움직여야 한다.
+ * @returns 갱신된 기기 수
+ */
+const setUserMode = async (userId, { mode, securityArmed }) => {
+  const changes = {};
+  if (mode !== undefined) changes.mode = mode;
+  if (securityArmed !== undefined) changes.security_armed = securityArmed;
+
+  const { data, error } = await supabaseAdmin
+    .from('devices')
+    .update(changes)
+    .eq('user_id', userId)
+    .in('type', ['camera', 'microphone'])
+    .select('id');
+
+  if (error) throw error;
+
+  logger.info(`[DeviceService] Mode updated for ${data?.length || 0} devices: ${JSON.stringify(changes)}`);
+  return data?.length || 0;
+};
+
 const deleteDevice = async (deviceId, userId) => {
   try {
     const { error } = await supabaseAdmin
@@ -140,5 +193,8 @@ module.exports = {
   registerDevice,
   getDeviceStatus,
   updateHeartbeat,
+  getDeviceMode,
+  setUserMode,
+  VALID_MODES,
   deleteDevice
 };

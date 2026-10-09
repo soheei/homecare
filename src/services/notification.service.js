@@ -5,6 +5,11 @@
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 const pushService = require('./push.service');
+const deviceService = require('./device.service');
+
+// 경비 모드에서 엣지가 보내는 침입 의심 이벤트의 metadata.category_id (event_mapper.py와 일치해야 함)
+const SECURITY_CATEGORIES = ['intrusion_suspect', 'door_left_open'];
+const SECURITY_TITLE = '🚨 침입 의심';
 
 const DEFAULT_PREFS = { danger: true, visitor: true, motion: false, sound: true, briefing: true };
 
@@ -94,8 +99,15 @@ const notifyEvent = async (event) => {
 
     if (deviceError || !device?.user_id) return;
 
-    const prefs = await getPreferences(device.user_id);
-    if (!prefs[prefKey]) return;
+    // 경비 모드 침입 의심 이벤트: 경비가 켜져 있을 때만, 알림 토글과 무관하게 발송
+    const isSecurityEvent = SECURITY_CATEGORIES.includes(event.metadata?.category_id);
+    if (isSecurityEvent) {
+      const { securityArmed } = await deviceService.getDeviceMode(event.device_id);
+      if (!securityArmed) return;
+    } else {
+      const prefs = await getPreferences(device.user_id);
+      if (!prefs[prefKey]) return;
+    }
 
     const { data: subs, error: subError } = await supabaseAdmin
       .from('push_subscriptions')
@@ -105,7 +117,7 @@ const notifyEvent = async (event) => {
     if (subError || !subs?.length) return;
 
     const payload = {
-      title: NOTIFY_TITLES[prefKey] || 'HOME-TALK 알림',
+      title: isSecurityEvent ? SECURITY_TITLE : (NOTIFY_TITLES[prefKey] || 'HOME-TALK 알림'),
       body: event.description,
       eventId: event.id,
       dangerLevel: event.danger_level
@@ -134,5 +146,6 @@ module.exports = {
   removeSubscription,
   getPreferences,
   savePreferences,
-  notifyEvent
+  notifyEvent,
+  SECURITY_CATEGORIES
 };

@@ -13,6 +13,7 @@ from picamera2 import Picamera2
 from edge.transport.av_share import AVShare
 from edge.transport.config import load_config
 from edge.transport.emit import EventEmitter
+from edge.transport.modes import ModeState
 
 from . import camera_service
 from .yolo_detector import YOLODetector
@@ -566,6 +567,8 @@ def main():
 
     # 카메라가 열린 후
     # 하트비트 서비스 시작
+    mode_state = ModeState()  # 거실/현관 모드 (하트비트 응답으로 갱신)
+
     service_stops = camera_service.start(
         cfg,
         latest_frame,
@@ -574,6 +577,7 @@ def main():
                 "heartbeat_interval_sec"
             ]
         ),
+        mode_state=mode_state,
     )
 
     print("[CAMERA STARTED]")
@@ -743,6 +747,12 @@ def main():
                     frame=frame,
                 )
             )
+
+            # 현재 모드(거실/현관)에 속하지 않는 감지는 이벤트로 만들지 않음
+            fall_detected = fall_detected and mode_state.allows("fall_suspect")
+            visitor_detected = visitor_detected and mode_state.allows("door_visitor")
+            if not mode_state.allows("delivery_suspect"):
+                delivery_score = None
 
             # ==================================
             # 9. Vision Event Priority

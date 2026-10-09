@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS devices (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 기존 DB 보정: 거실/현관 감지 모드 + 경비 모드 (운영 Supabase SQL Editor에서 이 두 줄만 따로 실행)
+-- mode: 'living'(거실) | 'entrance'(현관), 하트비트 응답으로 엣지에 전달됨
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'living' CHECK (mode IN ('living', 'entrance'));
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS security_armed BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 

@@ -31,6 +31,18 @@ router.get('/', authenticateUser, deviceController.getDevices);
 router.post('/register', authenticateUser, deviceController.registerDevice);
 
 /**
+ * PUT /api/devices/mode
+ * 거실/현관 감지 모드, 경비 모드 변경 (body: { mode?, securityArmed? })
+ */
+router.put('/mode', authenticateUser, deviceController.setMode);
+
+/**
+ * GET /api/devices/:id/security-mode
+ * 경비 모드 켜짐 여부 (Edge Device vision이 주기적으로 조회)
+ */
+router.get('/:id/security-mode', authenticateDevice, deviceController.getSecurityMode);
+
+/**
  * GET /api/devices/:id/status
  * 디바이스 상태 조회
  */

@@ -4,6 +4,7 @@ import { TextBlock } from './MarkdownText';
 import { AlertCard, DeviceStatusCard, EventList, ResponsiveTable, StatCard } from './ChatCards';
 import CaptureImage from '../CaptureImage';
 import EventMediaCard from './EventMediaCard';
+import Icon from '../Icon';
 
 /**
  * AI 응답 한 개 렌더링
@@ -83,7 +84,7 @@ export default function AiMessage({ text, time }) {
   return (
     <div data-role="ai-message" className="flex w-full min-w-0 items-end gap-2">
       <div className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs text-white">
-        🤖
+        <Icon name="spark" size={14} />
       </div>
       <div className="flex min-w-0 max-w-[calc(100%-2.25rem)] flex-1 flex-col items-start gap-2">
         {segments.map((seg, i) => {

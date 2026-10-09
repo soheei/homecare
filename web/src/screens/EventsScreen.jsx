@@ -2,17 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppData } from '../context/AppDataContext';
 import { EVENT_ICON, RISK_FROM_LEVEL, formatRelativeTime, hasPlayableMedia } from '../lib/eventDisplay';
 import EventMediaModal from '../components/EventMediaModal';
+import Icon from '../components/Icon';
+import ScreenHeader, { HeaderButton } from '../components/ScreenHeader';
 
 const FILTERS = [
   { key: 'all', label: '전체' },
-  { key: 'high', label: '🔴 높음' },
-  { key: 'mid', label: '🟡 중간' },
-  { key: 'low', label: '🟢 낮음' }
+  { key: 'high', label: '높음', dot: 'bg-danger' },
+  { key: 'mid', label: '중간', dot: 'bg-warning' },
+  { key: 'low', label: '낮음', dot: 'bg-success' }
 ];
 
 const RISK_TO_LEVEL = { high: 'danger', mid: 'warning', low: 'normal' };
-
-const HEADER_BUTTON = 'flex h-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white/70 transition-transform active:scale-90';
 
 function CheckCircle({ checked }) {
   return (
@@ -22,11 +22,7 @@ function CheckCircle({ checked }) {
         checked ? 'border-brand-600 bg-brand-600 text-white' : 'border-black/20 bg-white'
       }`}
     >
-      {checked && (
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5 12l5 5L20 7" />
-        </svg>
-      )}
+      {checked && <Icon name="check" size={13} strokeWidth={3.5} />}
     </span>
   );
 }
@@ -117,63 +113,22 @@ export default function EventsScreen() {
 
   return (
     <div>
-      <div className="grain-surface flex min-h-[112px] items-center justify-between bg-brand-600 px-5 py-6 text-white">
-        <div>
-          <div className="mb-1 text-2xl font-bold tracking-tight">이벤트</div>
-          <div className="text-sm opacity-80">감지된 활동을 한눈에 확인하세요</div>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {selectMode ? (
-            <button
-              type="button"
-              onClick={exitSelectMode}
-              disabled={bulkDeleting}
-              className={`${HEADER_BUTTON} px-4 text-[13px] font-semibold text-white disabled:opacity-60`}
-            >
-              취소
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setSelectMode(true)}
-              disabled={events.length === 0}
-              aria-label="이벤트 삭제"
-              className={`${HEADER_BUTTON} w-9 disabled:opacity-40`}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18" />
-                <path d="M8 6V4h8v2" />
-                <path d="M19 6l-1 14H6L5 6" />
-                <path d="M10 11v6M14 11v6" />
-              </svg>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={refreshing || bulkDeleting}
-            aria-label="이벤트 새로고침"
-            className={`${HEADER_BUTTON} w-9 disabled:opacity-60`}
-          >
-            <svg
-              className={refreshing ? 'animate-spin' : ''}
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-              <path d="M21 3v6h-6" />
-            </svg>
-          </button>
-        </div>
-      </div>
+      <ScreenHeader
+        title="이벤트"
+        subtitle="감지된 활동을 한눈에 확인하세요"
+        right={
+          <>
+            {selectMode ? (
+              <HeaderButton text="취소" onClick={exitSelectMode} disabled={bulkDeleting} />
+            ) : (
+              <HeaderButton icon="trash" label="이벤트 삭제" onClick={() => setSelectMode(true)} disabled={events.length === 0} />
+            )}
+            <HeaderButton icon="refresh" label="이벤트 새로고침" onClick={handleRefresh} disabled={refreshing || bulkDeleting} spin={refreshing} />
+          </>
+        }
+      />
 
-      <div className="sticky top-0 z-[5] border-b border-black/5 bg-white/90 backdrop-blur-lg">
+      <div className="sticky top-0 z-[5] bg-[#f7f8fa]/90 backdrop-blur-lg">
         <div className="flex gap-2 overflow-x-auto px-5 py-3.5">
           {FILTERS.map((f) => {
             const active = filter === f.key;
@@ -181,10 +136,11 @@ export default function EventsScreen() {
               <button
                 key={f.key}
                 onClick={() => changeFilter(f.key)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-semibold transition-all active:scale-95 ${
-                  active ? 'bg-brand-600 text-white shadow-md shadow-brand-900/25' : 'bg-[#f2f4f6] text-ink hover:bg-[#e9ecef]'
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-4 py-2 text-[13px] font-semibold transition-all active:scale-95 ${
+                  active ? 'border-brand-600 bg-brand-600 text-white' : 'border-black/[0.07] bg-white text-ink hover:bg-brand-50'
                 }`}
               >
+                {f.dot && <span className={`h-2 w-2 rounded-full ${f.dot}`} />}
                 {f.label}
               </button>
             );
@@ -210,7 +166,7 @@ export default function EventsScreen() {
         {loading && <div className="text-sm text-ink-light">불러오는 중...</div>}
         {error && <div className="text-sm text-danger">{error}</div>}
         {!loading && !error && filtered.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-black/10 bg-white/60 py-8 text-center text-sm text-ink-light">
+          <div className="rounded-[20px] border border-dashed border-black/10 bg-white/60 py-8 text-center text-sm text-ink-light">
             해당 조건의 이벤트가 없습니다.
           </div>
         )}
@@ -231,22 +187,21 @@ export default function EventsScreen() {
               tabIndex={playable ? 0 : undefined}
               aria-checked={selectMode ? checked : undefined}
               aria-label={playable ? `${e.description} 재생` : undefined}
-              className={`mb-3 flex gap-3.5 rounded-2xl border bg-white p-4 shadow-sm shadow-brand-900/[0.04] transition-transform ${
+              className={`mb-3 flex gap-3.5 rounded-[20px] border-[1.5px] bg-white p-3.5 shadow-lg shadow-brand-900/[0.06] transition-colors ${
                 selectMode || playable ? 'cursor-pointer active:scale-[0.99]' : ''
-              } ${selectMode ? '' : 'hover:-translate-y-0.5'} ${checked ? 'border-brand-400 bg-brand-50' : 'border-black/5'}`}
-              style={{ borderLeft: `4px solid ${risk.border}` }}
+              } ${checked ? 'border-brand-500 bg-brand-50' : e.danger_level === 'danger' ? 'border-danger/40' : 'border-black/[0.07]'}`}
             >
               {selectMode && (
                 <div className="flex items-center">
                   <CheckCircle checked={checked} />
                 </div>
               )}
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>
-                {disp.icon}
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ background: disp.bg, color: disp.fg }}>
+                <Icon name={disp.icon} size={22} />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center">
-                  <span className="text-[15px] font-semibold text-ink">{e.description}</span>
+                  <span className="text-[15px] font-bold text-ink [overflow-wrap:anywhere]">{e.description}</span>
                   <span
                     className="ml-2 inline-block rounded-[10px] px-2.5 py-[3px] text-[11px] font-bold"
                     style={{ background: risk.badgeBg, color: risk.badgeColor }}
@@ -260,10 +215,10 @@ export default function EventsScreen() {
                 {hasPlayableMedia(e) && (
                   <div className="mt-2 flex gap-1.5">
                     {e.video_url && (
-                      <span className="rounded-md bg-brand-50 px-2 py-[3px] text-[11px] font-semibold text-brand-600">▶ 영상</span>
+                      <span className="flex items-center gap-1 rounded-md bg-brand-100 px-2 py-[3px] text-[11px] font-semibold text-brand-600"><Icon name="play" size={11} />영상</span>
                     )}
                     {!e.video_url && e.audio_url && (
-                      <span className="rounded-md bg-brand-50 px-2 py-[3px] text-[11px] font-semibold text-brand-600">🔊 소리</span>
+                      <span className="flex items-center gap-1 rounded-md bg-brand-100 px-2 py-[3px] text-[11px] font-semibold text-brand-600"><Icon name="volume" size={11} />소리</span>
                     )}
                   </div>
                 )}
@@ -275,9 +230,9 @@ export default function EventsScreen() {
                   onKeyDown={(ev) => ev.stopPropagation()}
                   disabled={deletingId === e.id}
                   aria-label="이벤트 삭제"
-                  className="h-7 w-7 shrink-0 self-start rounded-full text-lg leading-none text-ink-light transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center self-start rounded-full text-ink-light transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50"
                 >
-                  ×
+                  <Icon name="close" size={15} />
                 </button>
               )}
             </div>
@@ -293,7 +248,7 @@ export default function EventsScreen() {
             type="button"
             onClick={() => handleBulkDelete()}
             disabled={bulkDeleting || events.length === 0}
-            className="flex-1 rounded-xl border border-danger/30 bg-white py-3 text-[14px] font-bold text-danger transition-transform active:scale-[0.98] disabled:opacity-40"
+            className="flex-1 rounded-2xl border border-danger/30 bg-white py-3 text-[14px] font-bold text-danger transition-transform active:scale-[0.98] disabled:opacity-40"
           >
             전체 삭제
           </button>
@@ -301,7 +256,7 @@ export default function EventsScreen() {
             type="button"
             onClick={() => handleBulkDelete([...selected])}
             disabled={bulkDeleting || selected.size === 0}
-            className="flex-1 rounded-xl bg-danger py-3 text-[14px] font-bold text-white transition-transform active:scale-[0.98] disabled:opacity-40"
+            className="flex-1 rounded-2xl bg-danger py-3 text-[14px] font-bold text-white transition-transform active:scale-[0.98] disabled:opacity-40"
           >
             {bulkDeleting ? '삭제 중...' : `선택 삭제${selected.size ? ` (${selected.size})` : ''}`}
           </button>

@@ -97,13 +97,13 @@ const updateHeartbeat = async (req, res, next) => {
     await deviceService.updateHeartbeat(id, { status, metrics });
 
     // 엣지가 다음 하트비트(최대 20초)부터 이 모드로 감지 대상을 바꾼다
-    const { mode, securityArmed } = await deviceService.getDeviceMode(id);
+    // 조회 실패(null)면 모드 필드를 생략 — 엣지는 마지막 정상 설정을 유지한다
+    const modeState = await deviceService.getDeviceMode(id);
 
     res.json({
       success: true,
       message: 'Heartbeat updated',
-      mode,
-      securityArmed
+      ...(modeState && { mode: modeState.mode, securityArmed: modeState.securityArmed })
     });
 
   } catch (error) {
@@ -122,11 +122,14 @@ const getSecurityMode = async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Device id mismatch' });
     }
 
-    const { securityArmed } = await deviceService.getDeviceMode(id);
+    const modeState = await deviceService.getDeviceMode(id);
+    if (!modeState) {
+      return res.status(503).json({ success: false, error: 'Device mode unavailable' });
+    }
 
     res.json({
       success: true,
-      data: { armed_mode: securityArmed }
+      data: { armed_mode: modeState.securityArmed }
     });
 
   } catch (error) {

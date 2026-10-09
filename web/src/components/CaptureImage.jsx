@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api';
+import Icon from './Icon';
 
 /**
  * 카메라 캡처 이미지 (홈 "현재 화면" 카드 + 채팅 이미지 메시지 공용)
@@ -61,7 +62,7 @@ export default function CaptureImage({ src, alt = '현재 카메라 화면', cap
       )}
       {state.status === 'error' && (
         <div className="flex aspect-video w-full items-center justify-center bg-brand-50 px-4 text-center text-[13px] text-ink-light">
-          📷 {state.error}
+          <span className="flex items-center justify-center gap-1.5"><Icon name="camera" size={15} />{state.error}</span>
         </div>
       )}
       {/* 원본 비율 유지, 세로로 너무 길어지지 않게 제한 */}
@@ -91,7 +92,7 @@ export default function CaptureImage({ src, alt = '현재 카메라 화면', cap
             aria-label="닫기"
             className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-lg text-white"
           >
-            ✕
+            <Icon name="close" size={18} />
           </button>
         </div>,
         document.body

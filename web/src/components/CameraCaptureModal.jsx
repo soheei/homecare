@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import CaptureImage from './CaptureImage';
+import Icon from './Icon';
 
 /**
  * 홈 카메라 카드 → "현재 집 상태" 팝업
@@ -46,7 +47,7 @@ export default function CameraCaptureModal({ open, capture, onClose, onRetry }) 
         className="flex max-h-[calc(100dvh-40px)] w-full max-w-[400px] animate-fade-in flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center gap-3 px-5 pb-3 pt-5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-500/8 text-lg">📷</div>
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-500"><Icon name="camera" size={20} /></div>
           <div id="camera-capture-title" className="min-w-0 flex-1 text-[17px] font-bold text-ink">현재 집 상태</div>
           <button
             type="button"
@@ -54,7 +55,7 @@ export default function CameraCaptureModal({ open, capture, onClose, onRetry }) 
             aria-label="닫기"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
 
@@ -78,7 +79,7 @@ export default function CameraCaptureModal({ open, capture, onClose, onRetry }) 
 
           {(status === 'error' || status === 'off') && (
             <div className="flex flex-col items-center rounded-2xl bg-brand-50 px-5 py-8 text-center">
-              <div className="mb-3 text-[28px]">{status === 'off' ? '📴' : '⚠️'}</div>
+              <Icon name={status === 'off' ? 'camera' : 'alert'} size={28} className={`mb-3 ${status === 'off' ? 'text-ink-light' : 'text-danger'}`} />
               <p className={`m-0 mb-5 text-[13px] leading-relaxed ${status === 'off' ? 'text-ink-light' : 'text-danger'}`}>{error}</p>
               <button
                 type="button"

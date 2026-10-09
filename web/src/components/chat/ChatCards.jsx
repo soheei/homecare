@@ -1,4 +1,5 @@
 import { InlineText } from './MarkdownText';
+import Icon from '../Icon';
 
 /**
  * AI 응답의 구조화 블록용 카드 UI
@@ -42,10 +43,10 @@ function SectionTitle({ title }) {
 
 function deviceIcon({ kind, name }) {
   const s = `${kind} ${name}`.toLowerCase();
-  if (/카메라|camera|캠/.test(s)) return { icon: '📷', bg: 'bg-brand-500/8' };
-  if (/마이크|mic|respeaker|오디오/.test(s)) return { icon: '🎙️', bg: 'bg-brand-400/10' };
-  if (/센서|sensor/.test(s)) return { icon: '📡', bg: 'bg-brand-400/10' };
-  return { icon: '🔌', bg: 'bg-brand-100' };
+  if (/카메라|camera|캠/.test(s)) return { icon: 'camera', bg: 'bg-brand-100' };
+  if (/마이크|mic|respeaker|오디오/.test(s)) return { icon: 'mic', bg: 'bg-brand-100' };
+  if (/센서|sensor/.test(s)) return { icon: 'signal', bg: 'bg-brand-100' };
+  return { icon: 'plug', bg: 'bg-brand-100' };
 }
 
 export function DeviceStatusCard({ title, devices }) {
@@ -58,7 +59,7 @@ export function DeviceStatusCard({ title, devices }) {
           const meta = [d.kind, d.location].filter(Boolean).join(' · ');
           return (
             <div key={i} data-block="device-card" className={`flex items-start gap-3 p-3.5 ${CARD}`}>
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg ${bg}`}>{icon}</div>
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-brand-500 ${bg}`}><Icon name={icon} size={20} /></div>
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{d.name || '이름 없는 장치'}</div>
                 {meta && <div className="mt-0.5 text-[13px] text-ink-light [overflow-wrap:anywhere]">{meta}</div>}
@@ -84,7 +85,7 @@ export function EventList({ title, events }) {
         {events.map((e, i) => (
           <div key={i} data-block="event-row" className="px-3.5 py-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 text-xs text-ink-light [overflow-wrap:anywhere]">🕐 {e.time}</span>
+              <span className="flex min-w-0 items-center gap-1 text-xs text-ink-light [overflow-wrap:anywhere]"><Icon name="clock" size={12} />{e.time}</span>
               {e.status && <StatusBadge status={e.status} size="sm" />}
             </div>
             <div className="mt-1 text-[14px] font-medium leading-snug text-ink [overflow-wrap:anywhere]">{e.description}</div>
@@ -129,7 +130,7 @@ export function AlertCard({ tone, title, body }) {
       className={`rounded-2xl border px-4 py-3.5 ${danger ? 'border-danger/25 bg-danger/[0.06]' : 'border-warning/30 bg-warning/[0.08]'}`}
     >
       <div className={`flex items-start gap-2 text-[14.5px] font-bold leading-snug ${danger ? 'text-danger' : 'text-[#93601F]'}`}>
-        <span className="shrink-0">{danger ? '🚨' : '⚠️'}</span>
+        <Icon name="alert" size={18} className="mt-px" />
         <span className="min-w-0 [overflow-wrap:anywhere]"><InlineText text={title} /></span>
       </div>
       {body.length > 0 && (

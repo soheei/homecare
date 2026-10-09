@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useChat } from '../context/ChatContext';
 import { useAuth } from '../context/AuthContext';
 import { formatRelativeTime } from '../lib/eventDisplay';
+import Icon from './Icon';
 
 /**
  * 채팅 기록 서랍 (Claude 모바일 앱처럼 왼쪽에서 열림)
@@ -100,7 +101,7 @@ export default function ChatHistoryDrawer({ open, onClose }) {
               aria-label="닫기"
               className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-ink-light transition-colors hover:bg-black/[0.04]"
             >
-              ✕
+              <Icon name="close" size={18} />
             </button>
           </div>
 

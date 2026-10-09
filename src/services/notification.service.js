@@ -102,8 +102,9 @@ const notifyEvent = async (event) => {
     // 경비 모드 침입 의심 이벤트: 경비가 켜져 있을 때만, 알림 토글과 무관하게 발송
     const isSecurityEvent = SECURITY_CATEGORIES.includes(event.metadata?.category_id);
     if (isSecurityEvent) {
-      const { securityArmed } = await deviceService.getDeviceMode(event.device_id);
-      if (!securityArmed) return;
+      // 조회 실패(null)면 경비 ON으로 간주해 발송 — 침입 알림을 놓치는 쪽이 더 위험하다
+      const modeState = await deviceService.getDeviceMode(event.device_id);
+      if (modeState && !modeState.securityArmed) return;
     } else {
       const prefs = await getPreferences(device.user_id);
       if (!prefs[prefKey]) return;

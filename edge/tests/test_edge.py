@@ -1,6 +1,7 @@
 """엣지 전송 모듈 단위 테스트 — 실행: 저장소 루트에서 `python -m unittest discover -s edge/tests -t .`"""
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,6 +138,54 @@ class OutboxTest(unittest.TestCase):
             box.mark_sent(row)
             self.assertTrue(src.exists())
 
+    def test_second_copy_failure_cleans_first_copy_but_keeps_originals(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            video, thumb = Path(tmp) / "clip.mp4", Path(tmp) / "clip.jpg"
+            video.write_bytes(b"mp4")
+            thumb.write_bytes(b"jpg")
+            box = Outbox(Path(tmp) / "data")
+            real_copy = shutil.copy2
+            calls = []
+
+            def flaky(src, dest, *a, **k):
+                calls.append(dest)
+                if len(calls) == 2:
+                    raise OSError("disk full")
+                return real_copy(src, dest, *a, **k)
+
+            with mock.patch("edge.transport.outbox.shutil.copy2", side_effect=flaky):
+                with self.assertRaises(OSError):
+                    box.enqueue("u1", {"type": "visitor"}, {"video": str(video), "image": str(thumb)})
+            self.assertEqual(list(box.attach_dir.iterdir()), [])  # 첫 복사본 정리됨
+            self.assertEqual(box.counts(), {"pending": 0, "dead": 0})  # 미완성 행 없음
+            self.assertTrue(video.exists() and thumb.exists())  # 원본 보존
+
+    def test_db_insert_failure_cleans_copies_but_keeps_originals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "clip.mp4"
+            video.write_bytes(b"mp4")
+            box = Outbox(Path(tmp) / "data")
+            with self.assertRaises(TypeError):  # JSON 직렬화 불가 payload → INSERT 전 단계 실패
+                box.enqueue("u1", {"bad": object()}, {"video": str(video)})
+            self.assertEqual(list(box.attach_dir.iterdir()), [])
+            self.assertEqual(box.counts(), {"pending": 0, "dead": 0})
+            self.assertTrue(video.exists())
+
+    def test_duplicate_uid_failure_does_not_delete_existing_queue_copy(self):
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "clip.mp4"
+            video.write_bytes(b"mp4")
+            box = Outbox(Path(tmp) / "data")
+            box.enqueue("u1", {"type": "visitor"}, {"video": str(video)})
+            with self.assertRaises(sqlite3.IntegrityError):
+                box.enqueue("u1", {"type": "visitor"}, {"video": str(video)})
+            (row,) = box.fetch_due()
+            self.assertTrue(Path(row["attachments"][0]["path"]).is_file())
+
     def test_survives_restart_and_rejects_bad_attachment(self):
         with tempfile.TemporaryDirectory() as tmp:
             Outbox(Path(tmp)).enqueue("u1", {"type": "sound"})
@@ -240,6 +289,33 @@ class EmitterTest(unittest.TestCase):
             sent = datetime.fromisoformat(em.outbox.fetch_due()[0]["payload"]["timestamp"])
             self.assertIsNotNone(sent.tzinfo)
             self.assertEqual(sent, naive.astimezone())  # 같은 순간(로컬 시각 기준)이어야 함
+
+    def test_queue_failure_restores_cooldown_so_retry_works(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            em = EventEmitter(make_cfg(tmp))
+            with mock.patch.object(em.outbox, "enqueue", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    em.emit("door_visitor", source="yamnet", score=0.9)
+            self.assertTrue(em.can_emit("door_visitor", "yamnet"))  # 쿨다운이 남지 않음
+            self.assertIsNotNone(em.emit("door_visitor", source="yamnet", score=0.9))  # 즉시 재시도 성공
+            self.assertIsNone(em.emit("door_visitor", source="yamnet", score=0.9))  # 정상 저장 후엔 중복 방지
+
+    def test_queue_failure_keeps_earlier_cooldown_mark(self):
+        from unittest import mock
+
+        now = [100.0]
+        with tempfile.TemporaryDirectory() as tmp:
+            em = EventEmitter(make_cfg(tmp))
+            em._cooldown = Cooldown(clock=lambda: now[0])
+            em.emit("glass_impact", source="yamnet", score=0.9)
+            cooldown = event_mapper.get_spec("glass_impact").cooldown_sec
+            now[0] += cooldown + 1  # 쿨다운 끝난 뒤 새 이벤트의 저장이 실패
+            with mock.patch.object(em.outbox, "enqueue", side_effect=OSError("x")):
+                with self.assertRaises(OSError):
+                    em.emit("glass_impact", source="yamnet", score=0.9)
+            self.assertTrue(em.can_emit("glass_impact", "yamnet"))
 
     def test_log_only_and_unknown_are_not_queued(self):
         with tempfile.TemporaryDirectory() as tmp:

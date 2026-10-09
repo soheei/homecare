@@ -5,12 +5,15 @@
  * - notifyEvent: 침입 의심 이벤트는 경비가 켜져 있을 때만, 알림 토글과 무관하게 발송
  */
 
-const mockModeState = { mode: 'living', securityArmed: false };
+const mockModeState = { mode: 'living', securityArmed: false, failed: false };
 const mockSetUserMode = jest.fn();
 jest.mock('../src/services/device.service', () => ({
   VALID_MODES: ['living', 'entrance'],
   updateHeartbeat: jest.fn(async () => true),
-  getDeviceMode: jest.fn(async () => ({ ...mockModeState })),
+  // 조회 실패는 null (실제 서비스와 동일)
+  getDeviceMode: jest.fn(async () => (mockModeState.failed
+    ? null
+    : { mode: mockModeState.mode, securityArmed: mockModeState.securityArmed })),
   setUserMode: (...args) => mockSetUserMode(...args),
   getDevices: jest.fn(async () => []),
   getDeviceStatus: jest.fn(async () => null)
@@ -65,6 +68,7 @@ const notificationService = require('../src/services/notification.service');
 beforeEach(() => {
   mockModeState.mode = 'living';
   mockModeState.securityArmed = false;
+  mockModeState.failed = false;
   mockSetUserMode.mockReset().mockResolvedValue(2);
   mockSend.mockClear();
   for (const k of Object.keys(mockTables)) delete mockTables[k];
@@ -80,6 +84,23 @@ describe('POST /api/devices/:id/heartbeat', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ success: true, mode: 'entrance', securityArmed: true });
   });
+
+  it('모드 조회가 실패하면 mode/securityArmed를 생략 (경비 OFF로 오인되지 않게)', async () => {
+    mockModeState.securityArmed = true;
+    mockModeState.failed = true;
+
+    const res = await request(app).post('/api/devices/cam-1/heartbeat').set('X-Device-Id', 'cam-1').send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body).not.toHaveProperty('mode');
+    expect(res.body).not.toHaveProperty('securityArmed');
+
+    // 이후 정상 조회에서는 최신 설정이 다시 실림
+    mockModeState.failed = false;
+    const ok = await request(app).post('/api/devices/cam-1/heartbeat').set('X-Device-Id', 'cam-1').send({});
+    expect(ok.body).toMatchObject({ mode: 'living', securityArmed: true });
+  });
 });
 
 describe('GET /api/devices/:id/security-mode (vision GuardModeClient)', () => {
@@ -93,6 +114,15 @@ describe('GET /api/devices/:id/security-mode (vision GuardModeClient)', () => {
 
     mockModeState.securityArmed = false;
     expect((await get('cam-1')).body.data.armed_mode).toBe(false);
+  });
+
+  it('모드 조회가 실패하면 armed_mode:false 대신 503', async () => {
+    mockModeState.securityArmed = true;
+    mockModeState.failed = true;
+    const res = await get('cam-1');
+    expect(res.status).toBe(503);
+    expect(res.body.success).toBe(false);
+    expect(res.body).not.toHaveProperty('data');
   });
 
   it('다른 기기 id로 조회하면 403', async () => {
@@ -169,6 +199,15 @@ describe('notifyEvent — 경비 모드 침입 의심 푸시', () => {
     await notificationService.notifyEvent(event('door_left_open'));
 
     expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it('경비 상태 조회가 실패하면 침입 알림을 놓치지 않도록 발송', async () => {
+    setup({ danger: false, visitor: false, motion: false, sound: false, briefing: false });
+    mockModeState.failed = true;
+
+    await notificationService.notifyEvent(event('intrusion_suspect'));
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
   it('일반 위험 이벤트는 기존처럼 알림 토글을 따름 (경비 상태와 무관)', async () => {

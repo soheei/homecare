@@ -1,8 +1,10 @@
+import Icon from './Icon';
+
 const TABS = [
-  { icon: '🏠', label: '홈' },
-  { icon: '💬', label: '채팅' },
-  { icon: '📋', label: '이벤트' },
-  { icon: '⚙️', label: '설정' }
+  { icon: 'home', label: '홈' },
+  { icon: 'chat', label: '채팅' },
+  { icon: 'list', label: '이벤트' },
+  { icon: 'settings', label: '설정' }
 ];
 
 /** @param {boolean} hidden - 채팅 입력 중(모바일 키보드가 떠 있음)이면 숨겨 입력창만 키보드 위에 남김 */
@@ -17,10 +19,16 @@ export default function BottomNav({ tab, setTab, hidden = false }) {
             key={t.label}
             onClick={() => setTab(i)}
             aria-current={active ? 'page' : undefined}
-            className="flex flex-1 flex-col items-center justify-center gap-0.5 border-none bg-transparent transition-transform active:scale-95"
+            className="flex flex-1 flex-col items-center justify-center gap-1 border-none bg-transparent transition-transform active:scale-95"
           >
-            <span className={`text-[22px] transition-transform ${active ? 'scale-110' : ''}`}>{t.icon}</span>
-            <span className={`text-[11px] font-semibold transition-colors ${active ? 'text-brand-500' : 'text-ink-light'}`}>
+            <span
+              className={`flex h-8 w-14 items-center justify-center rounded-full transition-colors ${
+                active ? 'bg-brand-100 text-brand-600' : 'text-ink-light'
+              }`}
+            >
+              <Icon name={t.icon} size={22} strokeWidth={active ? 2.2 : 1.8} />
+            </span>
+            <span className={`text-[11px] font-semibold transition-colors ${active ? 'text-brand-600' : 'text-ink-light'}`}>
               {t.label}
             </span>
           </button>

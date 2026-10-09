@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { EVENT_ICON, RISK_FROM_LEVEL } from '../../lib/eventDisplay';
+import Icon from '../Icon';
 
 /**
  * 채팅 답변 속 이벤트 소리/영상 카드 (서버가 붙인 "![감지된 소리](/api/events/<id>)" 줄)
@@ -65,7 +66,7 @@ export default function EventMediaCard({ eventId, alt }) {
               <span>{alt || '감지된 소리/영상'} 불러오는 중…</span>
             </>
           ) : (
-            <span>🔇 {state.error}</span>
+            <span className="flex items-center gap-1.5"><Icon name="volume-off" size={15} />{state.error}</span>
           )}
         </div>
       </div>
@@ -79,8 +80,8 @@ export default function EventMediaCard({ eventId, alt }) {
   return (
     <div data-block="event-media" className={CARD}>
       <div className="flex items-center gap-3 px-3.5 pb-2.5 pt-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: disp.bg }}>
-          {disp.icon}
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: disp.bg, color: disp.fg }}>
+            <Icon name={disp.icon} size={20} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[14.5px] font-semibold text-ink">{event.description}</div>
@@ -117,7 +118,7 @@ export default function EventMediaCard({ eventId, alt }) {
       {/* 영상이 있으면 영상(소리 포함)만, 영상 없는 옛 이벤트만 소리 플레이어 */}
       {!event.video_url && event.audio_url && (
         <div className="px-3.5 pb-3.5 pt-2">
-          <div className="mb-1.5 text-[12px] font-semibold text-ink-light">🔊 감지된 소리</div>
+          <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-ink-light"><Icon name="volume" size={14} />감지된 소리</div>
           <audio src={event.audio_url} controls preload="metadata" onError={onMediaError} className="w-full" />
         </div>
       )}

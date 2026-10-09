@@ -5,29 +5,31 @@ import { useAuth } from '../context/AuthContext';
 import { useAppData } from '../context/AppDataContext';
 import { MarkdownBlocks } from '../components/chat/AiMessage';
 import CameraCaptureModal from '../components/CameraCaptureModal';
+import Icon from '../components/Icon';
+import ScreenHeader, { HeaderButton } from '../components/ScreenHeader';
 
 const CAMERA_OFF_MESSAGE = '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.';
 
 // Pi가 1대라 같은 카메라·마이크의 감지 대상을 모드로 바꾼다 (value는 서버 devices.mode 값과 같은 문자열)
 const ZONES = [
-  { value: 'living', label: '거실', icon: '🛋️' },
-  { value: 'entrance', label: '현관', icon: '🚪' }
+  { value: 'living', label: '거실', icon: 'sofa' },
+  { value: 'entrance', label: '현관', icon: 'door' }
 ];
 
 // 기기는 한 세트뿐이라 선택된 공간에만 실제 상태를 보여주고, 선택 안 된 공간은 '대기'로 표시한다
 const STANDBY = { text: '대기', dot: 'bg-ink-light/50', color: 'text-ink-light' };
-const deviceState = (d) => {
+const deviceState = (d, onText = '켜짐') => {
   if (!d) return { text: '미등록', dot: 'bg-warning', color: 'text-ink-light' };
-  if (d.status === 'online') return { text: '켜짐', dot: 'bg-success', color: 'text-ink' };
+  if (d.status === 'online') return { text: onText, dot: 'bg-success', color: 'text-ink' };
   return { text: '꺼짐', dot: 'bg-ink-light/50', color: 'text-ink-light' };
 };
 
 function greeting() {
   const h = new Date().getHours();
-  if (h < 6) return '늦은 밤이네요 🌙';
-  if (h < 12) return '좋은 아침이에요 ☀️';
-  if (h < 18) return '좋은 오후예요 👋';
-  return '편안한 저녁 되세요 🌆';
+  if (h < 6) return '늦은 밤이네요';
+  if (h < 12) return '좋은 아침이에요';
+  if (h < 18) return '좋은 오후예요';
+  return '편안한 저녁 되세요';
 }
 
 export default function HomeScreen() {
@@ -126,40 +128,21 @@ export default function HomeScreen() {
 
   // 카메라·마이크는 위 공간 카드로 옮겼고, 여기엔 오늘 요약 두 칸만 남긴다
   const cards = [
-    { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
-    {
-      icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink',
-      hint: '낙상·화재경보·파손 기준'
-    }
+    { label: '오늘 이벤트', value: `${todayCount}건`, valueColor: 'text-ink' },
+    { label: '위험 알림', value: `${dangerCount}건`, valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink', hint: '낙상·화재경보·파손 기준' }
   ];
 
   return (
     <div>
-      <div className="grain-surface relative flex min-h-[112px] flex-col justify-center overflow-hidden bg-brand-600 px-5 py-6 text-white">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-brand-300/20 blur-2xl" />
+      <ScreenHeader
+        title={greeting()}
+        subtitle={`${user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요`}
+        left={<div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-white/15 text-lg font-bold">{initial}</div>}
+        right={<HeaderButton icon="refresh" label="새로고침" onClick={refreshAll} disabled={home.status === 'loading'} spin={home.status === 'loading'} />}
+      />
 
-        <div className="relative flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 ring-white/30">
-            {initial}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[22px] font-bold tracking-tight leading-tight">{greeting()}</div>
-            <div className="truncate text-[13px] opacity-80">{user?.email ? `${user.email}님, ` : ''}집 상태를 확인하세요</div>
-          </div>
-          <button
-            type="button"
-            onClick={refreshAll}
-            disabled={home.status === 'loading'}
-            aria-label="새로고침"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-base ring-1 ring-white/30 transition-colors hover:bg-white/25 disabled:opacity-50"
-          >
-            <span className={home.status === 'loading' ? 'inline-block animate-spin' : ''}>↻</span>
-          </button>
-        </div>
-      </div>
-
-      <div className="relative z-10 px-5 pt-5">
-        <div className="mb-3 flex items-center gap-2 px-1 text-[13px] text-ink-light" aria-live="polite">
+      <div className="relative z-10 px-5 pt-4">
+        <div className="mb-3 flex items-center gap-2.5 px-1 text-[13px] text-ink-light" aria-live="polite">
           <span className={`h-2 w-2 rounded-full ${cameraDevice?.status === 'online' ? 'animate-pulse bg-success' : 'bg-ink-light/50'}`} />
           현재 모드
           <strong className="text-[15px] font-extrabold tracking-tight text-ink">{currentZone.label} 모드</strong>
@@ -173,7 +156,7 @@ export default function HomeScreen() {
               if (!active) changeMode({ mode: z.value });
             };
             const cam = active ? deviceState(cameraDevice) : STANDBY;
-            const mic = active ? deviceState(micDevice) : STANDBY;
+            const mic = active ? deviceState(micDevice, '수신 중') : STANDBY;
             const tile = `flex min-w-0 flex-col gap-1.5 rounded-[14px] px-3 py-2.5 ${active ? 'bg-white' : 'bg-[#f6f7f8]'}`;
             return (
               <div
@@ -194,24 +177,27 @@ export default function HomeScreen() {
                 } ${!cameraDevice || modeBusy ? 'opacity-70' : ''}`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-xl">{z.icon}</div>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-500">
+                    <Icon name={z.icon} size={22} />
+                  </div>
                   <div className="min-w-0 flex-1">
                     <div className="text-[17px] font-extrabold tracking-tight text-ink">{z.label}</div>
-                    <div className="text-xs text-ink-light">{active ? `${z.label} 모드로 감지 중` : `선택하면 ${z.label} 모드로 전환`}</div>
+                    <div className="text-xs text-ink-light">선택하면 {z.label} 모드로 전환</div>
                   </div>
+                  {active && <span className="shrink-0 rounded-full bg-brand-600 px-2 py-[3px] text-[11px] font-bold text-white">모니터링 중</span>}
                   <span
                     aria-hidden="true"
-                    className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-black leading-none text-white ${
-                      active ? 'border-brand-500 bg-brand-500' : 'border-black/10'
+                    className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 ${
+                      active ? 'border-brand-500 bg-brand-500 text-white' : 'border-black/10'
                     }`}
                   >
-                    {active && '✓'}
+                    {active && <Icon name="check" size={12} strokeWidth={3} />}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className={tile}>
-                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><span aria-hidden="true">📷</span>카메라</div>
+                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><Icon name="camera" size={14} />카메라</div>
                     <div className={`flex items-center gap-1.5 text-base font-extrabold tracking-tight ${cam.color}`}>
                       <span className={`h-2 w-2 shrink-0 rounded-full ${cam.dot}`} />
                       {cam.text}
@@ -232,11 +218,19 @@ export default function HomeScreen() {
                     )}
                   </div>
                   <div className={tile}>
-                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><span aria-hidden="true">🎙️</span>마이크</div>
+                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><Icon name="mic" size={14} />마이크</div>
                     <div className={`flex items-center gap-1.5 text-base font-extrabold tracking-tight ${mic.color}`}>
                       <span className={`h-2 w-2 shrink-0 rounded-full ${mic.dot}`} />
                       {mic.text}
                     </div>
+                    {/* 시안의 소리 막대 장식: 실제 음량이 아니라 "수신 중" 표시용 고정 모양 */}
+                    {active && micDevice?.status === 'online' && (
+                      <div className="flex h-3.5 items-end gap-0.5" aria-hidden="true">
+                        {[5, 10, 14, 8, 12, 6].map((h, i) => (
+                          <i key={i} className="block w-[3px] rounded-sm bg-success" style={{ height: h }} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -251,10 +245,12 @@ export default function HomeScreen() {
             securityArmed ? 'border-danger' : 'border-black/[0.07]'
           }`}
         >
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl ${securityArmed ? 'bg-danger/15' : 'bg-[#f6f7f8]'}`}>🛡️</div>
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${securityArmed ? 'bg-danger/15 text-danger' : 'bg-[#f6f7f8] text-ink-light'}`}>
+            <Icon name="shield" size={22} />
+          </div>
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-extrabold text-ink">
-              경비 <span className={securityArmed ? 'text-danger' : 'text-ink-light'}>{securityArmed ? '켜짐' : '꺼짐'}</span>
+              경비 <span className={`text-xs font-bold ${securityArmed ? 'text-danger' : 'text-ink-light'}`}>{securityArmed ? '켜짐' : '꺼짐'}</span>
             </div>
             <div className="text-xs leading-snug text-ink-light">
               {securityArmed ? '침입 의심이나 문 열림이 감지되면 알려드려요' : '켜면 침입 의심이나 문 열림을 알려드려요'}
@@ -275,13 +271,12 @@ export default function HomeScreen() {
           </button>
         </div>
 
-        <div className="mt-3.5 grid grid-cols-2 gap-3">
+        <div className="mt-3.5 grid grid-cols-2 gap-2.5">
           {cards.map((c) => (
-            <div key={c.label} className="rounded-2xl border border-black/5 bg-white p-4 text-left shadow-lg shadow-brand-900/[0.06]">
-              <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
-              <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
-              <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
-              {c.hint && <div className="mt-1 text-[11px] font-semibold text-ink-light">{c.hint}</div>}
+            <div key={c.label} className="rounded-[18px] bg-white p-3.5 shadow-lg shadow-brand-900/[0.06]">
+              <div className="text-xs text-ink-light">{c.label}</div>
+              <div className={`mt-1 tabular-nums text-[22px] font-extrabold ${c.valueColor}`}>{c.value}</div>
+              {c.hint && <div className="mt-0.5 text-[11px] text-ink-light">{c.hint}</div>}
             </div>
           ))}
         </div>
@@ -293,7 +288,7 @@ export default function HomeScreen() {
       <div className="px-5 pt-5">
         <div className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm shadow-brand-900/[0.04]">
           <div className="flex items-start gap-3 px-[18px] pt-[18px]">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-400/10 text-[19px]">📋</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-400/10 text-brand-500"><Icon name="clipboard" size={21} /></div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-[15px] font-bold text-ink">오늘의 브리핑</span>
@@ -313,9 +308,9 @@ export default function HomeScreen() {
                 type="button"
                 onClick={generateBriefing}
                 aria-label="브리핑 다시 만들기"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-ink-light transition-colors hover:bg-black/[0.03]"
               >
-                ↻
+                <Icon name="refresh" size={15} strokeWidth={2} />
               </button>
             )}
           </div>
@@ -364,7 +359,7 @@ export default function HomeScreen() {
           {briefingStatus === 'error' && (
             <div className="px-[18px] pb-5 pt-1.5">
               <div className="mb-3 flex items-center gap-2">
-                <span className="text-[15px]">⚠️</span>
+                <Icon name="alert" size={18} className="text-danger" />
                 <span className="text-[13px] font-semibold text-danger">브리핑을 만들지 못했어요</span>
               </div>
               <p className="mb-3.5 text-[13px] leading-relaxed text-ink-light">{briefingError}</p>
@@ -397,10 +392,10 @@ export default function HomeScreen() {
           return (
             <div
               key={e.id}
-              className="mb-3 flex items-center gap-3.5 rounded-2xl border border-black/5 bg-white p-4 shadow-sm shadow-brand-900/[0.04] transition-transform hover:-translate-y-0.5"
+              className="mb-3 flex items-center gap-3.5 rounded-[20px] border-[1.5px] border-black/[0.07] bg-white p-3.5 shadow-lg shadow-brand-900/[0.06]"
             >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: disp.bg }}>
-                {disp.icon}
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl" style={{ background: disp.bg, color: disp.fg }}>
+                <Icon name={disp.icon} size={22} />
               </div>
               <div>
                 <div className="mb-1 text-[15px] font-semibold text-ink">{e.description}</div>

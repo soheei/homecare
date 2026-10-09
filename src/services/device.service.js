@@ -122,7 +122,9 @@ const DEFAULT_MODE_STATE = { mode: 'living', securityArmed: false };
 
 /**
  * 기기의 감지 모드 조회 — 하트비트 응답에 실려 엣지로 전달된다.
- * 운영 DB에 컬럼이 아직 없거나 조회가 실패해도 하트비트 자체는 막지 않도록 기본값을 돌려준다.
+ * 기기 행이 없으면 기본값을 돌려준다.
+ * 조회 자체가 실패하면 null — 기본값(경비 OFF)과 구분하지 않으면 엣지가 경비 ON 중에도
+ * 침입 감지를 끌 수 있다. 호출한 쪽이 실패를 보고 각자 안전한 쪽으로 처리한다.
  */
 const getDeviceMode = async (deviceId) => {
   try {
@@ -142,7 +144,7 @@ const getDeviceMode = async (deviceId) => {
 
   } catch (error) {
     logger.warn(`[DeviceService] Could not read device mode (${deviceId}): ${error.message}`);
-    return { ...DEFAULT_MODE_STATE };
+    return null;
   }
 };
 

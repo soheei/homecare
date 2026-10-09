@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { EVENT_ICON, RISK_FROM_LEVEL } from '../lib/eventDisplay';
+import Icon from './Icon';
 
 /**
  * 이벤트 화면 → 영상/소리가 있는 이벤트를 누르면 뜨는 재생 팝업
@@ -43,8 +44,8 @@ export default function EventMediaModal({ event, onClose, onRefresh }) {
         className="flex max-h-[calc(100dvh-40px)] w-full max-w-[400px] animate-fade-in flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center gap-3 px-5 pb-3 pt-5">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: disp.bg }}>
-            {disp.icon}
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-lg" style={{ background: disp.bg, color: disp.fg }}>
+            <Icon name={disp.icon} size={20} />
           </div>
           <div className="min-w-0 flex-1">
             <div id="event-media-title" className="truncate text-[16px] font-bold text-ink">{event.description}</div>
@@ -64,14 +65,14 @@ export default function EventMediaModal({ event, onClose, onRefresh }) {
             aria-label="닫기"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-black/10 text-sm text-ink-light transition-colors hover:bg-black/[0.03]"
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
 
         <div className="min-h-0 space-y-3 overflow-y-auto px-5 pb-5">
           {mediaError ? (
             <div className="flex flex-col items-center rounded-2xl bg-brand-50 px-5 py-8 text-center">
-              <div className="mb-3 text-[28px]">⚠️</div>
+              <Icon name="alert" size={28} className="mb-3 text-danger" />
               <p className="m-0 mb-5 text-[13px] leading-relaxed text-ink-light">
                 재생하지 못했어요. 재생 링크가 만료됐을 수 있으니 목록을 새로고침한 뒤 다시 열어주세요.
               </p>
@@ -106,7 +107,7 @@ export default function EventMediaModal({ event, onClose, onRefresh }) {
               {/* 영상에 소리가 함께 들어 있으므로 영상이 있으면 소리 플레이어는 숨김 (영상 없는 옛 이벤트만 소리 재생) */}
               {!event.video_url && event.audio_url && (
                 <div className="rounded-2xl bg-brand-50 p-3">
-                  <div className="mb-2 text-[12px] font-semibold text-ink-light">🔊 감지된 소리</div>
+                  <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-ink-light"><Icon name="volume" size={14} />감지된 소리</div>
                   <audio
                     src={event.audio_url}
                     controls

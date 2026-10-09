@@ -75,9 +75,22 @@ class EventEmitter:
         if not spec.send:
             log.debug("전송 대상 아님(로그전용/집계전용): %s", category_id)
             return None
-        if not self._cooldown.allow(f"{source}:{category_id}", spec.cooldown_sec):
+        cooldown_key = f"{source}:{category_id}"
+        allowed, previous_mark = self._cooldown.claim(cooldown_key, spec.cooldown_sec)
+        if not allowed:
             log.debug("쿨다운 중, 건너뜀: %s:%s", source, category_id)
             return None
+
+        try:
+            return self._queue(spec, category_id, source, score, description, image_path,
+                               audio_path, video_path, extra, occurred_at, delete_originals_on_sent)
+        except BaseException:
+            # 큐 저장에 실패했으면 이벤트가 남지 않았으므로 쿨다운도 소비하지 않은 것으로 되돌린다
+            self._cooldown.restore(cooldown_key, previous_mark)
+            raise
+
+    def _queue(self, spec, category_id, source, score, description, image_path, audio_path,
+               video_path, extra, occurred_at, delete_originals_on_sent) -> str:
 
         uid = uuid.uuid4().hex
         metadata = {"source": source, "category_id": category_id, "event_uid": uid}

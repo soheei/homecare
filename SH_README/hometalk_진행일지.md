@@ -498,4 +498,17 @@
 - 결정과 이유: 원격의 WaitingSoundRequests와 로컬의 종류별 deferred_vision_events를 함께 유지한다. 소리 요청용 영상 복사와 후속 영상 이벤트 첨부 처리가 원본 삭제/전달 전에 이루어지도록 기존 양쪽 순서를 보존했다. 문서도 양쪽 기록을 유지하고 침입 감지 연결 상태를 갱신했다.
 - 검증: git diff --check 및 충돌 표식 검사 통과. Python은 일반/권한 확장 실행 모두 시작 실패, npm test -- --runInBand는 Jest 미설치로 시작 실패하여 테스트 통과 여부는 확인 필요.
 - 상태: 로컬 변경은 미커밋으로 유지하고 merge-backup-2026-10-09 stash는 복구용으로 남긴다. 외부 접근·push·배포·의존성 설치 없음.
+- 추가 수정(같은 날): 채팅·이벤트·설정을 홈과 같은 디자인으로 통일. 요청: 남색 배경 글씨가 잘리지 않게 가로를 키우고, 이벤트·설정 배경 폭·크기를 통일.
+  - 남색 헤더를 `web/src/components/ScreenHeader.jsx` 하나로 만들어 홈·채팅·이벤트·설정이 같은 폭(좌우 14px 여백, 본문 카드보다 약간 넓음)·높이(최소 84px)·글자 크기를 쓴다. 제목·부제는 `truncate` 대신 줄바꿈이라 긴 이메일도 안 잘린다. 헤더 안 버튼은 같은 파일의 `HeaderButton`. 채팅 헤더는 흰 줄에서 남색 카드(스크롤 시 위에 고정)로 바뀜.
+  - 이모티콘 제거: `Icon.jsx`에 아이콘 약 40개로 확장. 하단 메뉴, 이벤트 필터·카드·삭제 버튼, 설정 항목·섹션·모달, 채팅 헤더·빠른 질문·전송 버튼·AI 아바타, 장치/경고/이벤트 카드, 카메라·이벤트 팝업, 채팅 서랍이 모두 아이콘으로 바뀜. `eventDisplay.js`의 `EVENT_ICON`은 이제 이모티콘 대신 아이콘 이름(`icon`)과 색(`fg`)을 가짐.
+  - 카드 모양 통일: 이벤트·설정 카드도 홈과 같은 둥근 모서리(20px)·1.5px 테두리·그림자. 이벤트 카드의 왼쪽 위험도 띠는 없애고 높음은 빨간 테두리, 위험도는 배지로 표시. 설정 토글을 홈 경비 스위치와 같은 모양으로(`role=switch`).
+  - 일부러 안 건드린 것: 로그인·비밀번호 재설정 화면의 이모티콘, AI 답변 문장 속 이모티콘(`chatBlocks.js`·`MarkdownText.jsx`가 상태 배지로 해석하는 용도).
+  - 검증: `npm run build` 성공, `npm run lint` 새 경고 없음. 모바일 폭 육안 확인은 **확인 필요**(채팅 헤더 sticky 동작, 이벤트 필터 줄 겹침 여부).
 
+### 팀원 점검 3건 반영 — 모드 조회 실패 구분 / 쿨다운 복원 / 첨부 복사본 정리
+- 배경: 팀원이 vision 밖에서 고쳐야 할 곳 3건을 공유. 세 건 모두 코드로 재확인함.
+- 수정 1 (백엔드): `getDeviceMode()`가 DB 조회 실패 시 기본값(경비 OFF) 대신 `null`을 반환. 하트비트는 `null`이면 `mode`/`securityArmed` 필드를 생략(엣지는 마지막 정상 설정 유지), `GET /security-mode`는 503, 침입 푸시(`notification.service.js`)는 조회 실패 시 경비 ON으로 간주해 발송. 기기 행이 없을 때는 기존 기본값 유지.
+- 수정 2 (`edge/transport/emit.py`, `cooldown.py`): `Cooldown.claim()/restore()` 추가. `emit()`이 큐 저장에 실패하면 쿨다운을 claim 이전 상태로 되돌림. 확인+기록을 한 번에 하던 원자성은 유지(검사 후 따로 기록하는 방식은 동시 emit 틈이 생겨 채택 안 함).
+- 수정 3 (`edge/transport/outbox.py`): `enqueue()` 실패 시 이번 호출에서 새로 만든 복사본만 삭제(원본·이미 있던 같은 uid 복사본은 보존).
+- 결정: 침입 푸시는 조회 실패 시 "발송" — 침입 알림을 놓치는 쪽이 더 위험. 4번(보존 영상 자동 복구)은 이벤트 종류·시각 등을 함께 보존하는 별도 설계가 필요해 이번 범위에서 제외.
+- 테스트: Jest 신규 `tests/device-service-mode.test.js` 5건 + `device-mode.test.js` 3건 추가, 해당 2개 파일 통과. 전체 Jest 실패 5건은 `app.test.js`/`chat.test.js`의 기존 실패와 같은 위치. Python은 프로젝트 밖 임시 venv(requests·numpy·scipy·opencv-python-headless만 설치, 사용자 승인)에서 `edge/tests` 66건(신규 5건 포함), `vision/tests` 65건 전부 통과. 처음엔 `requests` 스텁으로 `test_edge.py` 30건만 확인했으나 이후 실제 패키지로 전체 재실행. Pi 실기는 미검증.

@@ -1,11 +1,12 @@
 import { BG } from '../theme';
 
 export const EVENT_ICON = {
-  visitor: { icon: '🚪', bg: BG.info },
-  motion: { icon: '🚶', bg: BG.success },
-  sound: { icon: '🔔', bg: BG.warning },
-  danger: { icon: '🚨', bg: BG.danger },
-  other: { icon: '📌', bg: BG.purple }
+  // icon은 components/Icon.jsx의 이름, fg는 아이콘 색
+  visitor: { icon: 'door', bg: BG.info, fg: '#245166' },
+  motion: { icon: 'activity', bg: BG.success, fg: '#0b8a68' },
+  sound: { icon: 'bell', bg: BG.warning, fg: '#93601F' },
+  danger: { icon: 'alert', bg: BG.danger, fg: '#A93357' },
+  other: { icon: 'pin', bg: BG.purple, fg: '#5b4d86' }
 };
 
 export const RISK_FROM_LEVEL = {

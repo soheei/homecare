@@ -22,14 +22,29 @@ class Cooldown:
             last = self._last.get(key)
             return last is not None and self._clock() - last < seconds
 
-    def allow(self, key: str, seconds: float) -> bool:
-        """허용되면 True(그리고 시각 기록), 쿨다운 중이면 False."""
+    def claim(self, key: str, seconds: float):
+        """(허용 여부, 이전 기록)을 반환. 허용되면 시각을 기록한다.
+
+        뒤이은 작업이 실패하면 이전 기록을 restore()에 넘겨 쿨다운을 되돌릴 수 있다.
+        """
         if seconds <= 0:
-            return True
+            return True, None
         now = self._clock()
         with self._lock:
             last = self._last.get(key)
             if last is not None and now - last < seconds:
-                return False
+                return False, last
             self._last[key] = now
-            return True
+            return True, last
+
+    def restore(self, key: str, previous) -> None:
+        """claim()으로 기록한 시각을 claim 이전 상태로 되돌린다."""
+        with self._lock:
+            if previous is None:
+                self._last.pop(key, None)
+            else:
+                self._last[key] = previous
+
+    def allow(self, key: str, seconds: float) -> bool:
+        """허용되면 True(그리고 시각 기록), 쿨다운 중이면 False."""
+        return self.claim(key, seconds)[0]

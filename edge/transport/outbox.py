@@ -73,27 +73,38 @@ class Outbox:
             (원본 경로는 큐 DB에만 기록되고 백엔드로는 보내지 않음)
         """
         saved = []
-        for field, src in (attachments or {}).items():
-            if field not in ALLOWED_FIELDS:
-                raise ValueError(f"지원하지 않는 첨부 필드: {field}")
-            src = Path(src)
-            mime = MIME_BY_EXT.get(src.suffix.lower())
-            if mime is None:
-                raise ValueError(f"지원하지 않는 첨부 확장자: {src.suffix}")
-            dest = self.attach_dir / f"{uid}_{field}{src.suffix.lower()}"
-            shutil.copy2(src, dest)
-            entry = {"field": field, "path": str(dest), "mime": mime}
-            if delete_originals_on_sent:
-                entry["original"] = str(src)
-            saved.append(entry)
+        created = []  # 이번 호출에서 새로 만든 복사본 (실패 시 이것만 정리, 원본은 건드리지 않음)
+        try:
+            for field, src in (attachments or {}).items():
+                if field not in ALLOWED_FIELDS:
+                    raise ValueError(f"지원하지 않는 첨부 필드: {field}")
+                src = Path(src)
+                mime = MIME_BY_EXT.get(src.suffix.lower())
+                if mime is None:
+                    raise ValueError(f"지원하지 않는 첨부 확장자: {src.suffix}")
+                dest = self.attach_dir / f"{uid}_{field}{src.suffix.lower()}"
+                if not dest.exists():  # 이미 있던 파일(같은 uid 중복)은 우리 것이 아니므로 정리 대상 제외
+                    created.append(dest)
+                shutil.copy2(src, dest)
+                entry = {"field": field, "path": str(dest), "mime": mime}
+                if delete_originals_on_sent:
+                    entry["original"] = str(src)
+                saved.append(entry)
 
-        now = time.time()
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO outbox (event_uid, payload, attachments, next_attempt_at, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (uid, json.dumps(payload, ensure_ascii=False), json.dumps(saved), now, now),
-            )
+            now = time.time()
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO outbox (event_uid, payload, attachments, next_attempt_at, created_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (uid, json.dumps(payload, ensure_ascii=False), json.dumps(saved), now, now),
+                )
+        except BaseException:
+            for path in created:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
         return uid
 
     def fetch_due(self, limit: int = 10) -> List[dict]:

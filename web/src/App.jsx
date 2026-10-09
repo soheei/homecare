@@ -31,7 +31,7 @@ function ShellBody({ tab, setTab }) {
         style={{ height: indicatorHeight }}
         aria-hidden={indicatorHeight === 0}
       >
-        {indicatorHeight > 0 && (refreshing ? '새로고침 중…' : '↓ 놓으면 새로고침')}
+        {indicatorHeight > 0 && (refreshing ? '새로고침 중…' : '놓으면 새로고침')}
       </div>
       <div className="pb-24">
         <ActiveScreen onKeyboardChange={setKeyboardOpen} />

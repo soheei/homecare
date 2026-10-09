@@ -2,13 +2,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useChat } from '../context/ChatContext';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import AiMessage from '../components/chat/AiMessage';
+import Icon from '../components/Icon';
+import ScreenHeader, { HeaderButton } from '../components/ScreenHeader';
 
 const QUICK_ACTIONS = [
-  { icon: '📊', label: '오늘 요약' },
-  { icon: '📅', label: '이번주 요약' },
-  { icon: '🚪', label: '방문자 확인' },
-  { icon: '🚨', label: '위험 알림' },
-  { icon: '📷', label: '카메라 상태' }
+  { icon: 'chart', label: '오늘 요약' },
+  { icon: 'calendar', label: '이번주 요약' },
+  { icon: 'door', label: '방문자 확인' },
+  { icon: 'alert', label: '위험 알림' },
+  { icon: 'camera', label: '카메라 상태' }
 ];
 
 const NAV_HEIGHT = 82; // BottomNav 높이 — 평소엔 입력창을 그 위에 둠
@@ -109,38 +111,23 @@ export default function ChatScreen({ onKeyboardChange }) {
 
   return (
     <div className="flex min-h-[calc(100vh-56px)] flex-col">
-      <div className="sticky top-0 z-[5] flex items-center gap-3 border-b border-black/5 bg-white/90 py-4 pl-3 pr-4 backdrop-blur-lg">
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="채팅 기록"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-ink transition-colors hover:bg-black/[0.04]"
-        >
-          ☰
-        </button>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-xl text-white">
-          🤖
-        </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="m-0 text-[16px] font-semibold text-ink">HOME-TALK AI</h3>
-          <div className="text-[13px] text-success">● 온라인</div>
-        </div>
-        <button
-          type="button"
-          onClick={newConversation}
-          disabled={sending}
-          aria-label="새 채팅"
-          title="새 채팅"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg text-ink transition-colors hover:bg-black/[0.04] disabled:opacity-40"
-        >
-          ✎
-        </button>
-      </div>
+      <ScreenHeader
+        sticky
+        title="HOME-TALK AI"
+        subtitle={
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+            온라인
+          </span>
+        }
+        left={<HeaderButton icon="menu" label="채팅 기록" onClick={() => setDrawerOpen(true)} />}
+        right={<HeaderButton icon="pencil" label="새 채팅" onClick={newConversation} disabled={sending} />}
+      />
 
       <ChatHistoryDrawer open={drawerOpen} onClose={closeDrawer} />
 
       <div
-        className="flex min-w-0 flex-1 flex-col gap-4 p-5 pb-36"
+        className="flex min-w-0 flex-1 flex-col gap-4 px-5 pb-36 pt-2"
         style={keyboard.inset ? { paddingBottom: `calc(9rem + ${keyboard.inset}px)` } : undefined}
       >
         {messages.map((m, i) => (
@@ -159,7 +146,7 @@ export default function ChatScreen({ onKeyboardChange }) {
         {sending && (
           <div className="flex items-center gap-2 self-start">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs text-white">
-              🤖
+              <Icon name="spark" size={14} />
             </div>
             <div className="flex gap-1 rounded-full border border-black/5 bg-white px-4 py-3 shadow-sm shadow-brand-900/[0.04]">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-light [animation-delay:-0.3s]" />
@@ -183,7 +170,7 @@ export default function ChatScreen({ onKeyboardChange }) {
               onClick={() => send(q.label)}
               className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-black/10 bg-white px-4 py-2.5 text-[13px] font-medium text-ink transition-all hover:border-brand-300 hover:bg-brand-50 active:scale-95"
             >
-              <span>{q.icon}</span>
+              <Icon name={q.icon} size={15} className="text-brand-500" />
               <span>{q.label}</span>
             </button>
           ))}
@@ -208,7 +195,7 @@ export default function ChatScreen({ onKeyboardChange }) {
             aria-label="전송"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-none bg-brand-600 text-base text-white shadow-md shadow-brand-900/25 transition-transform active:scale-90"
           >
-            ➤
+            <Icon name="send" size={18} />
           </button>
         </div>
       </div>

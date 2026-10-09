@@ -166,10 +166,10 @@ python -m edge.apps.capture_photo --description "현관 확인"
 
 ## 거실/현관 감지 모드 + 경비 모드 (2026-10-09 추가)
 
-Pi·마이크·카메라가 1대라 "거실"과 "현관"을 별도 기기로 나눌 수 없어서, 같은 Pi가 **감지하는 이벤트 집합을 모드로 전환**한다. 경비는 모드 위에 따로 켜고 끄는 스위치다. 앱은 홈 카메라 카드 안의 [거실][현관] 버튼과 🛡️ 경비 토글로 조작한다.
+Pi·마이크·카메라가 1대라 "거실"과 "현관"을 별도 기기로 나눌 수 없어서, 같은 Pi가 **감지하는 이벤트 집합을 모드로 전환**한다. 경비는 모드 위에 따로 켜고 끄는 스위치다. 앱은 홈 화면의 **거실/현관 공간 카드**(카드 안에 카메라·마이크 상태, 카드를 누르면 모드 전환)와 🛡️ 경비 스위치로 조작한다(2026-10-09 UI 개편, `web/src/screens/HomeScreen.jsx`). 기기는 한 세트라 선택된 공간 카드에만 실제 상태를 보이고 다른 쪽은 "대기"로 표시한다.
 
 ```
-홈 카메라 카드 ─ PUT /api/devices/mode {mode?, securityArmed?} ─→ devices.mode / devices.security_armed (사용자의 카메라+마이크 행 모두)
+홈 공간 카드·경비 스위치 ─ PUT /api/devices/mode {mode?, securityArmed?} ─→ devices.mode / devices.security_armed (사용자의 카메라+마이크 행 모두)
 Pi 마이크·카메라 ─ POST /api/devices/:id/heartbeat (20초) ─→ 응답 {mode, securityArmed} ─→ edge/transport/modes.py ModeState ─→ 감지 필터
 vision GuardModeClient ─ GET /api/devices/:id/security-mode (3초) ─→ {data:{armed_mode}}   (팀원 침입 감지용)
 ```

@@ -8,11 +8,19 @@ import CameraCaptureModal from '../components/CameraCaptureModal';
 
 const CAMERA_OFF_MESSAGE = '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.';
 
-// Pi가 1대라 같은 카메라·마이크의 감지 대상을 모드로 바꾼다 (서버 devices.mode 값과 같은 문자열)
-const DETECT_MODES = [
-  { value: 'living', label: '거실' },
-  { value: 'entrance', label: '현관' }
+// Pi가 1대라 같은 카메라·마이크의 감지 대상을 모드로 바꾼다 (value는 서버 devices.mode 값과 같은 문자열)
+const ZONES = [
+  { value: 'living', label: '거실', icon: '🛋️' },
+  { value: 'entrance', label: '현관', icon: '🚪' }
 ];
+
+// 기기는 한 세트뿐이라 선택된 공간에만 실제 상태를 보여주고, 선택 안 된 공간은 '대기'로 표시한다
+const STANDBY = { text: '대기', dot: 'bg-ink-light/50', color: 'text-ink-light' };
+const deviceState = (d) => {
+  if (!d) return { text: '미등록', dot: 'bg-warning', color: 'text-ink-light' };
+  if (d.status === 'online') return { text: '켜짐', dot: 'bg-success', color: 'text-ink' };
+  return { text: '꺼짐', dot: 'bg-ink-light/50', color: 'text-ink-light' };
+};
 
 function greeting() {
   const h = new Date().getHours();
@@ -53,11 +61,10 @@ export default function HomeScreen() {
 
   const cameraDevice = devices.find((d) => d.type === 'camera');
   const micDevice = devices.find((d) => d.type === 'microphone');
-  const deviceLabel = (d) => (!d ? '미등록' : d.status === 'online' ? '켜짐' : '꺼짐');
-  const deviceColor = (d) => (d?.status === 'online' ? 'text-success' : 'text-ink-light');
 
   const currentMode = cameraDevice?.mode === 'entrance' ? 'entrance' : 'living';
   const securityArmed = cameraDevice?.security_armed === true;
+  const currentZone = ZONES.find((z) => z.value === currentMode);
 
   /** 거실/현관 모드, 경비 켜기·끄기 — 화면에 먼저 반영하고 서버 저장이 실패하면 되돌린다 (Pi는 최대 20초 뒤 반영) */
   const changeMode = async (patch) => {
@@ -117,16 +124,12 @@ export default function HomeScreen() {
     captureNow();
   };
 
+  // 카메라·마이크는 위 공간 카드로 옮겼고, 여기엔 오늘 요약 두 칸만 남긴다
   const cards = [
-    {
-      icon: '📷', label: '카메라', value: deviceLabel(cameraDevice), bg: 'bg-brand-500/8', valueColor: deviceColor(cameraDevice),
-      onClick: openCameraModal, hint: capturing ? '촬영 중…' : '현재 화면 보기 ›', modeControls: true
-    },
-    { icon: '🎙️', label: '마이크', value: deviceLabel(micDevice), bg: 'bg-brand-400/10', valueColor: deviceColor(micDevice) },
     { icon: '📊', label: '오늘 이벤트', value: `${todayCount}건`, bg: 'bg-brand-400/10', valueColor: 'text-ink' },
     {
       icon: '⚠️', label: '위험 알림', value: `${dangerCount}건`, bg: dangerCount > 0 ? 'bg-danger/12' : 'bg-brand-100', valueColor: dangerCount > 0 ? 'text-danger' : 'text-ink',
-      hint: '낙상·화재경보·파손 기준', hintClass: 'text-ink-light'
+      hint: '낙상·화재경보·파손 기준'
     }
   ];
 
@@ -155,81 +158,133 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      <div className="relative z-10 grid grid-cols-2 gap-3 px-5 pt-5">
-        {cards.map((c) => {
-          const cardClass = 'rounded-2xl border border-black/5 bg-white p-4 text-left shadow-lg shadow-brand-900/[0.06] transition-transform hover:-translate-y-0.5';
-          const body = (
-            <>
-              <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
-              <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
-              <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
-              {c.hint && <div className={`mt-1 text-[11px] font-semibold ${c.hintClass || 'text-brand-500'}`}>{c.hint}</div>}
-            </>
-          );
-          // 카메라 카드: 윗부분을 누르면 현재 화면 캡처 + 아래에 거실/현관 모드·경비 버튼 (버튼 안에 버튼을 넣을 수 없어 분리)
-          if (c.modeControls) {
-            return (
-              <div key={c.label} className={cardClass}>
-                <button
-                  type="button"
-                  onClick={c.onClick}
-                  disabled={capturing}
-                  aria-label="카메라 현재 화면 보기"
-                  className="block w-full cursor-pointer text-left active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
-                >
-                  {body}
-                </button>
+      <div className="relative z-10 px-5 pt-5">
+        <div className="mb-3 flex items-center gap-2 px-1 text-[13px] text-ink-light" aria-live="polite">
+          <span className={`h-2 w-2 rounded-full ${cameraDevice?.status === 'online' ? 'animate-pulse bg-success' : 'bg-ink-light/50'}`} />
+          현재 모드
+          <strong className="text-[15px] font-extrabold tracking-tight text-ink">{currentZone.label} 모드</strong>
+        </div>
 
-                <div className="mt-3 border-t border-black/5 pt-3">
-                  <div role="group" aria-label="감지 모드" className="flex rounded-lg bg-brand-100 p-0.5">
-                    {DETECT_MODES.map((m) => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        onClick={() => currentMode !== m.value && changeMode({ mode: m.value })}
-                        disabled={!cameraDevice || modeBusy}
-                        aria-pressed={currentMode === m.value}
-                        className={`flex-1 rounded-md py-1.5 text-xs font-bold transition-colors disabled:opacity-60 ${
-                          currentMode === m.value ? 'bg-brand-600 text-white shadow-sm' : 'text-ink-light'
-                        }`}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
+        {/* 공간 카드: 카드 전체가 라디오 버튼. 안쪽 '현재 화면 보기' 버튼과 겹치지 않게 div role=radio로 만들고 안쪽 클릭 전파를 막는다 */}
+        <div role="radiogroup" aria-label="감지 모드" className="flex flex-col gap-3.5">
+          {ZONES.map((z) => {
+            const active = currentMode === z.value;
+            const select = () => {
+              if (!active) changeMode({ mode: z.value });
+            };
+            const cam = active ? deviceState(cameraDevice) : STANDBY;
+            const mic = active ? deviceState(micDevice) : STANDBY;
+            const tile = `flex min-w-0 flex-col gap-1.5 rounded-[14px] px-3 py-2.5 ${active ? 'bg-white' : 'bg-[#f6f7f8]'}`;
+            return (
+              <div
+                key={z.value}
+                role="radio"
+                aria-checked={active}
+                aria-disabled={!cameraDevice || modeBusy}
+                tabIndex={0}
+                onClick={select}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    select();
+                  }
+                }}
+                className={`flex cursor-pointer flex-col gap-3 rounded-[20px] border-[1.5px] p-3.5 shadow-lg shadow-brand-900/[0.06] transition-colors ${
+                  active ? 'border-brand-500 bg-brand-50' : 'border-black/[0.07] bg-white'
+                } ${!cameraDevice || modeBusy ? 'opacity-70' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-xl">{z.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[17px] font-extrabold tracking-tight text-ink">{z.label}</div>
+                    <div className="text-xs text-ink-light">{active ? `${z.label} 모드로 감지 중` : `선택하면 ${z.label} 모드로 전환`}</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => changeMode({ securityArmed: !securityArmed })}
-                    disabled={!cameraDevice || modeBusy}
-                    aria-pressed={securityArmed}
-                    className={`mt-2 w-full rounded-lg border py-1.5 text-xs font-bold transition-colors disabled:opacity-60 ${
-                      securityArmed ? 'border-danger/40 bg-danger/12 text-danger' : 'border-black/10 text-ink-light'
+                  <span
+                    aria-hidden="true"
+                    className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-black leading-none text-white ${
+                      active ? 'border-brand-500 bg-brand-500' : 'border-black/10'
                     }`}
                   >
-                    🛡️ 경비 {securityArmed ? '켜짐' : '꺼짐'}
-                  </button>
-                  {modeError && <div className="mt-1.5 text-[11px] leading-snug text-danger">{modeError}</div>}
+                    {active && '✓'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className={tile}>
+                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><span aria-hidden="true">📷</span>카메라</div>
+                    <div className={`flex items-center gap-1.5 text-base font-extrabold tracking-tight ${cam.color}`}>
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${cam.dot}`} />
+                      {cam.text}
+                    </div>
+                    {active && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openCameraModal();
+                        }}
+                        disabled={capturing}
+                        aria-label="카메라 현재 화면 보기"
+                        className="cursor-pointer self-start text-xs font-bold text-brand-500 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {capturing ? '촬영 중…' : '현재 화면 보기 ›'}
+                      </button>
+                    )}
+                  </div>
+                  <div className={tile}>
+                    <div className="flex items-center gap-1.5 text-xs text-ink-light"><span aria-hidden="true">🎙️</span>마이크</div>
+                    <div className={`flex items-center gap-1.5 text-base font-extrabold tracking-tight ${mic.color}`}>
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${mic.dot}`} />
+                      {mic.text}
+                    </div>
+                  </div>
                 </div>
               </div>
             );
-          }
+          })}
+        </div>
+        {modeError && <div className="mt-2 px-1 text-[11px] leading-snug text-danger">{modeError}</div>}
 
-          // 그 외 카드는 onClick이 있으면 버튼
-          return c.onClick ? (
-            <button
-              key={c.label}
-              type="button"
-              onClick={c.onClick}
-              disabled={capturing}
-              aria-label="카메라 현재 화면 보기"
-              className={`${cardClass} cursor-pointer active:scale-[0.98] disabled:cursor-wait disabled:opacity-70`}
-            >
-              {body}
-            </button>
-          ) : (
-            <div key={c.label} className={cardClass}>{body}</div>
-          );
-        })}
+        {/* 경비: 켜면 침입 의심·문 열림 이벤트를 푸시로 보낸다 (서버 SECURITY_CATEGORIES) */}
+        <div
+          className={`mt-3.5 flex items-center gap-3 rounded-[20px] border-[1.5px] bg-white p-3.5 shadow-lg shadow-brand-900/[0.06] transition-colors ${
+            securityArmed ? 'border-danger' : 'border-black/[0.07]'
+          }`}
+        >
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xl ${securityArmed ? 'bg-danger/15' : 'bg-[#f6f7f8]'}`}>🛡️</div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[15px] font-extrabold text-ink">
+              경비 <span className={securityArmed ? 'text-danger' : 'text-ink-light'}>{securityArmed ? '켜짐' : '꺼짐'}</span>
+            </div>
+            <div className="text-xs leading-snug text-ink-light">
+              {securityArmed ? '침입 의심이나 문 열림이 감지되면 알려드려요' : '켜면 침입 의심이나 문 열림을 알려드려요'}
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={securityArmed}
+            aria-label="경비 켜기/끄기"
+            onClick={() => changeMode({ securityArmed: !securityArmed })}
+            disabled={!cameraDevice || modeBusy}
+            className={`relative h-[30px] w-[52px] shrink-0 rounded-full transition-colors disabled:opacity-60 ${securityArmed ? 'bg-danger' : 'bg-black/10'}`}
+          >
+            <span
+              className={`absolute left-[3px] top-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform ${securityArmed ? 'translate-x-[22px]' : ''}`}
+            />
+          </button>
+        </div>
+
+        <div className="mt-3.5 grid grid-cols-2 gap-3">
+          {cards.map((c) => (
+            <div key={c.label} className="rounded-2xl border border-black/5 bg-white p-4 text-left shadow-lg shadow-brand-900/[0.06]">
+              <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl text-xl ${c.bg}`}>{c.icon}</div>
+              <div className="mb-1 text-[13px] text-ink-light">{c.label}</div>
+              <div className={`tabular-nums text-lg font-bold ${c.valueColor}`}>{c.value}</div>
+              {c.hint && <div className="mt-1 text-[11px] font-semibold text-ink-light">{c.hint}</div>}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* 캡처 결과는 홈 콘텐츠가 아니라 화면 위 모달로 (평소엔 렌더링 안 함) */}

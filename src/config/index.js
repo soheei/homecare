@@ -15,8 +15,8 @@ const config = {
   // Anthropic Claude API
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY,
-    // claude-sonnet-4-20250514는 2026-06-15 종료 → Haiku 4.5로 변경 (2026-09-27)
-    model: 'claude-haiku-4-5-20251001',
+    // claude-sonnet-4-20250514는 2026-06-15 종료 → Haiku 4.5로 변경 (2026-09-27) → claude-haiku-5-5로 변경 (2026-10-09, 존재 여부 확인 필요)
+    model: 'claude-haiku-5-5',
     maxTokens: 4096
   },
 

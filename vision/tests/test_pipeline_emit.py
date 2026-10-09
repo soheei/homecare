@@ -110,10 +110,11 @@ class SoundRequestTest(unittest.TestCase):
 
     def test_detected_vision_event_priority(self):
         person = {"confidence": 0.8}
-        self.assertEqual(vp.detected_vision_event(True, 0.5, True, person), ("fall_suspect", 0.8))
-        self.assertEqual(vp.detected_vision_event(False, 0.5, True, person), ("delivery_suspect", 0.5))
-        self.assertEqual(vp.detected_vision_event(False, None, True, None), ("door_visitor", None))
-        self.assertIsNone(vp.detected_vision_event(False, None, False, person))
+        self.assertEqual(vp.detected_vision_event(True, True, 0.5, True, person), ("intrusion_suspect", 0.8))
+        self.assertEqual(vp.detected_vision_event(False, True, 0.5, True, person), ("fall_suspect", 0.8))
+        self.assertEqual(vp.detected_vision_event(False, False, 0.5, True, person), ("delivery_suspect", 0.5))
+        self.assertEqual(vp.detected_vision_event(False, False, None, True, None), ("door_visitor", None))
+        self.assertIsNone(vp.detected_vision_event(False, False, None, False, person))
 
     def test_deferred_vision_event_emitted_with_copy(self):
         video, thumb = self.tmp / "c.mp4", self.tmp / "c.jpg"

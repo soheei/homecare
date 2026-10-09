@@ -9,6 +9,8 @@ class FallDetector:
         candidate_frames=2,
         movement_threshold=8,
     ):
+        if history_frames < 2:
+            raise ValueError("history_frames must be at least 2")
         # 최근 center_y 저장
         self.history = deque(
             maxlen=history_frames
@@ -29,6 +31,13 @@ class FallDetector:
 
         # 후보 상태가 몇 프레임 유지됐는지
         self.candidate_count = 0
+        self.candidate_origin_y = None
+
+    def reset(self):
+        self.history.clear()
+        self.fall_candidate = False
+        self.candidate_count = 0
+        self.candidate_origin_y = None
 
     def update(self, person):
         """
@@ -51,9 +60,7 @@ class FallDetector:
         # -----------------------------------
 
         if person is None:
-            self.history.clear()
-            self.fall_candidate = False
-            self.candidate_count = 0
+            self.reset()
 
             return False
 
@@ -67,7 +74,7 @@ class FallDetector:
         # 판단하지 않음
         # -----------------------------------
 
-        if len(self.history) < 4:
+        if len(self.history) < self.history.maxlen:
             return False
 
         # -----------------------------------
@@ -105,6 +112,7 @@ class FallDetector:
 
                 self.fall_candidate = True
                 self.candidate_count = 0
+                self.candidate_origin_y = old_y
 
                 print(
                     f"[FALL CANDIDATE] "
@@ -117,6 +125,11 @@ class FallDetector:
         # -----------------------------------
 
         else:
+            # 하강 전 높이 근처로 복귀하면 정상 자세 회복으로 취급한다.
+            if current_y - self.candidate_origin_y <= self.drop_threshold:
+                self.reset()
+                self.history.append(current_y)
+                return False
 
             # 낙상 직후 움직임이 크게 줄었는지 확인
             movement_stopped = (
@@ -151,7 +164,7 @@ class FallDetector:
                 )
 
                 # 다음 이벤트를 위해 초기화
-                self.history.clear()
+                self.reset()
 
                 return True
 

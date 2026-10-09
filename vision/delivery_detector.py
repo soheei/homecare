@@ -53,6 +53,13 @@ class DeliveryDetector:
         self.stable_count = 0
         self.region = None         # 사람이 있던 자리 (축소 좌표)
 
+    def reset(self):
+        self.tracker = ActivityTracker()
+        self.background = None
+        self.watch_left = 0
+        self.stable_count = 0
+        self.region = None
+
     def _inside_roi(
         self,
         detection,

@@ -236,7 +236,7 @@ def detected_vision_event(
     """
     영상 이벤트 우선순위:
 
-    위험 > 택배 > 방문자
+    침입 > 낙상 > 택배 > 방문자
     """
 
     person_score = (
@@ -267,11 +267,10 @@ def emit_deferred_vision_event(
     camera_id,
 ):
     """
-    소리 이벤트 녹화 중 감지된
-    영상 이벤트를 같은 영상으로 전송한다.
+    녹화 중 감지된 후속 영상 이벤트를 같은 영상으로 전송한다.
 
     녹화기가 하나이기 때문에
-    소리 이벤트 영상 녹화 중에는
+    기존 영상 녹화 중에는
     별도 영상을 새로 녹화하지 않는다.
     """
 
@@ -482,12 +481,11 @@ def main():
 
     av_share = AVShare()
 
-    # 녹화 중에 들어온 소리 이벤트 요청 (녹화가 끝나면 같은 영상을 받음)
+    # 녹화 중 소리 요청에도 완료된 영상의 복사본을 전달한다.
     waiting_sound_requests = WaitingSoundRequests()
 
-    # 소리 이벤트 녹화 중 발생한
-    # 영상 이벤트 보관
-    deferred_vision_event = None
+    # 녹화 중 발생한 후속 영상 이벤트를 종류별로 보관
+    deferred_vision_events = {}
 
     # ==================================
     # YOLO
@@ -506,6 +504,10 @@ def main():
         cfg,
         poll_interval_sec=GUARD_MODE_POLL_INTERVAL_SEC,
         request_timeout_sec=5,
+    )
+    intrusion_detector = IntrusionDetector(
+        required_frames=INTRUSION_REQUIRED_FRAMES,
+        missing_frames_to_reset=INTRUSION_MISSING_FRAMES_TO_RESET,
     )
     # ==================================
     # Fall Detector
@@ -617,6 +619,9 @@ def main():
 
     try:
 
+        guard_mode_client.start()
+        previous_mode = mode_state.mode
+
         while True:
 
             # ==================================
@@ -667,65 +672,17 @@ def main():
             # 4. Saved Event
             # ==================================
 
-            if (
-                saved_event is not None
-                and saved_event.get(
-                    "request_id"
-                )
-            ):
-
-                # 소리 이벤트 녹화 중에
-                # 영상 이벤트가 발생했던 경우
-                if (
-                    deferred_vision_event
-                    is not None
-                ):
-
-                    uid = (
-                        emit_deferred_vision_event(
-                            emitter,
-                            saved_event,
-                            deferred_vision_event,
-                            camera_id,
-                        )
+            if saved_event is not None:
+                # 원본 삭제/마이크 전달 전에 보류 이벤트의 첨부를 복사한다.
+                for deferred in deferred_vision_events.values():
+                    emit_deferred_vision_event(
+                        emitter, saved_event, deferred, camera_id,
                     )
-
-                    print(
-                        "[EDGE EMIT] "
-                        f"{deferred_vision_event['event_type']} "
-                        f"(during sound clip) "
-                        f"uid={uid}"
-                    )
-
-                    deferred_vision_event = None
-
-                # 소리 이벤트용 영상 전달
-                publish_sound_clip(
-                    av_share,
-                    saved_event,
-                )
-
-                print(
-                    "[SOUND CLIP READY] "
-                    f"request="
-                    f"{saved_event['request_id']}"
-                )
-
-            elif saved_event is not None:
-
-                print(
-                    "[EVENT READY FOR EDGE]"
-                )
-
-                uid = emit_saved_event(
-                    emitter,
-                    saved_event,
-                    camera_id,
-                )
-
-                print(
-                    f"[EDGE EMIT] uid={uid}"
-                )
+                deferred_vision_events.clear()
+                if saved_event.get("request_id"):
+                    publish_sound_clip(av_share, saved_event)
+                else:
+                    emit_saved_event(emitter, saved_event, camera_id)
 
             # ==================================
             # 5. YOLO
@@ -744,6 +701,14 @@ def main():
             # ==================================
             # 6. Fall
             # ==================================
+
+            # 프레임별 모드를 고정하고 전환 시 이전 장면의 감지 이력을 버린다.
+            current_mode = mode_state.mode
+            if current_mode != previous_mode:
+                fall_detector.reset()
+                visitor_detector.reset()
+                delivery_detector.reset()
+                previous_mode = current_mode
 
             fall_detected = (
                 fall_detector.update(
@@ -777,155 +742,43 @@ def main():
             )
 
             # 현재 모드(거실/현관)에 속하지 않는 감지는 이벤트로 만들지 않음
-            fall_detected = fall_detected and mode_state.allows("fall_suspect")
-            visitor_detected = visitor_detected and mode_state.allows("door_visitor")
-            if not mode_state.allows("delivery_suspect"):
+            # 비활성 상태에도 호출해 이전 후보/중복 방지 상태를 초기화한다.
+            intrusion_detected = intrusion_detector.update(
+                person,
+                guard_mode_client.is_armed() and current_mode == "living",
+            )
+            fall_detected = fall_detected and current_mode == "living"
+            visitor_detected = visitor_detected and current_mode == "entrance"
+            if current_mode != "entrance":
                 delivery_score = None
 
             # ==================================
             # 9. Vision Event Priority
             #
-            # 위험 > 택배 > 방문자
+            # 침입 > 낙상 > 택배 > 방문자
             # ==================================
 
-            if not recorder.recording:
-
-                # ----------------------------------
-                # Danger: Fall
-                # ----------------------------------
-
-                if fall_detected:
-
-                    score = None
-
-                    if person is not None:
-                        score = person[
-                            "confidence"
-                        ]
-
-                    print(
-                        "================================"
-                    )
-
-                    print(
-                        "[VISION EVENT]"
-                        " FALL DETECTED"
-                    )
-
-                    print(
-                        "================================"
-                    )
-
-                    recorder.start_event(
-                        event_type=(
-                            "fall_suspect"
-                        ),
-                        frame=frame,
-                        score=score,
-                    )
-
-                # ----------------------------------
-                # Normal: Delivery
-                # ----------------------------------
-
-                elif (
-                    delivery_score
-                    is not None
-                ):
-
-                    print(
-                        "================================"
-                    )
-
-                    print(
-                        "[VISION EVENT]"
-                        " DELIVERY DETECTED"
-                    )
-
-                    print(
-                        "================================"
-                    )
-
-                    recorder.start_event(
-                        event_type=(
-                            "delivery_suspect"
-                        ),
-                        frame=frame,
-                        score=delivery_score,
-                    )
-
-                # ----------------------------------
-                # Normal: Visitor
-                # ----------------------------------
-
-                elif visitor_detected:
-
-                    score = None
-
-                    if person is not None:
-                        score = person[
-                            "confidence"
-                        ]
-
-                    print(
-                        "================================"
-                    )
-
-                    print(
-                        "[VISION EVENT]"
-                        " VISITOR DETECTED"
-                    )
-
-                    print(
-                        "================================"
-                    )
-
-                    recorder.start_event(
-                        event_type=(
-                            "door_visitor"
-                        ),
-                        frame=frame,
-                        score=score,
-                    )
-
-            # ==================================
-            # 10. Vision event during
-            #     sound clip recording
-            # ==================================
-
-            elif (
-                recorder.request_id
-                and deferred_vision_event
-                is None
-            ):
-
-                detected = (
-                    detected_vision_event(
-                        fall_detected,
-                        delivery_score,
-                        visitor_detected,
-                        person,
-                    )
-                )
-
-                if detected is not None:
-
-                    print(
-                        f"[VISION EVENT] "
-                        f"{detected[0]} "
-                        "(during sound clip recording)"
-                    )
-
-                    deferred_vision_event = {
-                        "event_type":
-                            detected[0],
-                        "score":
-                            detected[1],
-                        "frame":
-                            frame.copy(),
-                        "event_time":
-                            datetime.now().astimezone(),
-                    }
+            # 우선순위대로 처리하되 동시 감지와 녹화 중 후속 이벤트도 보관한다.
+            person_score = person["confidence"] if person is not None else None
+            detected_events = [
+                ("intrusion_suspect", person_score, intrusion_detected),
+                ("fall_suspect", person_score, fall_detected),
+                ("delivery_suspect", delivery_score, delivery_score is not None),
+                ("door_visitor", person_score, visitor_detected),
+            ]
+            for event_type, score, detected in detected_events:
+                if not detected:
+                    continue
+                if not recorder.recording:
+                    recorder.start_event(event_type=event_type, frame=frame, score=score)
+                elif event_type != recorder.event_type:
+                    # 한 클립당 종류별 첫 감지만 보관해 메모리 사용량을 제한한다.
+                    deferred_vision_events.setdefault(event_type, {
+                        "event_type": event_type,
+                        "score": score,
+                        "frame": frame.copy(),
+                        "event_time": datetime.fromtimestamp(frame_time).astimezone(),
+                    })
 
             # ==================================
             # 11. Sound event recording request
@@ -949,6 +802,8 @@ def main():
     finally:
 
         print("[CLEANUP]")
+
+        guard_mode_client.stop()
 
         # ------------------------------
         # Camera service 종료

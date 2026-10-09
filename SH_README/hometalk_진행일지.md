@@ -512,3 +512,9 @@
 - 수정 3 (`edge/transport/outbox.py`): `enqueue()` 실패 시 이번 호출에서 새로 만든 복사본만 삭제(원본·이미 있던 같은 uid 복사본은 보존).
 - 결정: 침입 푸시는 조회 실패 시 "발송" — 침입 알림을 놓치는 쪽이 더 위험. 4번(보존 영상 자동 복구)은 이벤트 종류·시각 등을 함께 보존하는 별도 설계가 필요해 이번 범위에서 제외.
 - 테스트: Jest 신규 `tests/device-service-mode.test.js` 5건 + `device-mode.test.js` 3건 추가, 해당 2개 파일 통과. 전체 Jest 실패 5건은 `app.test.js`/`chat.test.js`의 기존 실패와 같은 위치. Python은 프로젝트 밖 임시 venv(requests·numpy·scipy·opencv-python-headless만 설치, 사용자 승인)에서 `edge/tests` 66건(신규 5건 포함), `vision/tests` 65건 전부 통과. 처음엔 `requests` 스텁으로 `test_edge.py` 30건만 확인했으나 이후 실제 패키지로 전체 재실행. Pi 실기는 미검증.
+
+### 초인종·노크(소리)와 방문자 감지(영상) 이벤트 분리
+- 한 일: `door_visitor`를 소리와 카메라가 같이 쓰던 것을 분리. 소리 = `door_visitor`(라벨 "초인종/노크 소리"), 카메라 = 새 `visitor_detected`("방문자 감지"). `event_mapper.py`에 항목 추가, `modes.py` 현관 모드 목록에 추가, `vision_pipeline.py`·`backup_pipe.py`가 새 ID로 전송, vision 테스트 3개 갱신.
+- 결정과 이유: DB `type`은 둘 다 `visitor` 유지. `sound`로 바꾸면 "방문자 알림" 설정과 채팅 방문자 조회(`get_visitor_log`)에서 초인종이 빠진다. 구분은 `metadata.category_id`/description. 백엔드 변경 없음. YAMNet 규칙은 이미 노크(353)를 포함해 그대로 둠.
+- 테스트: `edge/tests` 66건, `vision/tests` 80건 통과. Pi 실기 미검증, 카메라 서비스 재시작 필요.
+- 남은 일: 웹 이벤트 화면의 아이콘·필터 구분, 기존 DB의 `door_visitor` 중 카메라 유래 이벤트는 정리하지 않음(`source`로만 구분 가능).

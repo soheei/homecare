@@ -257,7 +257,7 @@ def detected_vision_event(
         return "delivery_suspect", delivery_score
 
     if visitor_detected:
-        return "door_visitor", person_score
+        return "visitor_detected", person_score
 
     return None
 
@@ -763,7 +763,7 @@ def main():
                 ("intrusion_suspect", person_score, intrusion_detected),
                 ("fall_suspect", fall_person["confidence"] if fall_person else None, fall_detected),
                 ("delivery_suspect", delivery_score, delivery_score is not None),
-                ("door_visitor", person_score, visitor_detected),
+                ("visitor_detected", person_score, visitor_detected),
             ]
             for event_type, score, detected in detected_events:
                 if not detected:

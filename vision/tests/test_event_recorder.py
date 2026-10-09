@@ -65,7 +65,7 @@ class RecordMixin:
                 mock.patch.object(event_recorder.subprocess, "run", side_effect=run_side_effect) as run, \
                 contextlib.redirect_stdout(io.StringIO()):
             rec.update(FRAME, next_time())
-            rec.start_event("door_visitor", FRAME, score=0.9, **start_kw)
+            rec.start_event("visitor_detected", FRAME, score=0.9, **start_kw)
             saved = None
             while saved is None:
                 saved = rec.update(FRAME, next_time())

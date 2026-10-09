@@ -233,7 +233,7 @@ def detected_vision_event(
         return "delivery_suspect", delivery_score
 
     if visitor_detected:
-        return "door_visitor", person_score
+        return "visitor_detected", person_score
 
     return None
 
@@ -815,7 +815,7 @@ def main():
 
                     recorder.start_event(
                         event_type=(
-                            "door_visitor"
+                            "visitor_detected"
                         ),
                         frame=frame,
                         score=score,

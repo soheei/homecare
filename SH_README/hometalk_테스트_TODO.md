@@ -231,10 +231,10 @@
 
 ### 단계 2 — 이벤트 구분 + 영상 동봉 (미착수, 엣지/Pi 코드 변경)
 
-- [ ] **초인종 / 방문자 감지 따로 구분하기**
-  - 현재 `door_visitor` 하나를 소리(초인종)와 카메라(방문자)가 공유(`edge/transport/event_mapper.py`). DB `type`은 5종 CHECK라 추가하지 않고 `metadata.category_id`/`source`로 구분
-  - 노크 소리가 어느 카테고리로 가는지 확인 필요(`yamnet/core/category_map.py`, `event_rules.py`)
-  - 앱: 이벤트 라벨·아이콘·필터에 반영(🔔 초인종 / 🚪 방문자 / 📦 택배 / 🚪 문 열림)
+- [ ] (코드 완료, 2026-10-09) **초인종·노크(소리) / 방문자 감지(영상) 따로 구분하기**
+  - 소리 = `door_visitor`("초인종/노크 소리", YAMNet 초인종·딩동·노크), 영상 = `visitor_detected`("방문자 감지", YOLO). 둘 다 DB `type=visitor`(5종 CHECK라 추가 안 함)이고 `metadata.category_id`/`source`로 구분. 노크(353)는 원래 `door_visitor`에 포함돼 있었음
+  - 확인(Pi): 현관 모드에서 초인종 → 이벤트 `초인종/노크 소리` 1건, 사람이 카메라 앞에 등장 → `방문자 감지` 1건(서로 쿨다운 독립). 카메라 서비스는 재시작해야 새 ID로 전송
+  - 미착수: 앱 이벤트 라벨·아이콘·필터 구분(`web/src/lib/eventDisplay.js`가 지금은 `type`만 봄). 이전 DB의 `door_visitor` 이벤트에는 카메라 것도 섞여 있음
 - [ ] (코드 완료, 2026-10-09: 녹화 중 요청 거절 → 진행 중인 영상 공유 `vision/sound_clip_share.py`) **소리 이벤트를 영상과 함께 전송** (현재 소리만 가는 경우 있음)
   - 확인(Pi): 낙상 녹화 중 비명 → 로그 `[SOUND REQUEST WAITING]` → `[SOUND CLIP SHARED]`, 두 이벤트 모두 `video_url` 채워짐 / 소리 이벤트 연달아 2건. 로그에 `(too old)`가 자주 보이면 `SOUND_REQUEST_MAX_AGE_SEC` 완화 검토, 카메라 서비스가 꺼져 있으면 영상 없음(정상)
   - 원인 후보: ① 카메라 프로세스가 꺼져 있음 ② 영상 요청이 3초 넘게 늦어 거절(`SOUND_REQUEST_MAX_AGE_SEC`) ③ 녹화 중이라 거절

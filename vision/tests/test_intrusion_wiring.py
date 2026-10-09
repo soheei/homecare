@@ -34,7 +34,7 @@ class IntrusionWiringTest(unittest.TestCase):
         camera = mock.Mock()
         yolo = mock.Mock()
         recorder = mock.Mock(recording=sound or busy, request_id="sound-1" if sound else None,
-                             event_type="sound" if sound else "door_visitor")
+                             event_type="sound" if sound else "visitor_detected")
         recorder.update.return_value = None
         fall = vp.FallDetector() if fall_positions is not None else mock.Mock()
         if fall_positions is None:
@@ -165,7 +165,7 @@ class IntrusionWiringTest(unittest.TestCase):
                                       [(False, "entrance", True)] * 4,
                                       real_visitor=True)
         self.assertEqual([(i, kw["event_type"]) for i, kw in starts],
-                         [(6, "door_visitor")])
+                         [(6, "visitor_detected")])
 
     def test_camera_cleanup_on_error(self):
         self.run_pipeline([], failure=RuntimeError("camera failed"))
@@ -188,7 +188,7 @@ class IntrusionWiringTest(unittest.TestCase):
                                                   sound=True, entrance_signals=True)
                     kinds = [c.args[2]["event_type"] for c in
                              mocks["emit_deferred_vision_event"].call_args_list]
-                    self.assertEqual(kinds, ["delivery_suspect", "door_visitor"]
+                    self.assertEqual(kinds, ["delivery_suspect", "visitor_detected"]
                                      if mode == "entrance" else [])
 
     def test_guard_change_resets_fall_but_not_entrance_history(self):

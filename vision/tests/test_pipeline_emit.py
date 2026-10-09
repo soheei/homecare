@@ -55,10 +55,10 @@ class EmitSavedEventTest(unittest.TestCase):
 
     def test_originals_deleted_when_not_queued(self):
         # 방문자 쿨다운(5분) 중이면 큐에 안 들어감 — 예전엔 이 원본이 Pi에 계속 쌓였음
-        self.assertIsNotNone(vp.emit_saved_event(self.emitter, self.saved_event("door_visitor"), "camera_01"))
+        self.assertIsNotNone(vp.emit_saved_event(self.emitter, self.saved_event("visitor_detected"), "camera_01"))
         self.video.write_bytes(b"video")
         self.thumb.write_bytes(b"jpg")
-        self.assertIsNone(vp.emit_saved_event(self.emitter, self.saved_event("door_visitor"), "camera_01"))
+        self.assertIsNone(vp.emit_saved_event(self.emitter, self.saved_event("visitor_detected"), "camera_01"))
         self.assertFalse(self.video.exists())
         self.assertFalse(self.thumb.exists())
 
@@ -122,7 +122,7 @@ class SoundRequestTest(unittest.TestCase):
         self.assertEqual(vp.detected_vision_event(True, True, 0.5, True, person), ("intrusion_suspect", 0.8))
         self.assertEqual(vp.detected_vision_event(False, True, 0.5, True, person), ("fall_suspect", 0.8))
         self.assertEqual(vp.detected_vision_event(False, False, 0.5, True, person), ("delivery_suspect", 0.5))
-        self.assertEqual(vp.detected_vision_event(False, False, None, True, None), ("door_visitor", None))
+        self.assertEqual(vp.detected_vision_event(False, False, None, True, None), ("visitor_detected", None))
         self.assertIsNone(vp.detected_vision_event(False, False, None, False, person))
 
     def test_deferred_vision_event_emitted_with_copy(self):

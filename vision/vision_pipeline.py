@@ -83,6 +83,11 @@ DOOR_ROI = (
 VISITOR_REQUIRED_FRAMES = 15
 DELIVERY_REQUIRED_FRAMES = 10
 
+# 택배 물체를 확인할 영역. 설치 화면에서 바닥 좌표로 조정한다.
+# DOOR_ROI는 사람 중심을 확인하므로, 바닥 영역과 별도로 유지한다.
+# 실제 설치 화면 확인 전에는 기존 전체 화면 범위를 유지한다.
+DELIVERY_OBJECT_ROI = (0.0, 0.0, 1.0, 1.0)
+
 # ==========================================
 # Intrusion
 # ==========================================
@@ -538,6 +543,7 @@ def main():
     delivery_detector = (
         DeliveryDetector(
             roi=DOOR_ROI,
+            object_roi=DELIVERY_OBJECT_ROI,
             required_frames=(
                 DELIVERY_REQUIRED_FRAMES
             ),

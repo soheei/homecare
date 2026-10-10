@@ -19,14 +19,13 @@ PERSON = {
 rng = np.random.default_rng(0)
 
 
-def frame(person=False, package=None, brightness=0):
+def frame(person=False, package=None, brightness=0, packages=()):
     """배경(밝기 100 + 약한 잡음) 위에 사람/상자를 그린 BGR 프레임."""
     img = np.full((H, W), BG + brightness, dtype=np.int16)
     img += rng.integers(-5, 6, size=(H, W), dtype=np.int16)
     if person:
         img[PERSON["y1"]:PERSON["y2"], PERSON["x1"]:PERSON["x2"]] = 200
-    if package:
-        x1, y1, x2, y2 = package
+    for x1, y1, x2, y2 in ([package] if package else []) + list(packages):
         img[y1:y2, x1:x2] = 180
     img = np.clip(img, 0, 255).astype(np.uint8)
     return np.dstack([img] * 3)
@@ -86,6 +85,84 @@ class DeliveryDetectorTest(unittest.TestCase):
     def test_without_frame_returns_none(self):
         d = DeliveryDetector()
         self.assertIsNone(d.update([PERSON], W, H))
+
+    def test_alternating_locations_do_not_accumulate(self):
+        d = DeliveryDetector(required_frames=10)
+        boxes = ((220, 380, 280, 440), (360, 380, 420, 440))
+        hits = run(d, visit(lambda i: ([], frame(package=boxes[i % 2])), n_after=60))
+        self.assertEqual(hits, [])
+
+    def test_slowly_moving_object_does_not_accumulate(self):
+        d = DeliveryDetector(required_frames=10)
+        def after(i):
+            x = 220 + (i % 25) * 4
+            return [], frame(package=(x, 380, x + 80, 440))
+        self.assertEqual(run(d, visit(after, n_after=60)), [])
+
+    def test_small_position_jitter_is_tolerated(self):
+        d = DeliveryDetector(required_frames=10)
+        def after(i):
+            dx = (-2, 0, 2)[i % 3]
+            return [], frame(package=(280 + dx, 380, 360 + dx, 440))
+        self.assertEqual(len(run(d, visit(after))), 1)
+
+    def test_changing_size_does_not_accumulate(self):
+        d = DeliveryDetector(required_frames=10)
+        boxes = ((290, 380, 350, 440), (260, 350, 380, 470))
+        self.assertEqual(run(d, visit(lambda i: ([], frame(package=boxes[i % 2])))), [])
+
+    def test_missing_object_restarts_confirmation(self):
+        d = DeliveryDetector(required_frames=10)
+        hits = run(d, visit(lambda i: ([], frame(package=None if i == 9 else AT_FEET))))
+        self.assertEqual(len(hits), 1)
+        # 10 empty + 10 visitor frames, then observations 10..19 after the gap.
+        self.assertEqual(hits[0][0], 39)
+
+    def test_stationary_package_with_moving_second_object(self):
+        d = DeliveryDetector(required_frames=10)
+        def after(i):
+            x = 200 + (i % 20) * 4
+            return [], frame(package=AT_FEET, packages=[(x, 200, x + 60, 260)])
+        self.assertEqual(len(run(d, visit(after))), 1)
+
+    def test_floor_roi_does_not_require_person_center_at_floor(self):
+        # Person center y=260 is outside the floor ROI, but the package is inside.
+        d = DeliveryDetector(required_frames=10, object_roi=(0.0, 0.75, 1.0, 1.0))
+        self.assertEqual(len(run(d, visit(lambda i: ([], frame(package=AT_FEET))))), 1)
+
+    def test_object_outside_floor_roi_is_ignored(self):
+        d = DeliveryDetector(required_frames=10, object_roi=(0.0, 0.75, 1.0, 1.0))
+        above_floor = (280, 200, 360, 260)
+        self.assertEqual(run(d, visit(lambda i: ([], frame(package=above_floor)))), [])
+
+    def test_omitted_object_roi_preserves_existing_roi(self):
+        d = DeliveryDetector(roi=(0.0, 0.0, 1.0, 0.7), required_frames=10)
+        self.assertEqual(run(d, visit(lambda i: ([], frame(package=AT_FEET)))), [])
+
+    def test_missing_frame_restarts_confirmation(self):
+        d = DeliveryDetector(required_frames=10)
+        self.assertEqual(run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=9)), [])
+        self.assertIsNone(d.update([], W, H, frame=None))
+        hits = run(d, [([], frame(package=AT_FEET)) for _ in range(10)])
+        self.assertEqual([index for index, _ in hits], [9])
+
+    def test_reset_discards_background_and_candidates(self):
+        d = DeliveryDetector(required_frames=10)
+        run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=9))
+        d.reset()
+        self.assertIsNone(d.background)
+        self.assertEqual(d.object_candidates, [])
+        self.assertEqual(d.stable_count, 0)
+        self.assertEqual(d.watch_left, 0)
+        self.assertEqual(run(d, [([], frame(package=AT_FEET)) for _ in range(20)]), [])
+
+    def test_person_return_discards_existing_candidates(self):
+        d = DeliveryDetector(required_frames=10)
+        run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=9))
+        run(d, [([PERSON], frame(person=True, package=AT_FEET))])
+        self.assertEqual(d.object_candidates, [])
+        self.assertEqual(d.stable_count, 0)
+        self.assertEqual(d.watch_left, 0)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,8 @@
 
 ## 현재 단계
 - 2026-09-20 Pi 초기화 이후 백엔드는 Pi가 아니라 Render에서 돈다. MCP 서버는 백엔드의 `/mcp`(2026-09-27~).
-- 엣지: 마이크→YAMNet 실시간 파이프라인 가동 중. 카메라 서비스 = `vision/` 파이프라인(YOLO 방문자·택배·낙상, 2026-09-28 통합). Pi/Render 실기 검증 항목은 `SH_README/hometalk_테스트_TODO.md`.
-- 막힌 점·다음 할 일은 `SH_README/hometalk_인수인계.md`의 "알려진 이슈 / 남은 일"을 본다.
+- 엣지: 마이크→YAMNet 실시간 파이프라인 가동 중. 카메라 서비스 = `vision/` 파이프라인(YOLO 방문자·택배·낙상, 2026-09-28 통합). Pi/Render 실기 검증 항목은 `TH_README/hometalk_테스트_TODO.md`.
+- 막힌 점·다음 할 일은 `TH_README/hometalk_인수인계.md`의 "알려진 이슈 / 남은 일"을 본다.
 
 ## 명령어
 - 백엔드(루트): `npm install`, `npm run dev`(nodemon) / `dev:fresh`(3000 포트 kill 후) / `start`, `npm run kill`, `npm test`(Jest), `npm run lint`(eslint), `npm run mcp`(stdio, 로컬 외부 클라이언트 전용)
@@ -55,6 +55,6 @@
 
 ## 문서 운영
 - AGENTS.md는 짧게 유지한다. 자세한 내용은 아래 두 문서에 쓴다. 수정할 때는 무엇을 왜 바꾸는지 알리고 승인받는다.
-- `SH_README/hometalk_인수인계.md`: 현재 상태, 막힌 점, 다음 할 일. 덮어써서 항상 최신으로 유지. 세션 시작 때 읽는다.
-- `SH_README/hometalk_진행일지.md`: 날짜별 한 일 / 이유 / 배운 점. 아래에 계속 추가. 필요할 때만 읽는다.
+- `TH_README/hometalk_인수인계.md`: 현재 상태, 막힌 점, 다음 할 일. 덮어써서 항상 최신으로 유지. 세션 시작 때 읽는다.
+- `TH_README/hometalk_진행일지.md`: 날짜별 한 일 / 이유 / 배운 점. 아래에 계속 추가. 필요할 때만 읽는다.
 - 문서가 1000줄을 넘으면 새 파일을 만들어 이어 쓴다.

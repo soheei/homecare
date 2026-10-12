@@ -58,7 +58,10 @@ class IntrusionWiringTest(unittest.TestCase):
             state.update_from_heartbeat({"mode": mode, "securityArmed": armed})
             if fall_positions is not None:
                 y = fall_positions[current]
-                person.update(center_y=y, y1=y - 80, y2=y + 80)
+                width, height = (80, 200) if y == 100 else (160, 80)
+                person.update(center_x=200, center_y=y,
+                              x1=200 - width / 2, x2=200 + width / 2,
+                              y1=y - height / 2, y2=y + height / 2)
             yolo.get_best_person.return_value = person if present else None
             yolo.detect.return_value = [person.copy()] if present else []
             if fall_positions is None:
@@ -100,6 +103,7 @@ class IntrusionWiringTest(unittest.TestCase):
                 stack.enter_context(mock.patch.object(vp, name, replacement))
             stack.enter_context(mock.patch.object(vp.camera_service, "start", return_value=[]))
             stack.enter_context(mock.patch.object(vp.time, "sleep"))
+            stack.enter_context(mock.patch.object(vp.time, "monotonic", side_effect=lambda: current * 0.2))
             if failure is None:
                 vp.main()
             else:
@@ -118,6 +122,12 @@ class IntrusionWiringTest(unittest.TestCase):
                         self.assertEqual(starts[0][0], 2)
                         self.assertEqual(starts[0][1]["event_type"], "intrusion_suspect")
                         self.assertEqual(starts[0][1]["score"], 0.9)
+
+    def test_real_fall_survives_short_person_loss_in_pipeline(self):
+        states = [(False, "living", i != 4) for i in range(13)]
+        starts, _ = self.run_pipeline(states, fall_positions=[100] * 3 + [180] * 10)
+        falls = [index for index, event in starts if event["event_type"] == "fall_suspect"]
+        self.assertEqual(falls, [9])
 
     def test_mode_or_disarming_clears_pending_and_triggered_state(self):
         active = (True, "living", True)
@@ -214,8 +224,14 @@ class IntrusionWiringTest(unittest.TestCase):
     def test_guard_toggle_discards_real_fall_candidate(self):
         off, on = (False, "living", True), (True, "living", True)
         starts, _ = self.run_pipeline([off] * 4 + [on] + [off] * 4,
-                                      fall_positions=[100, 100, 100, 150, 150, 150, 150, 150, 150])
+                                      fall_positions=[100, 100, 100, 180, 180, 180, 180, 180, 180])
         self.assertEqual(starts, [])
+
+    def test_real_fall_is_recorded_after_timed_posture_hold(self):
+        starts, _ = self.run_pipeline([(False, "living", True)] * 9,
+                                      fall_positions=[100] * 3 + [180] * 6)
+        self.assertEqual([(i, event["event_type"]) for i, event in starts],
+                         [(7, "fall_suspect")])
 
 
 if __name__ == "__main__":

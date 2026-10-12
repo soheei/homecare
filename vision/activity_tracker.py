@@ -1,14 +1,24 @@
+import time
+from math import hypot, isfinite
+
+
 class FallPersonTracker:
-    """박스 겹침(IoU)으로 낙상 대상 한 명을 이어 본다. 모호하면 이력을 끊는다.
+    """박스 겹침/단일 인물 거리로 한 명을 잇고 짧은 미검출은 보류한다.
 
     외형/신원 추적은 아니므로 겹치는 사람이나 큰 프레임 간 이동은 놓칠 수 있다.
     """
 
-    def __init__(self):
+    def __init__(self, missing_grace_sec=1.0):
+        if not isfinite(missing_grace_sec) or missing_grace_sec <= 0:
+            raise ValueError("missing_grace_sec must be positive and finite")
+        self.missing_grace_sec = missing_grace_sec
         self.reset()
 
     def reset(self):
         self.previous = None
+        self.last_seen = None
+        self.last_update = None
+        self.was_single = False
 
     @staticmethod
     def _iou(a, b):
@@ -20,21 +30,41 @@ class FallPersonTracker:
         union = area_a + area_b - intersection
         return intersection / union if union > 0 else 0
 
-    def update(self, detections):
+    def update(self, detections, timestamp=None):
         """(선택한 사람, 대상 변경 여부). 변경 시 낙상 이력을 초기화해야 한다."""
-        people = [d for d in detections if d["class_id"] == 0]
-        if not people:
+        now = time.monotonic() if timestamp is None else timestamp
+        if not isinstance(now, (int, float)) or not isfinite(now):
             self.reset()
             return None, True
+        if ((self.last_update is not None and now <= self.last_update)
+                or (self.last_seen is not None
+                    and now - self.last_seen > self.missing_grace_sec + 1e-9)):
+            self.reset()
+        self.last_update = now
+        people = [d for d in detections if d["class_id"] == 0]
+        if not people:
+            return None, self.previous is None
         if self.previous is not None:
             matches = [p for p in people if self._iou(self.previous, p) >= 0.1]
+            # 한 명만 보였던 장면에 한해 낙상으로 박스가 겹치지 않는 변화도 연결.
+            if not matches and self.was_single and len(people) == 1:
+                p = people[0]
+                height = self.previous["y2"] - self.previous["y1"]
+                distance = hypot(p["center_x"] - self.previous["center_x"],
+                                 p["center_y"] - self.previous["center_y"])
+                if distance <= height * 0.75:
+                    matches = [p]
             if len(matches) == 1:
                 self.previous = matches[0]
+                self.last_seen = now
+                self.was_single = len(people) == 1
                 return self.previous, False
             if len(matches) > 1:
                 self.reset()
                 return None, True
         self.previous = max(people, key=lambda p: p["confidence"])
+        self.last_seen = now
+        self.was_single = len(people) == 1
         return self.previous, True
 
 

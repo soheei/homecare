@@ -56,17 +56,12 @@ YOLO_CONFIDENCE = 0.5
 # Fall
 # ==========================================
 
-# 최종 FallDetector 설정
-#
-# 5 FPS 기준:
-# - 최근 4프레임의 이동을 확인
-# - 약 0.6초 동안 35px 이상 아래로 이동하면 낙상 후보
-# - 이후 움직임이 줄어드는 상태가 2프레임 유지되면 낙상 판정
-
-FALL_HISTORY_FRAMES = 4
-FALL_DROP_THRESHOLD = 35
-FALL_CANDIDATE_FRAMES = 2
-FALL_MOVEMENT_THRESHOLD = 8
+# 픽셀/프레임 대신 실제 초와 하강 전 사람 높이에 대한 비율을 사용한다.
+# 자세 조건의 나머지 초기값은 FallDetector에 있으며 현장 영상 검증이 필요하다.
+FALL_DROP_WINDOW_SEC = 0.8
+FALL_DROP_RATIO = 0.25
+FALL_STABLE_SEC = 0.8
+FALL_CANDIDATE_TIMEOUT_SEC = 2.5
 
 
 # ==========================================
@@ -81,7 +76,7 @@ DOOR_ROI = (
 )
 
 VISITOR_REQUIRED_FRAMES = 15
-DELIVERY_REQUIRED_FRAMES = 10
+DELIVERY_REQUIRED_FRAMES = 3  # 최소 표본 수. 실제 확인 시간은 감지기의 2초 조건.
 
 # 택배 물체를 확인할 영역. 설치 화면에서 바닥 좌표로 조정한다.
 # DOOR_ROI는 사람 중심을 확인하므로, 바닥 영역과 별도로 유지한다.
@@ -516,10 +511,10 @@ def main():
     # ==================================
 
     fall_detector = FallDetector(
-        history_frames=FALL_HISTORY_FRAMES,
-        drop_threshold=FALL_DROP_THRESHOLD,
-        candidate_frames=FALL_CANDIDATE_FRAMES,
-        movement_threshold=FALL_MOVEMENT_THRESHOLD,
+        drop_window_sec=FALL_DROP_WINDOW_SEC,
+        drop_ratio=FALL_DROP_RATIO,
+        stable_sec=FALL_STABLE_SEC,
+        candidate_timeout_sec=FALL_CANDIDATE_TIMEOUT_SEC,
     )
     fall_person_tracker = FallPersonTracker()
 
@@ -637,6 +632,7 @@ def main():
             frame = picam2.capture_array()
 
             frame_time = time.time()
+            frame_monotonic = time.monotonic()
 
             frame_height, frame_width = (
                 frame.shape[:2]
@@ -717,10 +713,10 @@ def main():
             fall_detected = False
             fall_person = None
             if current_mode == "living":
-                fall_person, changed = fall_person_tracker.update(detections)
+                fall_person, changed = fall_person_tracker.update(detections, timestamp=frame_monotonic)
                 if changed:
                     fall_detector.reset()
-                fall_detected = fall_detector.update(fall_person)
+                fall_detected = fall_detector.update(fall_person, timestamp=frame_monotonic)
 
             # ==================================
             # 7. Visitor
@@ -744,6 +740,7 @@ def main():
                     frame_width,
                     frame_height,
                     frame=frame,
+                    timestamp=frame_monotonic,
                 )
             )
 

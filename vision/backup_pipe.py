@@ -51,17 +51,7 @@ YOLO_CONFIDENCE = 0.5
 # Fall
 # ==========================================
 
-# 최종 FallDetector 설정
-#
-# 5 FPS 기준:
-# - 최근 4프레임의 이동을 확인
-# - 약 0.6초 동안 35px 이상 아래로 이동하면 낙상 후보
-# - 이후 움직임이 줄어드는 상태가 2프레임 유지되면 낙상 판정
-
-FALL_HISTORY_FRAMES = 4
-FALL_DROP_THRESHOLD = 35
-FALL_CANDIDATE_FRAMES = 2
-FALL_MOVEMENT_THRESHOLD = 8
+# 낙상 임계값은 FallDetector의 시간·크기 비율 기반 기본값을 사용한다.
 
 
 # ==========================================
@@ -460,12 +450,7 @@ def main():
     # Fall Detector
     # ==================================
 
-    fall_detector = FallDetector(
-        history_frames=FALL_HISTORY_FRAMES,
-        drop_threshold=FALL_DROP_THRESHOLD,
-        candidate_frames=FALL_CANDIDATE_FRAMES,
-        movement_threshold=FALL_MOVEMENT_THRESHOLD,
-    )
+    fall_detector = FallDetector()
 
     # ==================================
     # Visitor Detector

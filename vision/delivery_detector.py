@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import time
+from math import isfinite
 
 from .activity_tracker import ActivityTracker
 
@@ -13,9 +15,9 @@ class DeliveryDetector:
 
     1. 사람 없음 : 배경을 천천히 갱신 (서서히 바뀌는 조명은 따라감)
     2. 사람 등장 : 배경 고정
-    3. 사람 퇴장 : 최대 WATCH_FRAMES 동안 배경과 비교해,
+    3. 사람 퇴장 : 최대 watch_sec 동안 배경과 비교해,
                    사람이 있던 자리 근처에 새 덩어리가
-                   같은 위치·크기로 required_frames 연속 보이면 택배
+                   같은 위치·크기로 confirm_sec 이상, required_frames 이상 보이면 택배
        - 화면 대부분이 바뀌면(조명 켜짐, 문 열림) 무시하고 배경을 새로 잡음
        - 그 사이 사람이 다시 나타나면 확인 중단
     4. 택배 확정 : 그 물체를 배경에 포함 (같은 물체로 반복 발생하지 않음)
@@ -27,7 +29,6 @@ class DeliveryDetector:
     MAX_AREA_RATIO = 0.25         # 화면 대비 물체 최대 크기
     GLOBAL_CHANGE_RATIO = 0.4     # 화면의 40% 이상이 바뀌면 조명 변화로 보고 무시
     BG_ALPHA = 0.05               # 사람이 없을 때 배경 갱신 속도
-    WATCH_FRAMES = 50             # 퇴장 후 확인 시간 (5fps 기준 10초)
     REGION_MARGIN = 0.5           # 사람 박스 주변으로 넓혀서 볼 비율
     MIN_OBJECT_IOU = 0.6          # 최초 후보 박스와 겹치는 비율
     MIN_OBJECT_AREA_RATIO = 0.7   # 최초 후보 대비 윤곽 면적 유사도
@@ -39,6 +40,9 @@ class DeliveryDetector:
         roi=(0.0, 0.0, 1.0, 1.0),
         required_frames=3,
         object_roi=None,
+        confirm_sec=2.0,
+        watch_sec=10.0,
+        max_gap_sec=1.0,
     ):
         """
         roi:
@@ -52,6 +56,15 @@ class DeliveryDetector:
             새 물체가 연속 이만큼 보여야 택배로 확정.
         """
 
+        if not isinstance(required_frames, int) or required_frames < 2:
+            raise ValueError("required_frames must be an integer >= 2")
+        if any(not isfinite(v) or v <= 0 for v in (confirm_sec, watch_sec, max_gap_sec)):
+            raise ValueError("delivery timing must be positive and finite")
+        if watch_sec <= confirm_sec:
+            raise ValueError("watch_sec must exceed confirm_sec")
+        self.confirm_sec = confirm_sec
+        self.watch_sec = watch_sec
+        self.max_gap_sec = max_gap_sec
         self.roi = roi
         self.object_roi = roi if object_roi is None else object_roi
         self.required_frames = required_frames
@@ -63,6 +76,9 @@ class DeliveryDetector:
         self.stable_count = 0
         self.region = None         # 사람이 있던 자리 (축소 좌표)
         self.object_candidates = [] # 최초 위치·크기와 연속 관측 횟수
+        self.visit_region = None
+        self.watch_since = None
+        self.last_timestamp = None
 
     def reset(self):
         self.tracker = ActivityTracker()
@@ -71,6 +87,9 @@ class DeliveryDetector:
         self.stable_count = 0
         self.region = None
         self.object_candidates = []
+        self.visit_region = None
+        self.watch_since = None
+        self.last_timestamp = None
 
     def _inside_roi(
         self,
@@ -99,13 +118,29 @@ class DeliveryDetector:
         frame_width,
         frame_height,
         frame=None,
+        timestamp=None,
     ):
         """택배로 확정되면 점수(0~1), 아니면 None."""
+
+        now = time.monotonic() if timestamp is None else timestamp
+        if not isinstance(now, (int, float)) or not isfinite(now):
+            self.reset()
+            return None
+        if self.last_timestamp is not None:
+            gap = now - self.last_timestamp
+            if gap <= 0:
+                self.reset()
+            elif gap > self.max_gap_sec:
+                self.object_candidates = []
+                self.stable_count = 0
+        self.last_timestamp = now
 
         if frame is None:
             # 관측이 끊겼으므로 이전 물체의 연속 횟수를 이어 붙이지 않는다.
             self.object_candidates = []
             self.stable_count = 0
+            if self.watch_since is not None and now - self.watch_since >= self.watch_sec:
+                self._stop_watch()
             return None
 
         gray = self._prepare(frame)
@@ -133,19 +168,34 @@ class DeliveryDetector:
 
         event = self.tracker.update(person)
 
+        # 퇴장 직전 위치만 보면 물건을 두고 옆으로 걸어나간 방문을 놓친다.
+        for visitor in persons_in_roi:
+            region = self._person_region(visitor, frame_width, frame_height)
+            if region is not None:
+                if self.visit_region is None:
+                    self.visit_region = region
+                else:
+                    a, b, c, d = self.visit_region
+                    self.visit_region = (min(a, region[0]), min(b, region[1]),
+                                         max(c, region[2]), max(d, region[3]))
+        if not persons and not self.tracker.present and event is None and not self.watch_left:
+            self.visit_region = None
+
         # 사람이 떠남 (머물렀든 잠깐 들렀든) → 두고 간 물체 확인 시작
         if event in ("left", "passed") and self.background is not None:
-            self.watch_left = self.WATCH_FRAMES
+            self.watch_left = 1  # 기존 상태 필드 호환: 활성 여부. 만료는 초 단위.
+            self.watch_since = now
             self.stable_count = 0
             self.object_candidates = []
-            self.region = self._person_region(
+            self.region = self.visit_region or self._person_region(
                 self.tracker.last_person,
                 frame_width,
                 frame_height,
             )
+            self.visit_region = None
 
         if self.watch_left > 0:
-            return self._watch(gray, persons)
+            return self._watch(gray, persons, now)
 
         # 화면에 사람이 없을 때만 배경 갱신
         if not persons and not self.tracker.present:
@@ -153,13 +203,16 @@ class DeliveryDetector:
 
         return None
 
-    def _watch(self, gray, persons):
+    def _watch(self, gray, persons, now):
         # 사람이 다시 나타나면 확인 중단 (새 방문으로 추적기가 처리)
         if persons:
             self._stop_watch()
             return None
 
-        self.watch_left -= 1
+        if now - self.watch_since >= self.watch_sec:
+            self.background = gray.astype(np.float32)
+            self._stop_watch()
+            return None
 
         objects, global_change = self._find_left_objects(gray)
 
@@ -169,7 +222,7 @@ class DeliveryDetector:
             self._stop_watch()
             return None
 
-        score = self._track_objects(objects)
+        score = self._track_objects(objects, now)
 
         if score is not None:
             print(f"[DELIVERY DETECTED] score={score:.2f}")
@@ -180,10 +233,6 @@ class DeliveryDetector:
 
             return score
 
-        if self.watch_left == 0:
-            self.background = gray.astype(np.float32)
-            self._stop_watch()
-
         return None
 
     def _stop_watch(self):
@@ -191,8 +240,9 @@ class DeliveryDetector:
         self.stable_count = 0
         self.region = None
         self.object_candidates = []
+        self.watch_since = None
 
-    def _track_objects(self, objects):
+    def _track_objects(self, objects, now):
         """최초 위치에 계속 남아 있는 영역만 누적한다. 미관측 후보는 버린다.
 
         직전 프레임만 비교하면 천천히 움직이는 그림자도 이어질 수 있으므로
@@ -221,9 +271,11 @@ class DeliveryDetector:
                 previous = self.object_candidates[assigned[object_index]]
                 candidate = {**previous, "count": previous["count"] + 1}
             else:
-                candidate = {"box": obj["box"], "area": obj["area"], "count": 1}
+                candidate = {"box": obj["box"], "area": obj["area"], "count": 1,
+                             "since": now}
             candidates.append(candidate)
-            if candidate["count"] >= self.required_frames:
+            if (candidate["count"] >= self.required_frames
+                    and now - candidate["since"] + 1e-9 >= self.confirm_sec):
                 confirmed_scores.append(obj["score"])
 
         self.object_candidates = candidates
@@ -299,7 +351,10 @@ class DeliveryDetector:
         """
 
         background = cv2.convertScaleAbs(self.background)
-        diff = cv2.absdiff(gray, background)
+        # 화면 전체의 균일한 밝기 변화를 빼고 물체 부분의 차이를 남긴다.
+        delta = gray.astype(np.int16) - background.astype(np.int16)
+        illumination_shift = float(np.median(delta))
+        diff = np.clip(np.abs(delta - illumination_shift), 0, 255).astype(np.uint8)
 
         _, mask = cv2.threshold(
             diff,

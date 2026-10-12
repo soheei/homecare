@@ -1,183 +1,172 @@
+"""사람 박스의 급하강·형태 변화·낮은 자세 유지를 조합한 낙상 의심 판정.
+
+관절 추정이나 실제 바닥 위치를 사용하지 않는 휴리스틱이다. 정면 낙상,
+가림, 의도적으로 눕기는 구분을 보장하지 않는다. 임계값은 현장 검증 필요.
+"""
 from collections import deque
+from math import isfinite
+import time
 
 
 class FallDetector:
+    """비율의 기준은 하강 전 사람 높이, 속도 단위는 사람 높이/초다.
+
+    stable_sec 동안 낮은 자세를 확인한다. 움직임은 낙상 제외 근거가 아니다.
+    movement_ratio는 호출 호환용이며 판정에는 사용하지 않는다.
+    """
     def __init__(
         self,
-        history_frames=4,
-        drop_threshold=35,
-        candidate_frames=2,
-        movement_threshold=8,
+        drop_window_sec=0.8,
+        drop_ratio=0.25,
+        min_drop_speed=0.5,
+        max_height_ratio=0.65,
+        min_aspect_ratio=0.9,
+        min_aspect_growth=1.5,
+        stable_sec=0.8,
+        candidate_timeout_sec=2.5,
+        max_gap_sec=0.6,
+        movement_ratio=0.05,
+        min_stable_samples=3,
+        missing_grace_sec=1.0,
     ):
-        if history_frames < 2:
-            raise ValueError("history_frames must be at least 2")
-        # 최근 center_y 저장
-        self.history = deque(
-            maxlen=history_frames
-        )
-
-        # 최근 몇 프레임 동안의 하강량
-        self.drop_threshold = drop_threshold
-
-        # 낙상 후보 후 안정 상태 확인 프레임
-        self.candidate_frames = candidate_frames
-
-        # 낙상 후 움직임이 이 값보다 작으면
-        # 움직임이 멈췄다고 판단
-        self.movement_threshold = movement_threshold
-
-        # 현재 낙상 후보 상태인지
-        self.fall_candidate = False
-
-        # 후보 상태가 몇 프레임 유지됐는지
-        self.candidate_count = 0
-        self.candidate_origin_y = None
+        values = (drop_window_sec, drop_ratio, min_drop_speed, max_height_ratio,
+                  min_aspect_ratio, min_aspect_growth, stable_sec,
+                  candidate_timeout_sec, max_gap_sec, movement_ratio, missing_grace_sec)
+        if any(not isfinite(v) or v <= 0 for v in values):
+            raise ValueError("fall thresholds must be positive and finite")
+        if not 0 < max_height_ratio < 1 or min_aspect_growth <= 1:
+            raise ValueError("posture must shrink in height and grow in aspect ratio")
+        if (candidate_timeout_sec <= stable_sec or max_gap_sec > drop_window_sec
+                or missing_grace_sec < max_gap_sec):
+            raise ValueError("invalid fall timing windows")
+        if not isinstance(min_stable_samples, int) or min_stable_samples < 2:
+            raise ValueError("min_stable_samples must be an integer >= 2")
+        self.drop_window_sec = drop_window_sec
+        self.drop_ratio = drop_ratio
+        self.min_drop_speed = min_drop_speed
+        self.max_height_ratio = max_height_ratio
+        self.min_aspect_ratio = min_aspect_ratio
+        self.min_aspect_growth = min_aspect_growth
+        self.stable_sec = stable_sec
+        self.candidate_timeout_sec = candidate_timeout_sec
+        self.max_gap_sec = max_gap_sec
+        self.movement_ratio = movement_ratio
+        self.min_stable_samples = min_stable_samples
+        self.missing_grace_sec = missing_grace_sec
+        self.reset()
 
     def reset(self):
-        self.history.clear()
+        self.history = deque()
         self.fall_candidate = False
+        self.origin = None
+        self.candidate_since = None
+        self.stable_anchor = None
         self.candidate_count = 0
-        self.candidate_origin_y = None
+        self.last_update = None
+        self.last_seen = None
+        self.observation_missing = False
+        self.observed_low_sec = 0.0
 
-    def update(self, person):
-        """
-        person:
-        {
-            "center_x": ...,
-            "center_y": ...,
-            "width": ...,
-            "height": ...,
-            "confidence": ...
-        }
+    @staticmethod
+    def _sample(person, timestamp):
+        try:
+            x, y = float(person["center_x"]), float(person["center_y"])
+            width = float(person["width"] if "width" in person
+                          else person["x2"] - person["x1"])
+            height = float(person["height"] if "height" in person
+                           else person["y2"] - person["y1"])
+            if not all(isfinite(v) for v in (timestamp, x, y, width, height)):
+                return None
+            if width <= 0 or height <= 0:
+                return None
+            return {"time": timestamp, "x": x, "y": y, "w": width, "h": height}
+        except (KeyError, TypeError, ValueError):
+            return None
 
-        반환:
-            True  -> 낙상 감지
-            False -> 정상
-        """
-
-        # -----------------------------------
-        # 사람이 사라짐
-        # -----------------------------------
-
-        if person is None:
-            self.reset()
-
-            return False
-
-        current_y = person["center_y"]
-
-        # 현재 위치 저장
-        self.history.append(current_y)
-
-        # -----------------------------------
-        # 충분한 프레임이 모이지 않았으면
-        # 판단하지 않음
-        # -----------------------------------
-
-        if len(self.history) < self.history.maxlen:
-            return False
-
-        # -----------------------------------
-        # 최근 구간의 하강량
-        # -----------------------------------
-
-        old_y = self.history[0]
-
-        drop = current_y - old_y
-
-        # -----------------------------------
-        # 현재 프레임과 이전 프레임의 이동량
-        # -----------------------------------
-
-        previous_y = self.history[-2]
-
-        frame_dy = current_y - previous_y
-
-        # -----------------------------------
-        # 1단계:
-        # 짧은 시간에 크게 아래로 이동
-        # -----------------------------------
-
-        rapid_downward_motion = (
-            drop > self.drop_threshold
+    def _low_posture(self, current, origin):
+        aspect = current["w"] / current["h"]
+        return (
+            current["h"] <= origin["h"] * self.max_height_ratio
+            or (aspect >= self.min_aspect_ratio
+                and aspect >= origin["w"] / origin["h"] * self.min_aspect_growth)
         )
 
-        # -----------------------------------
-        # 낙상 후보가 아니라면
-        # -----------------------------------
+    def update(self, person, timestamp=None):
+        """동일 인물 박스를 입력받아 bool 반환. timestamp는 단조 증가 초 단위.
 
-        if not self.fall_candidate:
-
-            if rapid_downward_motion:
-
-                self.fall_candidate = True
-                self.candidate_count = 0
-                self.candidate_origin_y = old_y
-
-                print(
-                    f"[FALL CANDIDATE] "
-                    f"drop={drop:.1f}, "
-                    f"frame_dy={frame_dy:.1f}"
-                )
-
-        # -----------------------------------
-        # 낙상 후보 상태
-        # -----------------------------------
-
-        else:
-            # 하강 전 높이 근처로 복귀하면 정상 자세 회복으로 취급한다.
-            if current_y - self.candidate_origin_y <= self.drop_threshold:
+        생략하면 monotonic 시계를 사용한다. 사람 교체 시 호출자가 reset한다.
+        좌표/크기가 불완전하거나 관측 간격이 크면 이전 움직임과 연결하지 않는다.
+        """
+        now = time.monotonic() if timestamp is None else timestamp
+        if not isinstance(now, (int, float)) or not isfinite(now):
+            self.reset()
+            return False
+        if self.last_update is not None and now <= self.last_update:
+            self.reset()
+        self.last_update = now
+        if person is None:
+            if self.last_seen is None or now - self.last_seen > self.missing_grace_sec + 1e-9:
                 self.reset()
-                self.history.append(current_y)
+            else:
+                self.observation_missing = True
+            return False
+        current = self._sample(person, now)
+        if current is None:
+            self.reset()
+            return False
+        gap = 0 if self.last_seen is None else now - self.last_seen
+        interrupted = self.observation_missing or gap > self.max_gap_sec + 1e-9
+        if self.last_seen is not None:
+            if gap > self.missing_grace_sec + 1e-9:
+                self.reset()
+                gap = 0
+        self.last_update = now
+        self.last_seen = now
+        self.observation_missing = False
+        self.history.append(current)
+        while self.history and now - self.history[0]["time"] > self.drop_window_sec + 1e-9:
+            self.history.popleft()
+
+        if self.fall_candidate:
+            # 오래된 후보, 하강 전 높이로 회복한 동작은 새 이벤트에 쓰지 않는다.
+            if (now - self.candidate_since >= self.candidate_timeout_sec
+                    or current["y"] - self.origin["y"] <= self.origin["h"] * self.drop_ratio):
+                self.reset()
+                self.history.append(current)
+                return False
+            if not self._low_posture(current, self.origin):
+                self.stable_anchor = None
+                self.candidate_count = 0
+                self.observed_low_sec = 0.0
                 return False
 
-            # 낙상 직후 움직임이 크게 줄었는지 확인
-            movement_stopped = (
-                abs(frame_dy)
-                <= self.movement_threshold
-            )
-
-            if movement_stopped:
-
-                self.candidate_count += 1
-
+            # 뒤척임은 허용한다. 미검출/긴 처리 공백은 관측 시간에 더하지 않는다.
+            if self.stable_anchor is None:
+                self.stable_anchor = current
+                self.candidate_count = 1
             else:
-
-                self.candidate_count = 0
-
-            # --------------------------------
-            # 일정 프레임 동안 움직임이
-            # 줄어들었다면 실제 낙상으로 판단
-            # --------------------------------
-
-            if (
-                self.candidate_count
-                >= self.candidate_frames
-            ):
-
-                self.fall_candidate = False
-                self.candidate_count = 0
-
-                print(
-                    "[FALL DETECTED] "
-                    f"drop={drop:.1f}"
-                )
-
-                # 다음 이벤트를 위해 초기화
+                self.candidate_count += 1
+                if not interrupted:
+                    self.observed_low_sec += gap
+            if (self.observed_low_sec + 1e-9 >= self.stable_sec
+                    and self.candidate_count >= self.min_stable_samples):
                 self.reset()
-
                 return True
+            return False
 
-        # -----------------------------------
-        # 디버깅 로그
-        # -----------------------------------
-
-        print(
-            f"[FALL CHECK] "
-            f"drop={drop:.1f}, "
-            f"frame_dy={frame_dy:.1f}, "
-            f"candidate={self.fall_candidate}, "
-            f"count={self.candidate_count}"
-        )
-
+        # 시간 구간 안의 서 있는 박스를 기준으로 크기 정규화 하강량/속도 검사.
+        # 이미 낮은 자세로 등장한 사람에게 새 낙상을 만들지 않는다.
+        for origin in self.history:
+            elapsed = now - origin["time"]
+            if elapsed <= 0 or origin["w"] / origin["h"] > 0.8:
+                continue
+            drop = (current["y"] - origin["y"]) / origin["h"]
+            if (drop > self.drop_ratio and drop / elapsed >= self.min_drop_speed
+                    and self._low_posture(current, origin)):
+                self.fall_candidate = True
+                self.origin = origin
+                self.candidate_since = now
+                self.stable_anchor = current
+                self.candidate_count = 1
+                break
         return False

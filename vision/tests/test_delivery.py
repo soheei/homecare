@@ -35,12 +35,13 @@ AT_FEET = (280, 380, 360, 440)      # 사람이 서 있던 발밑
 FAR_CORNER = (20, 20, 90, 80)       # 사람과 먼 구석
 
 
-def run(detector, frames):
+def run(detector, frames, step=0.2):
     """frames: (detections, frame) 목록. 택배 점수가 나온 (프레임 번호, 점수) 목록."""
     hits = []
+    start = 0 if detector.last_timestamp is None else detector.last_timestamp + step
     with contextlib.redirect_stdout(io.StringIO()):
         for i, (dets, img) in enumerate(frames):
-            score = detector.update(dets, W, H, frame=img)
+            score = detector.update(dets, W, H, frame=img, timestamp=start + i * step)
             if score is not None:
                 hits.append((i, score))
     return hits
@@ -115,8 +116,8 @@ class DeliveryDetectorTest(unittest.TestCase):
         d = DeliveryDetector(required_frames=10)
         hits = run(d, visit(lambda i: ([], frame(package=None if i == 9 else AT_FEET))))
         self.assertEqual(len(hits), 1)
-        # 10 empty + 10 visitor frames, then observations 10..19 after the gap.
-        self.assertEqual(hits[0][0], 39)
+        # 10 empty + 10 visitor frames, then observations 10..20 (2 seconds).
+        self.assertEqual(hits[0][0], 40)
 
     def test_stationary_package_with_moving_second_object(self):
         d = DeliveryDetector(required_frames=10)
@@ -142,9 +143,9 @@ class DeliveryDetectorTest(unittest.TestCase):
     def test_missing_frame_restarts_confirmation(self):
         d = DeliveryDetector(required_frames=10)
         self.assertEqual(run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=9)), [])
-        self.assertIsNone(d.update([], W, H, frame=None))
-        hits = run(d, [([], frame(package=AT_FEET)) for _ in range(10)])
-        self.assertEqual([index for index, _ in hits], [9])
+        self.assertIsNone(d.update([], W, H, frame=None, timestamp=d.last_timestamp + 0.2))
+        hits = run(d, [([], frame(package=AT_FEET)) for _ in range(11)])
+        self.assertEqual([index for index, _ in hits], [10])
 
     def test_reset_discards_background_and_candidates(self):
         d = DeliveryDetector(required_frames=10)
@@ -163,6 +164,51 @@ class DeliveryDetectorTest(unittest.TestCase):
         self.assertEqual(d.object_candidates, [])
         self.assertEqual(d.stable_count, 0)
         self.assertEqual(d.watch_left, 0)
+
+    def test_brightness_change_does_not_hide_package(self):
+        d = DeliveryDetector(required_frames=3)
+        self.assertEqual(len(run(d, visit(
+            lambda i: ([], frame(package=AT_FEET, brightness=40))))), 1)
+
+    def test_exit_position_does_not_replace_dropoff_region(self):
+        d = DeliveryDetector(required_frames=3)
+        exit_person = {**PERSON, "center_x": 600, "x1": 570, "x2": 630, "width": 60}
+        frames = ([([], frame()) for _ in range(10)]
+                  + [([PERSON], frame(person=True)) for _ in range(5)]
+                  + [([exit_person], frame(package=AT_FEET)) for _ in range(5)]
+                  + [([], frame(package=AT_FEET)) for _ in range(25)])
+        self.assertEqual(len(run(d, frames)), 1)
+
+    def test_confirmation_uses_seconds_at_different_rates(self):
+        for step in (0.1, 0.2, 0.5):
+            with self.subTest(step=step):
+                d = DeliveryDetector(required_frames=3)
+                hits = run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=40), step=step)
+                self.assertEqual(len(hits), 1)
+                elapsed = (hits[0][0] - 24) * step  # 5th missing frame starts watch.
+                self.assertGreaterEqual(elapsed + 1e-9, 2.0)
+                self.assertLess(elapsed, 2.0 + step + 1e-9)
+
+    def test_long_gap_cannot_confirm_previous_candidate(self):
+        d = DeliveryDetector(required_frames=3)
+        run(d, visit(lambda i: ([], frame(package=AT_FEET)), n_after=8))
+        self.assertIsNone(d.update([], W, H, frame=frame(package=AT_FEET),
+                                   timestamp=d.last_timestamp + 1.5))
+        self.assertEqual(d.stable_count, 1)
+
+    def test_watch_expires_even_when_frame_is_missing(self):
+        d = DeliveryDetector(required_frames=3)
+        run(d, visit(lambda i: ([], frame()), n_after=8))
+        self.assertIsNone(d.update([], W, H, frame=None, timestamp=d.last_timestamp + 11))
+        self.assertEqual(d.watch_left, 0)
+
+    def test_existing_object_removal_remains_known_false_positive(self):
+        # 배경 차이만으로 추가/제거를 구분하지 못한다는 한계를 고정한다.
+        d = DeliveryDetector(required_frames=3)
+        frames = ([([], frame(package=AT_FEET)) for _ in range(10)]
+                  + [([PERSON], frame(person=True)) for _ in range(10)]
+                  + [([], frame()) for _ in range(25)])
+        self.assertEqual(len(run(d, frames)), 1)
 
 
 if __name__ == "__main__":

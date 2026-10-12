@@ -1,6 +1,6 @@
 # HomeCare vision 실행·배포 — TH
 
-> 작성 / 최근 수정: 2026-10-09
+> 작성 / 최근 수정: 2026-10-12
 > 명령어 참고 문서다. 아래 명령을 이번 문서 작업에서 실행하거나 배포하지 않았다.
 
 ## 1. 실행 환경
@@ -53,13 +53,24 @@ journalctl -u homecare-camera.service -f
 ## 4. 테스트
 
 ```bash
+python -m unittest vision.tests.test_fall_detector vision.tests.test_fall_person_tracker vision.tests.test_delivery vision.tests.test_intrusion_wiring
 python -m unittest discover -s vision/tests -t .
 python -m unittest discover -s edge/tests -t .
 ```
 
 vision 테스트는 하드웨어 연동 일부를 대체하므로 통과해도 실제 YOLO 추론·카메라·서버 전송 성공을 보장하지 않는다. 자세한 절차는 [테스트 TODO](hometalk_테스트_TODO.md)를 따른다.
 
-2026-10-09 현재 PC에서는 Python 실행 실패로 테스트를 시작하지 못했다. 실행 가능한 환경에서 다시 검증해야 한다.
+2026-10-10 관련 낙상 테스트도 현재 PC의 일반·권한 확장 실행 모두 Python 시작 실패로 실행하지 못했다. 실행 가능한 환경에서 관련 테스트부터 검증하고 전체 vision 테스트를 진행한다.
+
+### 낙상 설정 위치와 적용 전 확인
+
+- `vision/vision_pipeline.py`: `FALL_DROP_WINDOW_SEC=0.8`, `FALL_DROP_RATIO=0.25`, `FALL_STABLE_SEC=0.8`, `FALL_CANDIDATE_TIMEOUT_SEC=2.5`.
+- 박스 형태, 최소 하강 속도, 최소 관측 횟수, `max_gap_sec=0.6`, `missing_grace_sec=1.0`은 `vision/fall_detector.py` 기본값이다. 안정 반경은 판정에서 제거했다. 새 환경변수나 edge 변경은 필요하지 않다.
+- 기존 픽셀·프레임 인자(`history_frames`, `drop_threshold`, `candidate_frames`, `movement_threshold`)는 새 감지기에서 사용하지 않는다. `backup_pipe.py`는 새 기본 생성 호출에 맞췄으며 실제 실행 진입점은 `vision.vision_pipeline`이다.
+- Pi에서 관측 간격을 측정한 뒤 녹화 영상으로 오탐·미탐·알림 지연을 비교한다. 0.6초 초과 구간은 낮은 자세 관측 시간에서 제외하고 1초 초과 시 이력을 끊는다. 정면 낙상·가림과 의도적으로 눕기 구분은 보장하지 않는다.
+- 택배는 `DeliveryDetector(confirm_sec=2.0, watch_sec=10.0, max_gap_sec=1.0)` 기본값과 파이프라인 `DELIVERY_REQUIRED_FRAMES=3`을 함께 사용한다. 실제 바닥에 맞게 `DELIVERY_OBJECT_ROI`를 조정한다. 점수는 밝기 차이 지표이며 택배일 확률이 아니다.
+- 2026-10-12 Windows Python은 시작 실패. 기존 Ubuntu WSL Python 3.14에서 낙상/추적 35개 통과. 택배/파이프라인 테스트는 NumPy 미설치로 import 실패. 기존 `vision/requirements.txt` 의존성이 갖춰진 환경에서 나머지를 검증해야 하며 Pi 실기 확인 전 운영 준비 완료로 간주하지 않는다.
+- 이 설정은 초기값이며 실기 검증이나 운영 반영 완료를 의미하지 않는다.
 
 ## 5. 코드 반영과 서버 연결
 

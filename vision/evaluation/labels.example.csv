@@ -1,0 +1,6 @@
+clip_id,file,session,scenario,category,label,kind,start_s,end_s,duration_s,lighting,distance,mode,armed,split
+dev_visitor_01,data/dev_visitor_01.mp4,day1,approach_wait,visitor_detected,1,clip,5,15,25,day,near,entrance,0,dev
+dev_delivery_01,data/dev_delivery_01.mp4,day1,remove_box,delivery_suspect,0,clip,0,25,25,day,near,entrance,0,dev
+test_fall_01,data/test_fall_01.mp4,day3,side_fall,fall_suspect,1,clip,5,10,25,night,far,living,0,test
+test_intrusion_01,data/test_intrusion_01.mp4,day3,armed_off_entry,intrusion_suspect,0,clip,0,25,25,night,mid,living,0,test
+test_background_01,data/test_background_01.mp4,day3,empty_room,intrusion_suspect,0,background,0,3600,3600,night,na,living,1,test

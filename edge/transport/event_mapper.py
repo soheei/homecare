@@ -42,11 +42,11 @@ SPECS = {
     # 주의
     "baby_cry":              EventSpec("아기 울음", "sound", "warning", 30),
     "scream_shout":          EventSpec("비명 및 고함", "sound", "warning", 30),
-    "animal":                EventSpec("애완동물 울음", "sound", "warning", 300),
+    "animal":                EventSpec("애완동물 울음", "sound", "warning", 120),
     # 일반 (Plan.md §2.4: 5~10분 쿨다운)
     # 2026-10-09: 소리(초인종·노크, YAMNet)와 영상(방문자, YOLO)을 별도 이벤트로 분리. 둘 다 type=visitor라
     # 방문자 알림·채팅 방문자 조회에는 함께 잡히고, 앱/DB에서는 description·metadata.category_id로 구분한다.
-    "door_visitor":          EventSpec("초인종/노크 소리", "visitor", "normal", 300),  # 소리 판단(마이크)
+    "door_visitor":          EventSpec("초인종/노크 소리", "visitor", "normal", 120),  # 소리 판단(마이크)
     "visitor_detected":      EventSpec("방문자 감지", "visitor", "normal", 300),       # 영상 판단(카메라)
     "delivery_suspect":      EventSpec("택배 감지", "visitor", "normal", 300),
     "door_security":         EventSpec("문 열고 닫힘", "sound", "normal", 300),

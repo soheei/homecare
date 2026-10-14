@@ -67,3 +67,8 @@ venv/
 
 # edge/ — 전송 대기 큐(SQLite)와 첨부 임시 저장소 (런타임 데이터)
 edge/data/
+
+# Pi 촬영 원본 및 프레임 시각 메모 (record_dataset.py)
+vision/dataset/
+vision/*_R[0-9]*_*.mp4
+vision/*_R[0-9]*_*.json

@@ -56,6 +56,8 @@ CLAUDE.local.md
 yamnet/ESC-50/
 # media/: 개인 녹음 샘플(권한 700) — 오디오 원본은 커밋하지 않음
 yamnet/media/
+yamnet/dataset/*
+!yamnet/dataset/.gitkeep
 # 실행할 때마다 바뀌는 시뮬레이션/평가 산출물 (로그, CSV, 그래프)
 yamnet/output/
 yamnet/참고/

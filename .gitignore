@@ -54,10 +54,7 @@ CLAUDE.local.md
 # yamnet/ — Python 오디오 분류 파이프라인 (Plan.md 참고)
 # ESC-50: 2000개 wav(1.4G) + 자체 .git 보유(nested repo) + CC BY-NC 라이선스(비상용) — 커밋 대상 아님
 yamnet/ESC-50/
-# media/: 개인 녹음 샘플(권한 700) — 오디오 원본은 커밋하지 않음
-yamnet/media/
-yamnet/dataset/*
-!yamnet/dataset/.gitkeep
+
 # 실행할 때마다 바뀌는 시뮬레이션/평가 산출물 (로그, CSV, 그래프)
 yamnet/output/
 yamnet/참고/
@@ -70,7 +67,4 @@ venv/
 # edge/ — 전송 대기 큐(SQLite)와 첨부 임시 저장소 (런타임 데이터)
 edge/data/
 
-# Pi 촬영 원본 및 프레임 시각 메모 (record_dataset.py)
-vision/dataset/
-vision/*_R[0-9]*_*.mp4
-vision/*_R[0-9]*_*.json
+

@@ -225,6 +225,7 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
   - **프롬프트 캐싱은 실제로 적중하는지 미확인**: Haiku 4.5는 캐시 최소 길이가 커서 현재 프롬프트가 못 미치면 조용히 건너뜀. Render 로그 `[Claude] usage(chat) ... cache_read=`가 0보다 큰지 확인 필요.
   - **남은 단계**: 2) 초인종/방문자 구분(`event_mapper.py`·`category_map.py`) + 소리 이벤트에 영상 항상 동봉(`stream_pipeline.py`·`vision_pipeline.py`). ~~3) 거실/현관 모드 + 경비 모드~~ → 2026-10-09 코드 구현(위 "거실/현관 감지 모드 + 경비 모드"), Supabase ALTER 실행 완료, **Pi/앱 실기 확인과 경비 감지기(방 안 사람·문 열림) 연결은 미완료**.
   - 홈 "위험 알림" 기준이 바뀌어(비명·울음 같은 warning 제외) 채팅 도구 `get_daily_summary`의 `dangerEvents`도 같은 기준이 됨(`get_danger_events` 도구는 기존대로 danger+warning).
+  - 2026-10-18 비명 및 고함(`scream_shout`)을 warning → **danger**로 올림(`event_mapper.py`, type은 `sound` 유지). 그래서 홈 "위험 알림"·`dangerEvents`에 비명이 포함된다. 이미 저장된 과거 비명 이벤트는 warning으로 남고, Pi 마이크 서비스 재시작 필요(실기 미검증).
 - **실기 테스트 체크리스트와 소리·영상 융합 남은 수정사항은 [hometalk_테스트_TODO.md](hometalk_테스트_TODO.md)에 정리**(2026-09-28~). 서명 URL·소리 반복 전송 수정·방문자/택배 감지 재설계는 코드·단위 테스트만 검증됐고 Pi/Render 실기 확인은 그 문서 순서대로 진행.
 
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.

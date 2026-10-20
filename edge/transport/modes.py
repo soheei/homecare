@@ -21,7 +21,7 @@ DEFAULT_MODE = LIVING   # 백엔드 devices.mode 기본값. 첫 하트비트 응
 # 경비 ON/OFF와 무관한 목록이다. 경비가 켜질 때만 추가되는 감지(거실 침입)는 vision_pipeline이 따로 처리한다.
 # "문 열림"은 현관 경비 ON일 때 영상으로 감지할 예정(다른 팀원 작업)이라 마이크의 door_security는 어느 모드에도 넣지 않았다.
 MODE_CATEGORIES = {
-    LIVING: frozenset({"scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect"}),
+    LIVING: frozenset({"scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect", "fall_detected"}),
     ENTRANCE: frozenset({"door_visitor", "visitor_detected", "delivery_suspect"}),
 }
 

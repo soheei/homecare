@@ -202,13 +202,28 @@ class DeliveryDetectorTest(unittest.TestCase):
         self.assertIsNone(d.update([], W, H, frame=None, timestamp=d.last_timestamp + 11))
         self.assertEqual(d.watch_left, 0)
 
-    def test_existing_object_removal_remains_known_false_positive(self):
-        # 배경 차이만으로 추가/제거를 구분하지 못한다는 한계를 고정한다.
+    def test_existing_object_removal_is_not_delivery(self):
         d = DeliveryDetector(required_frames=3)
         frames = ([([], frame(package=AT_FEET)) for _ in range(10)]
                   + [([PERSON], frame(person=True)) for _ in range(10)]
                   + [([], frame()) for _ in range(25)])
-        self.assertEqual(len(run(d, frames)), 1)
+        self.assertEqual(run(d, frames), [])
+
+    def test_local_brightness_change_on_existing_object_is_ignored(self):
+        before = frame(package=AT_FEET)
+        after = before.copy()
+        x1, y1, x2, y2 = AT_FEET
+        after[y1:y2, x1:x2] = 240
+        frames = ([([], before) for _ in range(10)]
+                  + [([PERSON], before) for _ in range(10)]
+                  + [([], after) for _ in range(30)])
+        self.assertEqual(run(DeliveryDetector(), frames), [])
+
+    def test_dark_package_is_detected(self):
+        after = frame()
+        x1, y1, x2, y2 = AT_FEET
+        after[y1:y2, x1:x2] = 20
+        self.assertEqual(len(run(DeliveryDetector(), visit(lambda i: ([], after)))), 1)
 
 
 if __name__ == "__main__":

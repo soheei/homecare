@@ -65,6 +65,7 @@ yamnet/참고/
 __pycache__/
 *.pyc
 .venv/
+.venv311/
 venv/
 
 # edge/ — 전송 대기 큐(SQLite)와 첨부 임시 저장소 (런타임 데이터)

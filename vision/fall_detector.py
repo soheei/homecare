@@ -6,6 +6,60 @@
 from collections import deque
 from math import isfinite
 import time
+from uuid import uuid4
+
+
+class ProneAppearanceDetector:
+    """1초 이상 미검출 뒤 가로로 긴 사람이 2초 유지되면 낙상 의심.
+
+    바닥/관절을 확인하지 않는 박스 기반 추정이다. 가림 뒤 누운 사람이
+    드러나는 경우도 경보 대상이며, 실제 사고 여부를 확정하지 않는다.
+    """
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.last_time = None
+        self.absent_since = None
+        self.candidate_since = None
+        self.count = 0
+
+    def update(self, person, timestamp, target_changed=False):
+        if not isinstance(timestamp, (int, float)) or not isfinite(timestamp):
+            self.reset()
+            return False
+        if self.last_time is not None and (
+                timestamp <= self.last_time or timestamp - self.last_time > 0.6 + 1e-9):
+            self.reset()
+        self.last_time = timestamp
+        if person is None:
+            if self.absent_since is None:
+                self.absent_since = timestamp
+            self.candidate_since = None
+            self.count = 0
+            return False
+        sample = FallDetector._sample(person, timestamp)
+        eligible = self.absent_since is not None and timestamp - self.absent_since >= 1.0 - 1e-9
+        self.absent_since = None
+        if target_changed:
+            self.candidate_since = None
+            self.count = 0
+        if sample is None or sample['w'] / sample['h'] < 1.2:
+            self.candidate_since = None
+            self.count = 0
+            return False
+        if self.candidate_since is None:
+            if not eligible:
+                return False
+            self.candidate_since = timestamp
+            self.count = 1
+            return False
+        self.count += 1
+        if timestamp - self.candidate_since >= 2.0 - 1e-9 and self.count >= 3:
+            self.candidate_since = None
+            self.count = 0
+            return True
+        return False
 
 
 class FallDetector:
@@ -53,9 +107,63 @@ class FallDetector:
         self.movement_ratio = movement_ratio
         self.min_stable_samples = min_stable_samples
         self.missing_grace_sec = missing_grace_sec
+        self.appearance = ProneAppearanceDetector()
         self.reset()
 
     def reset(self):
+        self.appearance.reset()
+        self.last_event = None
+        self.pending_loss_since = None
+        self.incident_id = None
+        self.incident_time = None
+        self.incident_level = None
+        self._reset_motion()
+
+    def update_tracked(self, person, timestamp, changed=False, person_visible=False):
+        """대상 변경 시 하강 이력은 버리고, 미검출 뒤 출현은 별도로 확인한다."""
+        self.last_event = None
+        if (not isinstance(timestamp, (int, float)) or not isfinite(timestamp)
+                or (self.last_update is not None and timestamp <= self.last_update)):
+            self.reset()
+            return False
+        if self.last_update is not None and timestamp - self.last_update > self.max_gap_sec + 1e-9:
+            self.pending_loss_since = None
+            self._reset_motion()
+        if person is None and not person_visible:
+            if self.fall_candidate and self.pending_loss_since is None:
+                self.pending_loss_since = timestamp
+        else:
+            self.pending_loss_since = None
+        lost_after_drop = (self.pending_loss_since is not None
+                           and timestamp - self.pending_loss_since >= 1.0 - 1e-9)
+        if changed:
+            if person is not None:
+                self.incident_id = self.incident_time = self.incident_level = None
+            self._reset_motion()
+        if person is None and person_visible:
+            # 사람이 없던 장면과 여러 사람 중 대상을 고르지 못한 장면을 구분.
+            self.appearance.reset()
+            appearance_hit = False
+        else:
+            appearance_hit = self.appearance.update(person, timestamp, target_changed=changed)
+        motion_hit = self.update(person, timestamp)
+        if motion_hit or appearance_hit or lost_after_drop:
+            self.appearance.reset()
+            self.pending_loss_since = None
+            category = 'fall_detected' if motion_hit else 'fall_suspect'
+            reason = ('rapid_drop_low_posture' if motion_hit else
+                      'rapid_drop_person_lost' if lost_after_drop else 'prone_appearance')
+            # 짧은 미검출 뒤 확인된 같은 추적 대상만 기존 의심 사건으로 승격.
+            upgrade = (motion_hit and not changed and self.incident_level == 'fall_suspect'
+                       and self.incident_time is not None and timestamp - self.incident_time <= 2.5)
+            incident_id = self.incident_id if upgrade else uuid4().hex
+            self.last_event = {'category': category, 'reason': reason,
+                               'incident_id': incident_id, 'upgrade': upgrade}
+            self.incident_id, self.incident_time, self.incident_level = incident_id, timestamp, category
+            return True
+        return False
+
+    def _reset_motion(self):
         self.history = deque()
         self.fall_candidate = False
         self.origin = None
@@ -99,26 +207,28 @@ class FallDetector:
         """
         now = time.monotonic() if timestamp is None else timestamp
         if not isinstance(now, (int, float)) or not isfinite(now):
-            self.reset()
+            self._reset_motion()
             return False
         if self.last_update is not None and now <= self.last_update:
-            self.reset()
+            self._reset_motion()
+        update_gap = 0 if self.last_update is None else now - self.last_update
+        was_missing = self.observation_missing
         self.last_update = now
         if person is None:
             if self.last_seen is None or now - self.last_seen > self.missing_grace_sec + 1e-9:
-                self.reset()
+                self._reset_motion()
             else:
                 self.observation_missing = True
             return False
         current = self._sample(person, now)
         if current is None:
-            self.reset()
+            self._reset_motion()
             return False
         gap = 0 if self.last_seen is None else now - self.last_seen
         interrupted = self.observation_missing or gap > self.max_gap_sec + 1e-9
         if self.last_seen is not None:
             if gap > self.missing_grace_sec + 1e-9:
-                self.reset()
+                self._reset_motion()
                 gap = 0
         self.last_update = now
         self.last_seen = now
@@ -131,7 +241,7 @@ class FallDetector:
             # 오래된 후보, 하강 전 높이로 회복한 동작은 새 이벤트에 쓰지 않는다.
             if (now - self.candidate_since >= self.candidate_timeout_sec
                     or current["y"] - self.origin["y"] <= self.origin["h"] * self.drop_ratio):
-                self.reset()
+                self._reset_motion()
                 self.history.append(current)
                 return False
             if not self._low_posture(current, self.origin):
@@ -148,9 +258,14 @@ class FallDetector:
                 self.candidate_count += 1
                 if not interrupted:
                     self.observed_low_sec += gap
+                elif was_missing and gap <= self.max_gap_sec + 1e-9:
+                    # 짧은 누락 뒤 낮은 자세를 다시 실제 검출했다. 누락된
+                    # 프레임들의 시간은 빼고 이번 샘플 간격만 반영한다.
+                    # 누락 구간보다 긴 관측 시간을 추정해 채우지는 않는다.
+                    self.observed_low_sec += min(update_gap, gap - update_gap)
             if (self.observed_low_sec + 1e-9 >= self.stable_sec
                     and self.candidate_count >= self.min_stable_samples):
-                self.reset()
+                self._reset_motion()
                 return True
             return False
 

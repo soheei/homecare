@@ -35,6 +35,9 @@ class DeliveryDetector:
     MAX_CENTER_SHIFT_RATIO = 0.15 # 최초 후보의 폭/높이 대비 중심 이동 한도
     MIN_CENTER_TOLERANCE = 2.0    # 축소 영상의 픽셀 단위 검출 흔들림 허용
 
+    MIN_NEW_EDGE_RATIO = 0.5     # 현재 경계의 절반 이상이 기존 배경에 없었어야 함
+    MIN_NEW_EDGE_PIXELS = 6      # 잡음 몇 픽셀만으로 물체 추가를 인정하지 않음
+
     def __init__(
         self,
         roi=(0.0, 0.0, 1.0, 1.0),
@@ -347,7 +350,10 @@ class DeliveryDetector:
     def _find_left_objects(self, gray):
         """(변화 영역의 박스·면적·점수 목록, 화면 대부분이 바뀌었는지).
 
-        배경 차이만으로는 물체 추가/제거나 정지한 그림자를 구별하지 못한다.
+        밝기 차이에 더해 새로운 경계가 생겼는지 확인한다.
+        물체 회수와 기존 구조의 밝기 변화는 새 물체의 근거로 쓰지 않는다.
+        의미 분류는 아니므로 새 경계를 만드는 그림자나 제거 후 드러난
+        배경 무늬는 여전히 오탐할 수 있고, 경계가 약한 물체는 놓칠 수 있다.
         """
 
         background = cv2.convertScaleAbs(self.background)
@@ -381,6 +387,11 @@ class DeliveryDetector:
         )
 
         objects = []
+        background_edges = cv2.Canny(background, 40, 80)
+        current_edges = cv2.Canny(gray, 40, 80) > 0
+        # 압축/작은 흔들림으로 기존 경계가 1픽셀 이동하는 경우는 허용한다.
+        existing_edges = cv2.dilate(background_edges, np.ones((3, 3), np.uint8)) > 0
+        new_edges = current_edges & ~existing_edges
 
         for contour in contours:
             area = cv2.contourArea(contour)
@@ -397,6 +408,14 @@ class DeliveryDetector:
             cy = y + h / 2
 
             if not self._in_watch_area(cx, cy):
+                continue
+
+            # 차이 마스크보다 실제 경계가 조금 바깥에 있을 수 있다.
+            patch = np.s_[max(0, y - 2):y + h + 2, max(0, x - 2):x + w + 2]
+            edge_count = int(np.count_nonzero(current_edges[patch]))
+            new_count = int(np.count_nonzero(new_edges[patch]))
+            if (new_count < self.MIN_NEW_EDGE_PIXELS
+                    or new_count < edge_count * self.MIN_NEW_EDGE_RATIO):
                 continue
 
             blob = diff[y:y + h, x:x + w][mask[y:y + h, x:x + w] > 0]

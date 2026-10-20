@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from statistics import median
 
-CATEGORIES = ("visitor_detected", "delivery_suspect", "fall_suspect", "intrusion_suspect")
+CATEGORIES = ("visitor_detected", "delivery_suspect", "fall_suspect", "intrusion_suspect", "fall_detected")
 FIELDS = {"clip_id", "file", "session", "scenario", "category", "label", "kind",
           "start_s", "end_s", "duration_s", "lighting", "distance", "mode", "armed", "split"}
 

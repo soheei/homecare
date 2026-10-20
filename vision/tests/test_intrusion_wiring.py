@@ -38,7 +38,8 @@ class IntrusionWiringTest(unittest.TestCase):
         recorder.update.return_value = None
         fall = vp.FallDetector() if fall_positions is not None else mock.Mock()
         if fall_positions is None:
-            fall.update.return_value = False
+            fall.update_tracked.return_value = False
+            fall.last_event = {'category': 'fall_suspect', 'reason': 'test', 'incident_id': 'test', 'upgrade': False}
         starts = []
         current = -1
         initial_capture = True
@@ -65,7 +66,7 @@ class IntrusionWiringTest(unittest.TestCase):
             yolo.get_best_person.return_value = person if present else None
             yolo.detect.return_value = [person.copy()] if present else []
             if fall_positions is None:
-                fall.update.return_value = current in fall_frames
+                fall.update_tracked.return_value = current in fall_frames
             # 보류 이벤트가 생긴 다음 프레임에서 소리 영상 저장 완료를 재현한다.
             recorder.recording = sound or busy
             recorder.update.return_value = saved if (sound or busy) and current == len(states) - 1 else None
@@ -126,8 +127,13 @@ class IntrusionWiringTest(unittest.TestCase):
     def test_real_fall_survives_short_person_loss_in_pipeline(self):
         states = [(False, "living", i != 4) for i in range(13)]
         starts, _ = self.run_pipeline(states, fall_positions=[100] * 3 + [180] * 10)
-        falls = [index for index, event in starts if event["event_type"] == "fall_suspect"]
-        self.assertEqual(falls, [9])
+        falls = [index for index, event in starts if event["event_type"] == "fall_detected"]
+        self.assertEqual(falls, [8])  # 누락은 제외하고 재검출 샘플은 반영한다.
+
+    def test_prone_appearance_in_pipeline(self):
+        states = [(False, "living", False)] * 6 + [(False, "living", True)] * 20
+        starts, _ = self.run_pipeline(states, fall_positions=[180] * len(states))
+        self.assertEqual([i for i, e in starts if e['event_type'] == 'fall_suspect'], [16])
 
     def test_mode_or_disarming_clears_pending_and_triggered_state(self):
         active = (True, "living", True)
@@ -189,7 +195,7 @@ class IntrusionWiringTest(unittest.TestCase):
                     types = [kw["event_type"] for _, kw in starts]
                     # 낙상이 프레임 0에서 먼저 잡히므로 경비 ON/OFF 모두 낙상 녹화가 시작된다
                     self.assertEqual(types, ["fall_suspect"] if mode == "living" else [])
-                    self.assertEqual(mocks["FallDetector"].return_value.update.call_count,
+                    self.assertEqual(mocks["FallDetector"].return_value.update_tracked.call_count,
                                      2 if mode == "living" else 0)
 
     def test_entrance_events_are_independent_of_guard(self):
@@ -219,7 +225,7 @@ class IntrusionWiringTest(unittest.TestCase):
         starts, mocks = self.run_pipeline([(False, None, True)] * 4, fall_frames=(0,),
                                          entrance_signals=True)
         self.assertEqual(starts, [])
-        mocks["FallDetector"].return_value.update.assert_not_called()
+        mocks["FallDetector"].return_value.update_tracked.assert_not_called()
 
     def test_guard_toggle_discards_real_fall_candidate(self):
         off, on = (False, "living", True), (True, "living", True)
@@ -231,7 +237,7 @@ class IntrusionWiringTest(unittest.TestCase):
         starts, _ = self.run_pipeline([(False, "living", True)] * 9,
                                       fall_positions=[100] * 3 + [180] * 6)
         self.assertEqual([(i, event["event_type"]) for i, event in starts],
-                         [(7, "fall_suspect")])
+                         [(7, "fall_detected")])
 
 
 if __name__ == "__main__":

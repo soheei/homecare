@@ -14,7 +14,7 @@ from edge.transport.modes import ENTRANCE, LIVING, ModeState, is_allowed
 
 class IsAllowedTest(unittest.TestCase):
     def test_living_mode_categories(self):
-        for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect"):
+        for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact", "fall_suspect", "fall_detected"):
             self.assertTrue(is_allowed(LIVING, cid), cid)
         for cid in ("door_visitor", "door_security", "delivery_suspect"):
             self.assertFalse(is_allowed(LIVING, cid), cid)
@@ -23,7 +23,7 @@ class IsAllowedTest(unittest.TestCase):
         for cid in ("door_visitor", "visitor_detected", "delivery_suspect"):
             self.assertTrue(is_allowed(ENTRANCE, cid), cid)
         for cid in ("scream_shout", "animal", "baby_cry", "fire_alarm_siren", "glass_impact",
-                    "door_security", "fall_suspect"):
+                    "door_security", "fall_suspect", "fall_detected"):
             self.assertFalse(is_allowed(ENTRANCE, cid), cid)
 
     def test_unknown_mode_falls_back_to_living(self):

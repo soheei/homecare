@@ -21,6 +21,14 @@ def event(timestamp):
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_detected_and_suspect_are_separate_categories(self):
+        row = {**label(), 'category': 'fall_detected'}
+        self.load([row])
+        report, _ = score([row], {'a': [event(6)]})
+        self.assertEqual(report['categories']['fall_detected']['FN'], 1)
+        report, _ = score([row], {'a': [{'category': 'fall_detected', 'time_s': 6}]})
+        self.assertEqual(report['categories']['fall_detected']['TP'], 1)
+
     def load(self, rows):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/"labels.csv"

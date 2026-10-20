@@ -52,6 +52,7 @@ class EventRecorder:
         self.event_time = None
         self.event_frame = None
         self.event_score = None
+        self.fall_incident = None
         self.request_id = None
 
     def update(self, frame, frame_time=None):
@@ -97,6 +98,7 @@ class EventRecorder:
         self.event_time = datetime.now().astimezone()
         self.event_frame = frame.copy()
         self.event_score = score
+        self.fall_incident = None
         self.request_id = request_id
 
         self.post_frames = []
@@ -265,6 +267,7 @@ class EventRecorder:
             "event_type": self.event_type,
             "event_time": self.event_time,
             "score": self.event_score,
+            "fall_incident": self.fall_incident,
             "has_audio": has_audio,
             "request_id": self.request_id,
         }
@@ -411,6 +414,7 @@ class EventRecorder:
         self.event_time = None
         self.event_frame = None
         self.event_score = None
+        self.fall_incident = None
         self.request_id = None
 
         self.pre_buffer.clear()

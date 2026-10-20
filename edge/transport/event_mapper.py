@@ -13,7 +13,7 @@ yamnet/core/category_map.py의 default_risk_level(높음/중간/낮음/…)을 �
     애완동물 울음, 일반 = 초인종/노크·문 열고 닫힘. baby_person_distress는 baby_cry / scream_shout로
     나뉘었고, long_silence / kitchen_risk는 전송하지 않는다.
   - 2026-10-18: 비명 및 고함(scream_shout)을 주의 → 위험으로 올렸다(type은 sound 유지).
-  - fall_suspect: 카메라(vision) 낙상 판정이 쓰므로 '위험' 유지. 소리 기반 낙상은
+  - fall_detected는 위험, fall_suspect는 주의로 구분한다. 소리 기반 낙상은
     edge/apps/stream_pipeline.py의 AUDIO_DISABLED_CATEGORIES에서 끈다.
   - 쿨다운: Plan.md §2.4는 '높음'을 쿨다운 없이 매번 알린다고 했으나, 같은 소리가 연속 프레임에서
     중복 이벤트로 쌓이는 것을 막기 위해 10초 하한만 뒀다.
@@ -38,10 +38,11 @@ SPECS = {
     "fire_alarm_siren":      EventSpec("경보음/사이렌", "danger", "danger", 10),
     "glass_impact":          EventSpec("파손/충격음", "danger", "danger", 10),
     "scream_shout":          EventSpec("비명 및 고함", "sound", "danger", 30),  # 2026-10-18 주의 → 위험
-    "fall_suspect":          EventSpec("낙상 의심", "danger", "danger", 10),  # 카메라 전용(소리 쪽은 꺼짐)
+    "fall_detected":         EventSpec("낙상", "danger", "danger", 10),  # description: 낙상 감지
     # 경비 모드 + 거실에서 카메라가 사람을 감지(vision/intrusion_detector.py). 앱 푸시는 백엔드가 "침입 의심"으로 발송
     "intrusion_suspect":     EventSpec("침입 의심", "danger", "danger", 30),
     # 주의
+    "fall_suspect":          EventSpec("낙상 의심", "danger", "warning", 10),  # 카메라 전용
     "baby_cry":              EventSpec("아기 울음", "sound", "warning", 30),
     "animal":               EventSpec("애완동물 울음", "sound", "warning", 120),
     # 일반 (Plan.md §2.4: 5~10분 쿨다운)

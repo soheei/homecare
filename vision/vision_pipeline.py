@@ -180,6 +180,7 @@ def emit_saved_event(
                 "video_has_audio": bool(
                     saved_event.get("has_audio")
                 ),
+                "fall_incident": saved_event.get('fall_incident'),
             },
             occurred_at=saved_event["event_time"],
         )
@@ -251,7 +252,7 @@ def detected_vision_event(
         return "intrusion_suspect", person_score
 
     if fall_detected:
-        return "fall_suspect", person_score
+        return "fall_detected", person_score
 
     if delivery_score is not None:
         return "delivery_suspect", delivery_score
@@ -312,6 +313,7 @@ def emit_deferred_vision_event(
             "event_type": deferred["event_type"],
             "event_time": deferred["event_time"],
             "score": deferred["score"],
+            "fall_incident": deferred.get('fall_incident'),
             "has_audio": saved_event.get(
                 "has_audio"
             ),
@@ -714,9 +716,9 @@ def main():
             fall_person = None
             if current_mode == "living":
                 fall_person, changed = fall_person_tracker.update(detections, timestamp=frame_monotonic)
-                if changed:
-                    fall_detector.reset()
-                fall_detected = fall_detector.update(fall_person, timestamp=frame_monotonic)
+                fall_detected = fall_detector.update_tracked(
+                    fall_person, timestamp=frame_monotonic, changed=changed,
+                    person_visible=any(d['class_id'] == 0 for d in detections))
 
             # ==================================
             # 7. Visitor
@@ -764,15 +766,26 @@ def main():
             person_score = person["confidence"] if person is not None else None
             detected_events = [
                 ("intrusion_suspect", person_score, intrusion_detected),
-                ("fall_suspect", fall_person["confidence"] if fall_person else None, fall_detected),
+                (fall_detector.last_event['category'] if fall_detected else 'fall_suspect',
+                 fall_person["confidence"] if fall_person else None, fall_detected),
                 ("delivery_suspect", delivery_score, delivery_score is not None),
                 ("visitor_detected", person_score, visitor_detected),
             ]
             for event_type, score, detected in detected_events:
                 if not detected:
                     continue
+                if (event_type == 'fall_detected' and recorder.recording
+                        and recorder.event_type == 'fall_suspect'
+                        and getattr(recorder, 'fall_incident', None)
+                        and recorder.fall_incident['incident_id'] == fall_detector.last_event['incident_id']):
+                    recorder.event_type = 'fall_detected'
+                    recorder.event_score = score
+                    recorder.fall_incident = dict(fall_detector.last_event)
+                    continue
                 if not recorder.recording:
                     recorder.start_event(event_type=event_type, frame=frame, score=score)
+                    if event_type in ('fall_detected', 'fall_suspect'):
+                        recorder.fall_incident = dict(fall_detector.last_event)
                 elif event_type != recorder.event_type:
                     # 한 클립당 종류별 첫 감지만 보관해 메모리 사용량을 제한한다.
                     deferred_vision_events.setdefault(event_type, {
@@ -780,6 +793,8 @@ def main():
                         "score": score,
                         "frame": frame.copy(),
                         "event_time": datetime.fromtimestamp(frame_time).astimezone(),
+                        "fall_incident": (dict(fall_detector.last_event)
+                                          if event_type in ('fall_detected', 'fall_suspect') else None),
                     })
 
             # ==================================

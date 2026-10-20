@@ -53,6 +53,35 @@ class EmitSavedEventTest(unittest.TestCase):
         # 원본 경로를 큐에 기록하지 않음 (이미 지웠으므로)
         self.assertTrue(all("original" not in a for a in row["attachments"]))
 
+    def test_fall_levels_queue_separately_and_preserve_incident(self):
+        incident = {'incident_id': 'same-incident', 'upgrade': False, 'reason': 'prone_appearance'}
+        for category in ('fall_suspect', 'fall_detected'):
+            self.video.write_bytes(b'video')
+            self.thumb.write_bytes(b'jpg')
+            event = self.saved_event(category)
+            event['fall_incident'] = {**incident, 'upgrade': category == 'fall_detected'}
+            self.assertIsNotNone(vp.emit_saved_event(self.emitter, event, 'camera_01'))
+            self.assertFalse(self.video.exists())
+        rows = {r['payload']['metadata']['category_id']: r for r in self.emitter.outbox.fetch_due()}
+        self.assertEqual(set(rows), {'fall_suspect', 'fall_detected'})
+        for category, row in rows.items():
+            payload = row['payload']
+            risk = 'danger' if category == 'fall_detected' else 'warning'
+            self.assertEqual((payload['type'], payload['dangerLevel']), ('danger', risk))
+            self.assertEqual(payload['metadata']['fall_incident']['incident_id'], 'same-incident')
+            self.assertEqual(payload['metadata']['fall_incident']['upgrade'], category == 'fall_detected')
+            self.assertTrue(all(Path(a['path']).is_file() for a in row['attachments']))
+        self.assertTrue(rows['fall_detected']['payload']['description'].startswith('낙상 감지'))
+        self.assertTrue(rows['fall_suspect']['payload']['description'].startswith('낙상 의심'))
+
+    def test_detected_queue_failure_preserves_originals(self):
+        with mock.patch.object(self.emitter.outbox, 'enqueue', side_effect=OSError('disk full')):
+            with self.assertLogs(vp.__name__, level='ERROR'), self.assertRaises(OSError):
+                vp.emit_saved_event(self.emitter, self.saved_event('fall_detected'), 'camera_01')
+        self.assertTrue(self.video.exists())
+        self.assertTrue(self.thumb.exists())
+        self.assertIsNotNone(vp.emit_saved_event(self.emitter, self.saved_event('fall_detected'), 'camera_01'))
+
     def test_originals_deleted_when_not_queued(self):
         # 방문자 쿨다운(5분) 중이면 큐에 안 들어감 — 예전엔 이 원본이 Pi에 계속 쌓였음
         self.assertIsNotNone(vp.emit_saved_event(self.emitter, self.saved_event("visitor_detected"), "camera_01"))
@@ -120,7 +149,7 @@ class SoundRequestTest(unittest.TestCase):
     def test_detected_vision_event_priority(self):
         person = {"confidence": 0.8}
         self.assertEqual(vp.detected_vision_event(True, True, 0.5, True, person), ("intrusion_suspect", 0.8))
-        self.assertEqual(vp.detected_vision_event(False, True, 0.5, True, person), ("fall_suspect", 0.8))
+        self.assertEqual(vp.detected_vision_event(False, True, 0.5, True, person), ("fall_detected", 0.8))
         self.assertEqual(vp.detected_vision_event(False, False, 0.5, True, person), ("delivery_suspect", 0.5))
         self.assertEqual(vp.detected_vision_event(False, False, None, True, None), ("visitor_detected", None))
         self.assertIsNone(vp.detected_vision_event(False, False, None, False, person))

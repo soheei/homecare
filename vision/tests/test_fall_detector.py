@@ -85,7 +85,27 @@ class FallDetectorTest(unittest.TestCase):
     def test_short_missing_person_preserves_candidate_without_counting_gap(self):
         self.start_candidate()
         results = self.run_frames([None] + [fallen()] * 10, start=0.8)
+        self.assertEqual([i for i, hit in enumerate(results) if hit], [4])
+
+    def test_intermittent_low_detections_count_only_observed_samples(self):
+        self.start_candidate()
+        self.assertFalse(self.detector.update(None, timestamp=0.8))
+        self.assertFalse(self.detector.update(fallen(), timestamp=1.0))
+        self.assertAlmostEqual(self.detector.observed_low_sec, 0.2)
+        results = self.run_frames([None, fallen()] * 3, start=1.2)
         self.assertEqual([i for i, hit in enumerate(results) if hit], [5])
+
+    def test_sparse_reappearance_cannot_fill_long_missing_interval(self):
+        self.start_candidate()
+        self.assertFalse(self.detector.update(None, timestamp=0.8))
+        self.assertFalse(self.detector.update(fallen(), timestamp=1.4))
+        self.assertEqual(self.detector.observed_low_sec, 0)
+
+    def test_reappearance_upright_cancels_candidate(self):
+        self.start_candidate()
+        self.assertFalse(self.detector.update(None, timestamp=0.8))
+        self.assertFalse(self.detector.update(person(), timestamp=1.0))
+        self.assertFalse(self.detector.fall_candidate)
 
     def test_height_only_front_fall_is_detected(self):
         front = person(y=180, width=60, height=100)

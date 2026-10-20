@@ -16,8 +16,8 @@ def person(x, y, confidence=0.9, width=80, height=200):
 class FallPersonTrackerTest(unittest.TestCase):
     def test_confidence_swap_keeps_same_person(self):
         tracker = FallPersonTracker()
-        tracker.update([person(100, 100), person(300, 150, 0.8)])
-        selected, changed = tracker.update([person(100, 100, 0.6), person(300, 150, 0.99)])
+        tracker.update([person(100, 100), person(300, 150, 0.8)], timestamp=0)
+        selected, changed = tracker.update([person(100, 100, 0.6), person(300, 150, 0.99)], timestamp=0.2)
         self.assertEqual(selected["center_x"], 100)
         self.assertFalse(changed)
 
@@ -27,7 +27,7 @@ class FallPersonTrackerTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             for i, p in enumerate([person(100, 100)] * 3 +
                                   [person(400, 180, width=160, height=80)] * 6):
-                selected, changed = tracker.update([p])
+                selected, changed = tracker.update([p], timestamp=i * 0.2)
                 if changed:
                     detector.reset()
                 results.append(detector.update(selected, timestamp=i * 0.2))
@@ -39,7 +39,7 @@ class FallPersonTrackerTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             boxes = [person(100, 100)] * 3 + [person(100, 180, width=160, height=80)] * 6
             for i, box in enumerate(boxes):
-                selected, changed = tracker.update([box])
+                selected, changed = tracker.update([box], timestamp=i * 0.2)
                 if changed:
                     detector.reset()
                 results.append(detector.update(selected, timestamp=i * 0.2))
@@ -47,8 +47,8 @@ class FallPersonTrackerTest(unittest.TestCase):
 
     def test_ambiguous_overlap_clears_target(self):
         tracker = FallPersonTracker()
-        tracker.update([person(100, 100)])
-        self.assertEqual(tracker.update([person(95, 100), person(105, 100)]), (None, True))
+        tracker.update([person(100, 100)], timestamp=0)
+        self.assertEqual(tracker.update([person(95, 100), person(105, 100)], timestamp=0.2), (None, True))
 
     def test_short_missing_person_preserves_target_but_long_gap_resets(self):
         tracker = FallPersonTracker()
@@ -79,4 +79,4 @@ class FallPersonTrackerTest(unittest.TestCase):
             if changed:
                 detector.reset()
             results.append(detector.update(selected, timestamp=i * 0.2))
-        self.assertEqual([i for i, hit in enumerate(results) if hit], [9])
+        self.assertEqual([i for i, hit in enumerate(results) if hit], [8])

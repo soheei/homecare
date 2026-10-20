@@ -56,14 +56,13 @@ class RuleRunner:
         fall = False
         if self.mode == "living":
             tracked, changed = self.tracker.update(detections, timestamp=timestamp)
-            if changed:
-                self.fall.reset()
-            fall = self.fall.update(tracked, timestamp=timestamp)
+            fall = self.fall.update_tracked(tracked, timestamp=timestamp, changed=changed,
+                                           person_visible=any(d['class_id'] == 0 for d in detections))
         visitor = self.visitor.update(person, width, height)
         delivery = self.delivery.update(detections, width, height, frame=frame, timestamp=timestamp)
         intrusion = self.intrusion.update(person, self.armed and self.mode == "living")
         return [name for name, found in (
-            ("intrusion_suspect", intrusion), ("fall_suspect", fall),
+            ("intrusion_suspect", intrusion), (self.fall.last_event['category'] if fall else 'fall_suspect', fall),
             ("delivery_suspect", delivery is not None and self.mode == "entrance"),
             ("visitor_detected", visitor and self.mode == "entrance")) if found]
 
@@ -98,7 +97,10 @@ def replay_clip(row, detector, settings):
             frame = cv2.resize(frame, (settings["WIDTH"], settings["HEIGHT"]))
             detections = detector.detect(frame)
             for category in runner.update(frame, detections, timestamp, detector):
-                events.append({"category": category, "time_s": timestamp})
+                event = {"category": category, "time_s": timestamp}
+                if category in ('fall_suspect', 'fall_detected'):
+                    event.update(getattr(getattr(runner, 'fall', None), 'last_event', None) or {})
+                events.append(event)
             sampled += 1
         if abs(index-frame_count) > 1 or not sampled:
             raise ValueError(f"incomplete video decode: {row['clip_id']}")

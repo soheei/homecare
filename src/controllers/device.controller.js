@@ -4,6 +4,7 @@
 
 const deviceService = require('../services/device.service');
 const captureService = require('../services/capture.service');
+const accessLogService = require('../services/accessLog.service');
 const logger = require('../utils/logger');
 
 /**
@@ -144,7 +145,7 @@ const getSecurityMode = async (req, res, next) => {
 const setMode = async (req, res, next) => {
   try {
     const userId = req.user?.id;
-    const { mode, securityArmed } = req.body || {};
+    const { mode, securityArmed, privacyMode } = req.body || {};
 
     if (mode !== undefined && !deviceService.VALID_MODES.includes(mode)) {
       return res.status(400).json({
@@ -155,18 +156,29 @@ const setMode = async (req, res, next) => {
     if (securityArmed !== undefined && typeof securityArmed !== 'boolean') {
       return res.status(400).json({ success: false, error: 'securityArmed must be a boolean' });
     }
-    if (mode === undefined && securityArmed === undefined) {
-      return res.status(400).json({ success: false, error: 'mode or securityArmed is required' });
+    if (privacyMode !== undefined && typeof privacyMode !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'privacyMode must be a boolean' });
+    }
+    if (mode === undefined && securityArmed === undefined && privacyMode === undefined) {
+      return res.status(400).json({ success: false, error: 'mode, securityArmed or privacyMode is required' });
     }
 
-    const updated = await deviceService.setUserMode(userId, { mode, securityArmed });
+    const updated = await deviceService.setUserMode(userId, { mode, securityArmed, privacyMode });
     if (updated === 0) {
       return res.status(404).json({ success: false, error: '모드를 바꿀 카메라/마이크 기기가 없습니다.' });
     }
 
+    if (privacyMode !== undefined) {
+      accessLogService.record({ userId, action: 'privacy_mode', resourceId: privacyMode ? 'on' : 'off' });
+    }
+
     res.json({
       success: true,
-      data: { ...(mode !== undefined && { mode }), ...(securityArmed !== undefined && { securityArmed }) }
+      data: {
+        ...(mode !== undefined && { mode }),
+        ...(securityArmed !== undefined && { securityArmed }),
+        ...(privacyMode !== undefined && { privacyMode })
+      }
     });
 
   } catch (error) {
@@ -196,6 +208,7 @@ const requestCapture = async (req, res, next) => {
 
     logger.info(`[Device] Capture requested for device: ${id}`);
     const capture = await captureService.requestCapture(id);
+    accessLogService.record({ userId: req.user?.id, action: 'capture', resourceId: id });
 
     res.json({
       success: true,

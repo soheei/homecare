@@ -51,6 +51,11 @@ const config = {
     subject: process.env.VAPID_SUBJECT || 'mailto:admin@example.com'
   },
 
+  // 보존 기간(일): 이보다 오래된 이벤트와 미디어를 자동 삭제. 미설정/0이면 삭제하지 않음(되돌릴 수 없어 명시적으로 켠 경우만)
+  retention: {
+    days: Math.max(0, parseInt(process.env.RETENTION_DAYS, 10) || 0)
+  },
+
   // Logging
   logLevel: process.env.LOG_LEVEL || 'debug',
 

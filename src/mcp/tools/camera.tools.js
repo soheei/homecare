@@ -9,6 +9,7 @@
 
 const deviceService = require('../../services/device.service');
 const captureService = require('../../services/capture.service');
+const accessLogService = require('../../services/accessLog.service');
 const { supabase } = require('../../config/supabase');
 const logger = require('../../utils/logger');
 const { formatKst } = require('../../utils/date.utils');
@@ -139,6 +140,7 @@ const handlers = {
     try {
       const capture = await captureService.requestCapture(deviceId, userId);
       logger.info(`[CameraTools] Captured ${capture.captureId} from device ${capture.deviceId}`);
+      accessLogService.record({ userId, action: 'capture', resourceId: capture.deviceId, source: 'chat' });
       return {
         success: true,
         captureId: capture.captureId,

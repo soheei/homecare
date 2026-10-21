@@ -29,6 +29,7 @@ const MESSAGES = {
   noCamera: '등록된 카메라가 없어요.',
   notCamera: '카메라 기기가 아니에요.',
   cameraOff: '카메라가 꺼져 있어 현재 화면을 가져올 수 없습니다.',
+  privacyOn: '사생활 보호 모드가 켜져 있어 촬영할 수 없어요. 설정에서 끄면 다시 볼 수 있어요.',
   notListening: '라즈베리파이 카메라 서비스와 연결되지 않았어요. 카메라 서비스를 다시 시작해주세요.',
   timeout: '카메라 응답이 늦어 현재 화면을 가져오지 못했어요. 잠시 후 다시 시도해주세요.',
   cameraNotDetected: '카메라 장치를 찾을 수 없어요. 카메라 연결 상태를 확인해주세요.',
@@ -79,6 +80,7 @@ const resolveCamera = async (deviceId, userId) => {
  */
 const requestCapture = async (deviceId, userId) => {
   const device = await resolveCamera(deviceId, userId);
+  if (device.privacy_mode === true) throw new AppError(MESSAGES.privacyOn, 403);
   if (!device.isOnline) throw new AppError(MESSAGES.cameraOff, 409);
 
   const last = lastPollAt.get(device.id);

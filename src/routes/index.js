@@ -9,6 +9,7 @@ const chatRoutes = require('./chat.routes');
 const eventRoutes = require('./event.routes');
 const deviceRoutes = require('./device.routes');
 const notificationRoutes = require('./notification.routes');
+const accessLogRoutes = require('./accessLog.routes');
 
 // API 버전 정보
 router.get('/', (req, res) => {
@@ -20,7 +21,8 @@ router.get('/', (req, res) => {
       chat: '/api/chat',
       events: '/api/events',
       devices: '/api/devices',
-      notifications: '/api/notifications'
+      notifications: '/api/notifications',
+      accessLogs: '/api/access-logs'
     }
   });
 });
@@ -30,5 +32,6 @@ router.use('/chat', chatRoutes);
 router.use('/events', eventRoutes);
 router.use('/devices', deviceRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/access-logs', accessLogRoutes);
 
 module.exports = router;

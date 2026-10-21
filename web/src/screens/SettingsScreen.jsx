@@ -34,6 +34,18 @@ const NOTIFICATION_ITEMS = [
   { key: 'briefing', icon: 'chart', bg: 'bg-brand-100 text-brand-500', title: '일일 브리핑', desc: '매일 오후 9시 AI 요약 알림', defaultOn: true }
 ];
 
+// 열람 기록의 행동 이름
+const ACCESS_ACTION_LABELS = {
+  view_event: '이벤트 열람',
+  capture: '현재 화면 촬영',
+  delete_event: '이벤트 삭제',
+  delete_events: '이벤트 여러 개 삭제',
+  privacy_mode: '사생활 모드 변경'
+};
+
+const formatLogTime = (iso) =>
+  new Date(iso).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 const FAMILY_MEMBERS = [
   { name: '나', role: '관리자 • 모든 권한', initial: '나', online: true }
 ];
@@ -51,9 +63,45 @@ export default function SettingsScreen() {
   const [deviceCount, setDeviceCount] = useState(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
+  // 사생활 모드: null=확인 전. 마이크·카메라는 함께 바뀌므로 하나라도 켜져 있으면 켜짐으로 본다
+  const [privacyOn, setPrivacyOn] = useState(null);
+  const [privacyBusy, setPrivacyBusy] = useState(false);
+  const [logs, setLogs] = useState(null); // null=아직 안 열어봄
+  const [logsError, setLogsError] = useState('');
+
   useEffect(() => {
-    api.devices.list().then((d) => setDeviceCount(d.length)).catch(() => setDeviceCount(null));
+    api.devices.list()
+      .then((d) => {
+        setDeviceCount(d.length);
+        setPrivacyOn(d.some((x) => x.privacy_mode === true));
+      })
+      .catch(() => setDeviceCount(null));
   }, []);
+
+  const handlePrivacyToggle = async () => {
+    if (privacyBusy || privacyOn === null) return;
+    const next = !privacyOn;
+    setPrivacyBusy(true);
+    setNotice('');
+    try {
+      await api.devices.setMode({ privacyMode: next });
+      setPrivacyOn(next);
+    } catch (err) {
+      setNotice(err.message || '사생활 모드를 바꾸지 못했습니다.');
+    } finally {
+      setPrivacyBusy(false);
+    }
+  };
+
+  const handleShowLogs = async () => {
+    setLogsError('');
+    try {
+      const data = await api.accessLogs.list();
+      setLogs(data.logs || []);
+    } catch (err) {
+      setLogsError(err.message || '열람 기록을 불러오지 못했습니다.');
+    }
+  };
 
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   // 이 기기에서 푸시를 받을 수 있는 상태인지: null=확인 전/불필요, 'needed'=구독 필요, 'denied'=브라우저에서 차단됨
@@ -189,6 +237,46 @@ export default function SettingsScreen() {
           </div>
         )}
         {notice && <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-danger">{notice}</div>}
+      </SettingsSection>
+
+      <SettingsSection icon="lock" title="사생활 보호">
+        <SettingsItem
+          icon="lock"
+          bg="bg-brand-100 text-brand-500"
+          title="사생활 보호 모드"
+          desc={privacyOn
+            ? '켜짐 • 사진·소리·영상을 저장하지 않고 현재 화면 촬영도 막아요'
+            : '꺼짐 • 켜면 사진·소리·영상을 저장하지 않고 글 기록만 남겨요'}
+          right={
+            <Toggle
+              on={privacyOn === true}
+              onClick={handlePrivacyToggle}
+              disabled={privacyBusy || privacyOn === null}
+              label="사생활 보호 모드 켜기/끄기"
+            />
+          }
+        />
+        <SettingsItem
+          icon="info"
+          bg="bg-brand-100 text-brand-500"
+          title="열람 기록"
+          desc="내 계정으로 본 영상·촬영·삭제 기록"
+          arrow
+          onClick={handleShowLogs}
+        />
+        {logsError && <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-danger">{logsError}</div>}
+        {logs && logs.length === 0 && (
+          <div className="border-t border-black/5 px-[18px] py-3 text-[13px] text-ink-light">아직 기록이 없어요.</div>
+        )}
+        {logs && logs.map((log) => (
+          <div key={log.id} className="flex items-center justify-between gap-3 border-t border-black/5 px-[18px] py-2.5 text-[13px]">
+            <span className="text-ink">
+              {ACCESS_ACTION_LABELS[log.action] || log.action}
+              {log.source === 'chat' && <span className="ml-1.5 text-xs text-ink-light">(채팅)</span>}
+            </span>
+            <span className="shrink-0 text-xs text-ink-light">{formatLogTime(log.created_at)}</span>
+          </div>
+        ))}
       </SettingsSection>
 
       <SettingsSection icon="users" title="계정">

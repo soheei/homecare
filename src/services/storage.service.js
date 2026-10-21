@@ -5,6 +5,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 const path = require('path');
+const crypto = require('crypto');
 
 // 앱이 이벤트 사진/소리/영상을 볼 때 발급하는 서명 URL 유효시간 (events 버킷은 private)
 const SIGNED_URL_EXPIRES_SEC = 60 * 60;
@@ -78,23 +79,26 @@ const removeEventMedia = async (events, bucket = 'events') => {
  * Supabase Storage에 파일 업로드
  * @param {Object} file - Multer 파일 객체
  * @param {string} bucket - 스토리지 버킷 이름 (events, profiles 등)
+ * @param {string} [ownerId] - 파일을 올린 기기 id (경로 앞에 붙여 기기별로 나눔)
  * @returns {string|null} - 업로드된 파일의 Public URL
  */
-const uploadFile = async (file, bucket = 'events') => {
+const uploadFile = async (file, bucket = 'events', ownerId) => {
   try {
     if (!file) return null;
 
-    // 파일 확장자 추출
-    const ext = path.extname(file.originalname);
+    // 확장자는 업로드된 파일명에서 오지만 경로에 쓰이므로 짧은 영숫자만 허용
+    const rawExt = path.extname(file.originalname || '').toLowerCase();
+    const ext = /^\.[a-z0-9]{1,5}$/.test(rawExt) ? rawExt : '';
     // 파일 타입별 폴더 분류 (image / audio / video)
     const typeFolder = file.mimetype.startsWith('video/') ? 'video'
                      : file.mimetype.startsWith('audio/') ? 'audio'
                      : 'image';
-    // 유니크한 파일 이름 생성 (timestamp_random.ext)
-    const fileName = `${Date.now()}_${Math.floor(Math.random() * 1000)}${ext}`;
-    const filePath = `${typeFolder}/${fileName}`;
+    // 추측할 수 없는 파일 이름 (예전엔 timestamp_random이라 짐작 가능했음)
+    const fileName = `${crypto.randomUUID()}${ext}`;
+    const ownerFolder = /^[A-Za-z0-9-]{1,64}$/.test(ownerId || '') ? ownerId : 'unknown';
+    const filePath = `${ownerFolder}/${typeFolder}/${fileName}`;
 
-    logger.info(`[Storage] Uploading file to bucket: ${bucket}, path: ${filePath}`);
+    logger.info(`[Storage] Uploading ${typeFolder} file to bucket: ${bucket}`);
 
     // Supabase Storage에 업로드
     const { data, error } = await supabaseAdmin.storage
@@ -115,7 +119,7 @@ const uploadFile = async (file, bucket = 'events') => {
       .from(bucket)
       .getPublicUrl(filePath);
 
-    logger.info(`[Storage] File uploaded successfully: ${publicUrl}`);
+    logger.info('[Storage] File uploaded successfully');
     return publicUrl;
 
   } catch (error) {
@@ -145,7 +149,7 @@ const deleteFile = async (publicUrl, bucket = 'events') => {
       .remove([filePath]);
 
     if (error) throw error;
-    logger.info(`[Storage] File deleted: ${filePath}`);
+    logger.info('[Storage] File deleted');
 
   } catch (error) {
     logger.error('[Storage] Delete error:', error);

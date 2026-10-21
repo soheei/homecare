@@ -422,7 +422,7 @@ class CapturePhotoTest(unittest.TestCase):
             posted.append(cfg)
             return {"sent": 1, "retry": 0, "dead": 0}
 
-        env = {"HOMECARE_BACKEND_URL": "http://backend.test", "HOMECARE_DEVICE_ID": "mic-uuid",
+        env = {"HOMECARE_BACKEND_URL": "https://backend.test", "HOMECARE_DEVICE_ID": "mic-uuid",
                "EDGE_DEVICE_SECRET": "s", "HOMECARE_CAMERA_DEVICE_ID": "cam-uuid",
                "EDGE_OUTBOX_DIR": str(Path(tmp) / "data")}
         with mock.patch.dict("os.environ", env), \

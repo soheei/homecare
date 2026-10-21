@@ -12,6 +12,7 @@ const eventService = require('../services/event.service');
 const deviceService = require('../services/device.service');
 const storageService = require('../services/storage.service');
 const notificationService = require('../services/notification.service');
+const accessLogService = require('../services/accessLog.service');
 const logger = require('../utils/logger');
 const { kstDateString } = require('../utils/date.utils');
 
@@ -62,6 +63,7 @@ const getEventById = async (req, res, next) => {
     }
 
     const [signedEvent] = await storageService.signEventMedia([event]);
+    accessLogService.record({ userId: req.user?.id, action: 'view_event', resourceId: id });
 
     res.json({
       success: true,
@@ -105,37 +107,43 @@ const createEvent = async (req, res, next) => {
       }
     }
 
+    // 사생활 모드인 기기는 사진·소리·영상을 저장하지 않는다 (엣지가 보내와도 버리고 이벤트 글만 저장)
+    const deviceId = req.device?.id;
+    const privacyOn = deviceId ? await deviceService.isPrivacyMode(deviceId) : false;
+    if (privacyOn) {
+      imageUrl = audioUrl = videoUrl = undefined;
+      logger.info('[Event] 사생활 모드 — 첨부 미디어를 저장하지 않음');
+    }
+
     // [파일 업로드 처리] 전송된 파일이 있다면 스토리지에 먼저 업로드
-    if (req.files) {
+    if (req.files && !privacyOn) {
       // 이미지 업로드 (필드명 'image')
       if (req.files.image && req.files.image[0]) {
-        const uploadedImageUrl = await storageService.uploadFile(req.files.image[0], 'events');
+        const uploadedImageUrl = await storageService.uploadFile(req.files.image[0], 'events', req.device?.id);
         if (uploadedImageUrl) {
           imageUrl = uploadedImageUrl;
-          logger.info(`[Event] 이미지 업로드 완료: ${imageUrl}`);
+          logger.info('[Event] 이미지 업로드 완료');
         }
       }
       
       // 오디오 업로드 (필드명 'audio')
       if (req.files.audio && req.files.audio[0]) {
-        const uploadedAudioUrl = await storageService.uploadFile(req.files.audio[0], 'events');
+        const uploadedAudioUrl = await storageService.uploadFile(req.files.audio[0], 'events', req.device?.id);
         if (uploadedAudioUrl) {
           audioUrl = uploadedAudioUrl;
-          logger.info(`[Event] 오디오 업로드 완료: ${audioUrl}`);
+          logger.info('[Event] 오디오 업로드 완료');
         }
       }
 
       // 영상 업로드 (필드명 'video')
       if (req.files.video && req.files.video[0]) {
-        const uploadedVideoUrl = await storageService.uploadFile(req.files.video[0], 'events');
+        const uploadedVideoUrl = await storageService.uploadFile(req.files.video[0], 'events', req.device?.id);
         if (uploadedVideoUrl) {
           videoUrl = uploadedVideoUrl;
-          logger.info(`[Event] 영상 업로드 완료: ${videoUrl}`);
+          logger.info('[Event] 영상 업로드 완료');
         }
       }
     }
-
-    const deviceId = req.device?.id;
 
     if (!type || !description) {
       logger.warn('[Event] ✗ 필수 필드 누락 (type, description)');
@@ -184,9 +192,9 @@ const createEvent = async (req, res, next) => {
 
     // 위험 상황 감지 시 로그 강조
     if (dangerLevel === 'danger') {
-      logger.error(`[Event] ⚠⚠⚠ DANGER 이벤트 감지! id=${event.id} | ${description}`);
+      logger.error(`[Event] ⚠⚠⚠ DANGER 이벤트 감지! id=${event.id}`); // 내용(description)은 로그에 남기지 않음
     } else if (dangerLevel === 'warning') {
-      logger.warn(`[Event] ⚠ WARNING 이벤트: id=${event.id} | ${description}`);
+      logger.warn(`[Event] ⚠ WARNING 이벤트: id=${event.id}`);
     }
 
     // 알림 설정을 켠 사용자에게 푸시 발송 (실패해도 이벤트 생성 응답에는 영향 없음)
@@ -254,6 +262,7 @@ const deleteEvent = async (req, res, next) => {
       // 남의 이벤트도 없는 id와 똑같이 응답
       return res.status(404).json({ success: false, error: 'Event not found' });
     }
+    accessLogService.record({ userId: req.user?.id, action: 'delete_event', resourceId: id });
 
     res.json({
       success: true,
@@ -282,6 +291,7 @@ const deleteEvents = async (req, res, next) => {
 
     const devices = await deviceService.getDevices(req.user?.id);
     const deleted = await eventService.deleteEventsByDevices(devices.map(d => d.id), ids);
+    accessLogService.record({ userId: req.user?.id, action: 'delete_events', resourceId: ids ? `${ids.length}건` : '전체' });
 
     res.json({
       success: true,

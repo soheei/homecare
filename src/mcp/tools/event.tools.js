@@ -4,6 +4,7 @@
  */
 
 const eventService = require('../../services/event.service');
+const accessLogService = require('../../services/accessLog.service');
 const { kstDateString, formatKst } = require('../../utils/date.utils');
 
 // 도구 정의
@@ -226,6 +227,7 @@ const handlers = {
     }
 
     const flags = mediaFlags(event);
+    accessLogService.record({ userId, action: 'view_event', resourceId: event.id, source: 'chat' });
     if (!flags.hasAudio && !flags.hasVideo && !flags.hasImage) {
       return { success: false, eventId: event.id, error: '이 이벤트에는 저장된 소리나 영상이 없어요.' };
     }

@@ -93,7 +93,8 @@
 ### Backend — Render Environment (`.env.example` 기준)
 
 ```env
-NODE_ENV=            # 운영은 production (development면 인증 우회됨)
+NODE_ENV=            # 운영은 production (development면 인증 우회됨). 미설정이면 production으로 간주
+RETENTION_DAYS=      # 선택. 예: 30 → 30일 지난 이벤트·미디어를 하루 1번 자동 삭제 (미설정/0이면 삭제 안 함, 되돌릴 수 없음)
 PORT=                # 운영에선 설정하지 않음 (Render가 주입)
 
 ANTHROPIC_API_KEY=

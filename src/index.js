@@ -8,6 +8,7 @@ require('dotenv').config();
 const app = require('./app');
 const logger = require('./utils/logger');
 const config = require('./config');
+const retentionService = require('./services/retention.service');
 
 // [수정된 핵심 로직] 
 // Render 환경변수를 최우선으로 적용하고, 호스트는 명시적으로 0.0.0.0으로 고정합니다.
@@ -19,6 +20,7 @@ const server = app.listen(PORT, HOST, () => {
   logger.info(`🚀 HomeCare Backend Server running on http://${HOST}:${PORT}`);
   logger.info(`📡 Environment: ${config.nodeEnv}`);
   logger.info('🔗 MCP Server (Streamable HTTP) available at /mcp');
+  retentionService.start();
 });
 
 // Graceful Shutdown

@@ -11,6 +11,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const config = require('../config');
 const logger = require('../utils/logger');
+const { maskPersonalInfo } = require('../utils/privacy.utils');
 const mcpService = require('./mcp.service');
 const conversationService = require('./conversation.service');
 const { kstDateString, formatKst } = require('../utils/date.utils');
@@ -211,7 +212,7 @@ const loadMessages = async (conversationId) => {
  */
 const chat = async ({ message, conversationId, userId }) => {
   try {
-    logger.debug(`[Claude] Processing message: ${message.substring(0, 100)}`);
+    logger.debug(`[Claude] Processing message (${message.length} chars)`); // 대화 내용은 로그에 남기지 않음
 
     // 1. 대화 ID 확보 (없거나 본인 대화가 아니면 새로 생성)
     let convId = conversationId;
@@ -378,7 +379,7 @@ const generateDailySummary = async (events, date) => {
     }
 
     const eventSummary = events.map(e =>
-      `- ${formatKst(e.timestamp)}: ${e.type} - ${e.description}` // UTC 그대로 주면 9시간 틀리게 요약함
+      `- ${formatKst(e.timestamp)}: ${e.type} - ${maskPersonalInfo(e.description)}` // UTC 그대로 주면 9시간 틀리게 요약함
     ).join('\n');
 
     const prompt = `다음은 ${date}의 집 안 이벤트 기록입니다:\n\n${eventSummary}\n\n위 기록을 바탕으로 하루 요약 리포트를 작성해주세요.`;

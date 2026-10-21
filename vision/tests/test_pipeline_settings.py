@@ -20,7 +20,7 @@ from edge.transport.config import load_config  # noqa: E402
 from vision import vision_pipeline as vp  # noqa: E402
 
 REPO_ROOT = Path(vp.__file__).resolve().parent.parent
-REQUIRED = {"HOMECARE_BACKEND_URL": "http://backend.test", "HOMECARE_DEVICE_ID": "mic", "EDGE_DEVICE_SECRET": "s"}
+REQUIRED = {"HOMECARE_BACKEND_URL": "https://backend.test", "HOMECARE_DEVICE_ID": "mic", "EDGE_DEVICE_SECRET": "s"}
 
 
 class PipelineSettingsTest(unittest.TestCase):

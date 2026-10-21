@@ -18,10 +18,11 @@ const mockFrom = () => {
     select: () => q,
     order: () => q,
     range: () => q,
-    limit: () => q,
+    limit: (n) => { rows = rows.slice(0, n); return q; },
     gte: () => q,
     lte: () => q,
     not: () => q,
+    lt: (col, v) => { rows = rows.filter(r => new Date(r[col]) < new Date(v)); return q; },
     delete: () => { deleting = true; return q; },
     eq: (col, v) => { rows = rows.filter(r => r[col] === v); return q; },
     in: (col, vs) => { rows = rows.filter(r => vs.includes(r[col])); return q; },
@@ -96,3 +97,18 @@ describe('이벤트 사용자 범위', () => {
     }
   });
 });
+
+describe('보존 기간 삭제', () => {
+  it('기준 시각보다 오래된 이벤트만 삭제 (여러 묶음에 걸쳐서도)', async () => {
+    mockStore = [
+      ...mockRows, // 2026-09-25
+      { id: 'ev-old1', type: 'sound', device_id: 'dev-A', timestamp: '2026-08-01T00:00:00+00:00' },
+      { id: 'ev-old2', type: 'sound', device_id: 'dev-B', timestamp: '2026-08-02T00:00:00+00:00' },
+      { id: 'ev-old3', type: 'sound', device_id: 'dev-B', timestamp: '2026-08-03T00:00:00+00:00' }
+    ];
+    const deleted = await eventService.deleteEventsOlderThan('2026-09-01T00:00:00Z', 2);
+    expect(deleted).toBe(3);
+    expect(mockStore.map(e => e.id)).toEqual(['ev-a1', 'ev-a2', 'ev-b1']);
+  });
+});
+

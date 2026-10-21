@@ -149,14 +149,39 @@ const getDeviceMode = async (deviceId) => {
 };
 
 /**
+ * 기기가 사생활 모드인지 (true면 사진·소리·영상을 저장하지 않는다)
+ * - privacy_mode 컬럼이 아직 없는 DB(ALTER 실행 전)면 꺼짐으로 본다 — 배포가 먼저여도 기존 동작을 깨지 않도록
+ * - 그 밖의 조회 실패는 켜짐으로 본다(실패 시 닫힘) — 확인할 수 없는데 영상을 저장하지 않기 위해
+ */
+const MISSING_COLUMN = '42703';
+const isPrivacyMode = async (deviceId) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('devices')
+      .select('privacy_mode')
+      .eq('id', deviceId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.privacy_mode === true;
+
+  } catch (error) {
+    if (error.code === MISSING_COLUMN) return false;
+    logger.warn(`[DeviceService] Could not read privacy mode (${deviceId}), treating as ON: ${error.message}`);
+    return true;
+  }
+};
+
+/**
  * 사용자의 마이크·카메라 기기 전체에 모드/경비 상태 저장.
  * Pi가 1대라 마이크와 카메라가 별도 프로세스(별도 기기 행)여도 같은 모드로 움직여야 한다.
  * @returns 갱신된 기기 수
  */
-const setUserMode = async (userId, { mode, securityArmed }) => {
+const setUserMode = async (userId, { mode, securityArmed, privacyMode }) => {
   const changes = {};
   if (mode !== undefined) changes.mode = mode;
   if (securityArmed !== undefined) changes.security_armed = securityArmed;
+  if (privacyMode !== undefined) changes.privacy_mode = privacyMode;
 
   const { data, error } = await supabaseAdmin
     .from('devices')
@@ -196,6 +221,7 @@ module.exports = {
   getDeviceStatus,
   updateHeartbeat,
   getDeviceMode,
+  isPrivacyMode,
   setUserMode,
   VALID_MODES,
   deleteDevice

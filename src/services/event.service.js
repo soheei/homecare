@@ -284,6 +284,35 @@ const deleteEvent = async (id, userId) => {
 };
 
 /**
+ * cutoff(ISO 시각)보다 오래된 이벤트를 미디어 파일과 함께 삭제 → 삭제한 이벤트 수
+ * 한 번에 많이 지우지 않도록 batchSize씩 반복한다.
+ */
+const deleteEventsOlderThan = async (cutoff, batchSize = 200) => {
+  let total = 0;
+  for (;;) {
+    const { data: rows, error: selectError } = await supabaseAdmin
+      .from('events')
+      .select('id')
+      .lt('timestamp', cutoff)
+      .limit(batchSize);
+    if (selectError) throw selectError;
+    if (!rows || rows.length === 0) break;
+
+    const { data, error } = await supabaseAdmin
+      .from('events')
+      .delete()
+      .in('id', rows.map(r => r.id))
+      .select(DELETED_MEDIA_COLUMNS);
+    if (error) throw error;
+
+    await storageService.removeEventMedia(data);
+    total += (data || []).length;
+    if (rows.length < batchSize) break;
+  }
+  return total;
+};
+
+/**
  * 주어진 기기들에서 발생한 이벤트 삭제 → 삭제된 건수
  * ids를 주면 그중 해당 기기 이벤트만, 없으면 해당 기기 이벤트 전부
  */
@@ -317,5 +346,6 @@ module.exports = {
   getWeeklySummary,
   getLatestEventWithMedia,
   deleteEvent,
-  deleteEventsByDevices
+  deleteEventsByDevices,
+  deleteEventsOlderThan
 };

@@ -553,3 +553,15 @@
 - 추가(같은 날): 엣지 인증에 "등록된 기기 id" 검증 추가(시크릿이 맞아도 `devices`에 없는 id면 403, 60초 캐시). `NODE_ENV` 기본값 development → production. 이유: 환경변수를 빠뜨려도 인증이 우회되지 않게 하는 쪽(실패 시 닫힘)이 안전. `tests/device-auth.test.js` 추가, `npm test` 109 통과 / 5 실패(기존 동일 건).
 - 영향: Pi의 `HOMECARE_DEVICE_ID`가 `devices` 행 id가 아니면 전송이 403이 된다(원래도 FK 때문에 저장이 안 되던 설정). 로컬 개발은 `.env`에 `NODE_ENV=development`가 없으면 로그인이 필요해진다. 기기별 시크릿은 Pi 설정 변경이 커서 보류.
 
+### 사생활 보호 2단계 (전송·저장 보호) 일부
+- 한 일: 엣지 `load_config`가 `http://` 백엔드 주소를 거부(영상·음성·기기 시크릿이 평문으로 나가는 것 방지, localhost·`EDGE_ALLOW_INSECURE=1` 예외). 미디어 업로드 경로를 `{기기id}/{종류}/{uuid}.확장자`로 변경(확장자·기기id는 안전한 문자만 허용). 로그에서 채팅 앞 100자, 위험/주의 이벤트 설명, 업로드된 미디어 URL을 제거. 테스트 `edge/tests/test_config_url.py`, `tests/storage-path.test.js` 추가.
+- 결정과 이유: 서명 URL 유효시간(1시간)은 앱을 열어 둔 채 재생하는 경우를 고려해 유지. 예전에 저장된 파일은 DB에 URL이 있어 옮기지 않음(새 파일부터 적용).
+- 검증: `npm test` 111 통과 / 5 실패(기존 동일 건), `edge/tests/test_config_url.py` 5건 통과. 이 PC에 `requests`·`scipy`가 없어 나머지 엣지 테스트는 실행 못 함(`test_edge.py`·`vision` 설정 테스트의 URL을 https로 바꿨으니 의존성 있는 환경에서 재실행 **확인 필요**).
+- 추가: 보존 기간 자동 삭제(`src/services/retention.service.js`, `event.service.deleteEventsOlderThan`). 결정: 보존 30일 권장, 실행은 월 1회가 아니라 **하루 1번 + 시작 직후 1번**(월 1회면 데이터가 30~60일 남고, Render가 자주 잠들어 타이머가 밀리므로). 삭제는 되돌릴 수 없어 `RETENTION_DAYS` 환경변수를 넣어야만 켜지게 함(배포만으로 과거 데이터가 지워지지 않도록). `tests/retention.test.js` 추가, `npm test` 114+ 통과 / 5 실패(기존 동일 건).
+
+### 사생활 보호 3단계 (사생활 기능)
+- 한 일: ① `privacy.utils.js` 마스킹을 MCP 도구 결과(`createServer.js`)와 일일 요약 프롬프트에 적용 ② 사생활 모드(`devices.privacy_mode`): 이벤트 첨부 미저장·현재 화면 촬영 차단·설정 토글 ③ `access_logs` 감사 로그와 `GET /api/access-logs`, 설정 화면 열람 기록. 테스트 `privacy-utils`·`privacy-mode`·`privacy-event` 추가, MCP 마스킹 테스트 추가. `npm test` 132+ 통과 / 5 실패(기존 동일 건), 웹 빌드 성공.
+- 결정과 이유: 사생활 모드는 엣지가 아니라 **백엔드가 강제**(엣지 설정이 틀리거나 구버전이어도 저장되지 않게). 모드 조회가 실패하면 켜짐으로 봐 영상을 저장하지 않고(실패 시 닫힘), 컬럼이 아직 없을 때(42703)만 꺼짐으로 본다 — ALTER 전에 배포해도 기존 동작이 안 깨지도록. 감사 로그는 내용 없이 행동·대상 id만 기록하고 실패해도 본 기능을 막지 않음. 이름은 정규식으로 구분할 수 없어 마스킹 범위에서 제외(한계로 문서화).
+- 남은 일: Supabase ALTER/CREATE 실행 후 두 계정으로 실기 확인, 기기/계정 삭제 연쇄 삭제.
+- 결정: 엣지 쪽 사생활 모드 반영(첨부 미전송)은 **하지 않기로 함** — 백엔드가 이미 강제하므로 중복이고, 모드 갱신이 늦으면 증거 영상을 잃을 위험이 있다. 이벤트(글·알림) 전송은 어떤 경우에도 생략하지 않는다.
+

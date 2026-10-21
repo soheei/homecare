@@ -90,7 +90,7 @@ export const api = {
         body: JSON.stringify(device)
       }),
     getStatus: (id) => request(`/api/devices/${id}/status`),
-    // 거실/현관 감지 모드, 경비 모드 변경 — { mode?: 'living'|'entrance', securityArmed?: boolean } (마이크·카메라 함께 적용)
+    // 거실/현관 감지 모드, 경비 모드, 사생활 모드 변경 — { mode?: 'living'|'entrance', securityArmed?: boolean, privacyMode?: boolean } (마이크·카메라 함께 적용)
     setMode: (patch) =>
       request('/api/devices/mode', {
         method: 'PUT',
@@ -102,6 +102,10 @@ export const api = {
     // imageUrl(/api/devices/:id/captures/:captureId) → Blob
     getCaptureImage: (imageUrl) => requestBlob(imageUrl),
     delete: (id) => request(`/api/devices/${id}`, { method: 'DELETE' })
+  },
+  accessLogs: {
+    // 내 열람·촬영·삭제 기록 (최신순) → { logs: [{ id, action, resource_id, source, created_at }] }
+    list: (limit = 30) => request(`/api/access-logs?limit=${limit}`)
   },
   notifications: {
     getPublicKey: () => request('/api/notifications/public-key'),

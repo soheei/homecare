@@ -8,6 +8,7 @@ const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontext
 
 const config = require('../config');
 const logger = require('../utils/logger');
+const { maskDeep } = require('../utils/privacy.utils');
 const eventTools = require('./tools/event.tools');
 const cameraTools = require('./tools/camera.tools');
 
@@ -64,7 +65,7 @@ const createMcpServer = ({ userId } = {}) => {
         content: [
           {
             type: 'text',
-            text: JSON.stringify(result, null, 2)
+            text: JSON.stringify(maskDeep(result), null, 2) // Claude API로 나가기 전 전화번호·주소 등 마스킹
           }
         ]
       };

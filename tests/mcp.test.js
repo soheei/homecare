@@ -298,6 +298,19 @@ describe('MCP Server /mcp', () => {
       expect(JSON.parse(result.content)[0].type).toBe('microphone');
     });
 
+    it('도구 결과의 전화번호·이메일은 Claude로 넘어가기 전에 마스킹', async () => {
+      const eventService = require('../src/services/event.service');
+      eventService.getEventsByDate.mockResolvedValueOnce([
+        { id: 'ev-pii', type: 'visitor', description: '택배 기사 010-1234-5678 방문, a@b.co', danger_level: 'normal', timestamp: '2026-09-25T07:00:47Z' }
+      ]);
+
+      const result = await mcpService.withSession(mcp => mcp.callTool('get_events_by_date', { date: '2026-09-25' }));
+
+      expect(result.content).toContain('[전화번호]');
+      expect(result.content).toContain('[이메일]');
+      expect(result.content).not.toContain('010-1234-5678');
+    });
+
     it('userId를 주면 X-User-Id 헤더로 전달되어 도구가 그 사용자 범위로 조회 (Claude 인자로는 못 바꿈)', async () => {
       const deviceService = require('../src/services/device.service');
       const eventService = require('../src/services/event.service');

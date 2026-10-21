@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS devices (
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'living' CHECK (mode IN ('living', 'entrance'));
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS security_armed BOOLEAN NOT NULL DEFAULT false;
 
+-- 기존 DB 보정: 사생활 모드 (운영 Supabase SQL Editor에서 이 한 줄만 따로 실행)
+-- true면 백엔드가 이 기기의 사진·소리·영상을 저장하지 않고(이벤트 글만 저장), 채팅/앱 현재 화면 촬영도 막는다
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS privacy_mode BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 
@@ -256,6 +260,32 @@ CREATE POLICY "Users can view their own briefings"
 
 CREATE POLICY "Service role can do everything on briefings"
   ON briefings FOR ALL USING (auth.role() = 'service_role');
+
+-- ===========================================
+-- 7-2. Access Logs 테이블 (열람·촬영·삭제 감사 기록 — 누가 언제 무엇을 봤는지)
+--      운영 Supabase SQL Editor에서 이 블록(CREATE TABLE ~ POLICY)만 따로 실행
+-- ===========================================
+CREATE TABLE IF NOT EXISTS access_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL,
+  action TEXT NOT NULL,              -- view_event | capture | delete_event | delete_events | privacy_mode
+  resource_id TEXT,                  -- 이벤트/기기 id (내용은 저장하지 않음)
+  source TEXT NOT NULL DEFAULT 'app',-- app | chat
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_access_logs_user_created ON access_logs(user_id, created_at DESC);
+
+ALTER TABLE access_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their own access logs" ON access_logs;
+DROP POLICY IF EXISTS "Service role can do everything on access_logs" ON access_logs;
+
+CREATE POLICY "Users can view their own access logs"
+  ON access_logs FOR SELECT USING (auth.uid()::text = user_id);
+
+CREATE POLICY "Service role can do everything on access_logs"
+  ON access_logs FOR ALL USING (auth.role() = 'service_role');
 
 -- ===========================================
 -- 8. 샘플 데이터 (개발용)

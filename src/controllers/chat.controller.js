@@ -111,7 +111,7 @@ const getDailySummary = async (req, res, next) => {
 
     logger.info(`[Chat] Generating daily summary for ${targetDate}`);
 
-    const events = await eventService.getEventsByDate(targetDate);
+    const events = await eventService.getEventsByDate(targetDate, req.user?.id);
     const summary = await claudeService.generateDailySummary(events, targetDate);
 
     const briefing = {

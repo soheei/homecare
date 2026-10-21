@@ -27,7 +27,8 @@ const getEvents = async (req, res, next) => {
       startDate,
       endDate,
       limit: parseInt(limit),
-      offset: parseInt(offset)
+      offset: parseInt(offset),
+      userId: req.user?.id // 본인 기기의 이벤트만
     };
 
     const result = await eventService.getEvents(filters);
@@ -51,7 +52,7 @@ const getEvents = async (req, res, next) => {
 const getEventById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const event = await eventService.getEventById(id);
+    const event = await eventService.getEventById(id, req.user?.id);
 
     if (!event) {
       return res.status(404).json({
@@ -210,7 +211,7 @@ const getDailySummary = async (req, res, next) => {
     const { date } = req.query;
     const targetDate = date || kstDateString(); // 생략 시 오늘(한국 날짜)
 
-    const summary = await eventService.getDailySummary(targetDate);
+    const summary = await eventService.getDailySummary(targetDate, req.user?.id);
 
     res.json({
       success: true,
@@ -228,7 +229,7 @@ const getDailySummary = async (req, res, next) => {
  */
 const getWeeklySummary = async (req, res, next) => {
   try {
-    const summary = await eventService.getWeeklySummary();
+    const summary = await eventService.getWeeklySummary(req.user?.id);
 
     res.json({
       success: true,
@@ -248,7 +249,11 @@ const deleteEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    await eventService.deleteEvent(id);
+    const deleted = await eventService.deleteEvent(id, req.user?.id);
+    if (!deleted) {
+      // 남의 이벤트도 없는 id와 똑같이 응답
+      return res.status(404).json({ success: false, error: 'Event not found' });
+    }
 
     res.json({
       success: true,

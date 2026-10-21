@@ -25,8 +25,9 @@ const handlers = {
 
 /**
  * 도구가 등록된 MCP 서버 인스턴스 생성
+ * userId: 질문한 사용자(웹 채팅). 도구 핸들러가 이 사용자의 기기·이벤트만 조회한다.
  */
-const createMcpServer = () => {
+const createMcpServer = ({ userId } = {}) => {
   const server = new Server(
     {
       name: config.mcp.name,
@@ -57,7 +58,7 @@ const createMcpServer = () => {
         throw new Error(`Unknown tool: ${name}`);
       }
 
-      const result = await handler(args || {});
+      const result = await handler(args || {}, { userId });
 
       return {
         content: [

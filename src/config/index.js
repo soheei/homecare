@@ -8,7 +8,8 @@ const port = parseInt(process.env.PORT, 10) || 3000;
 
 const config = {
   // 서버 설정
-  nodeEnv: process.env.NODE_ENV || 'development',
+  // 미설정이면 production으로 본다 — development는 인증을 통째로 우회하므로 NODE_ENV=development를 명시했을 때만 켜진다
+  nodeEnv: process.env.NODE_ENV || 'production',
   port,
   host: process.env.HOST || '0.0.0.0',
 

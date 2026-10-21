@@ -133,19 +133,19 @@ const toToolEvent = ({ image_url, audio_url, video_url, ...e }) => ({
   ...mediaFlags({ image_url, audio_url, video_url })
 });
 
-// 도구 핸들러
+// 도구 핸들러 — 두 번째 인자 { userId }는 /mcp가 X-User-Id 헤더로 받은 질문자 (Claude 인자가 아님)
 const handlers = {
-  async get_today_events({ type }) {
-    const events = await eventService.getEventsByDate(kstDateString()); // 오늘 = 한국 날짜
+  async get_today_events({ type }, { userId } = {}) {
+    const events = await eventService.getEventsByDate(kstDateString(), userId); // 오늘 = 한국 날짜
 
     return (type ? events.filter(e => e.type === type) : events).map(toToolEvent);
   },
 
-  async get_events_by_date({ date }) {
-    return (await eventService.getEventsByDate(date)).map(toToolEvent);
+  async get_events_by_date({ date }, { userId } = {}) {
+    return (await eventService.getEventsByDate(date, userId)).map(toToolEvent);
   },
 
-  async get_visitor_log({ date, days = 7, limit = 10 }) {
+  async get_visitor_log({ date, days = 7, limit = 10 }, { userId } = {}) {
     const toVisitor = e => ({
       id: e.id,
       time: e.timestamp,
@@ -156,7 +156,7 @@ const handlers = {
 
     // 특정 날짜 지정 시 그날만
     if (date) {
-      const events = await eventService.getEventsByDate(date);
+      const events = await eventService.getEventsByDate(date, userId);
       return events.filter(e => e.type === 'visitor').slice(0, limit).map(toVisitor);
     }
 
@@ -167,19 +167,21 @@ const handlers = {
       type: 'visitor',
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
-      limit
+      limit,
+      userId
     });
     return result.events.map(toVisitor);
   },
 
-  async get_danger_events({ days = 7 }) {
+  async get_danger_events({ days = 7 }, { userId } = {}) {
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
     
     const result = await eventService.getEvents({
       startDate: startDate.toISOString(),
       endDate: endDate.toISOString(),
-      limit: 100
+      limit: 100,
+      userId
     });
 
     // DB 컬럼은 snake_case(danger_level) — camelCase로 읽으면 항상 빈 결과가 됨
@@ -189,21 +191,21 @@ const handlers = {
       .map(toToolEvent);
   },
 
-  async get_weekly_summary() {
-    return await eventService.getWeeklySummary();
+  async get_weekly_summary(_args, { userId } = {}) {
+    return await eventService.getWeeklySummary(userId);
   },
 
-  async get_daily_summary({ date }) {
+  async get_daily_summary({ date }, { userId } = {}) {
     const targetDate = date || kstDateString(); // 생략 시 오늘(한국 날짜)
-    const summary = await eventService.getDailySummary(targetDate);
+    const summary = await eventService.getDailySummary(targetDate, userId);
     return { ...summary, dangerEvents: (summary.dangerEvents || []).map(toToolEvent) };
   },
 
   // 결과의 eventId로 claude.service.js가 답변에 재생 플레이어 줄을 붙인다 (URL은 앱이 열 때마다 새로 서명)
-  async get_event_media({ eventId, mediaType, days } = {}) {
+  async get_event_media({ eventId, mediaType, days } = {}, { userId } = {}) {
     let event;
     if (typeof eventId === 'string' && eventId) {
-      event = await eventService.getEventById(eventId);
+      event = await eventService.getEventById(eventId, userId);
       // 모델이 id를 지어내는 경우가 있음(로그: eventId "1727600340000") → 바로 "영상 없음"이라 답하지 않고 조회 후 재호출하게 안내
       if (!event) {
         return {
@@ -214,7 +216,7 @@ const handlers = {
       }
     } else if (mediaType === 'video' || mediaType === 'audio') {
       const period = Number(days) > 0 ? Number(days) : undefined; // 기간을 말하지 않았으면 제한 없음
-      event = await eventService.getLatestEventWithMedia(mediaType, period);
+      event = await eventService.getLatestEventWithMedia(mediaType, period, userId);
       if (!event) {
         const what = mediaType === 'video' ? '영상이' : '소리가';
         return { success: false, error: period ? `최근 ${period}일 동안 저장된 ${what} 없어요.` : `저장된 ${what} 없어요.` };

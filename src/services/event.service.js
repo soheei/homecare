@@ -10,6 +10,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const logger = require('../utils/logger');
 const storageService = require('./storage.service');
+const deviceService = require('./device.service');
 const { kstDateString, kstDayRange, formatKst } = require('../utils/date.utils');
 
 // 요약 목록용 미디어 유무 (채팅 AI가 get_event_media로 재생할 이벤트를 고를 수 있게)
@@ -19,15 +20,30 @@ const mediaFlags = event => ({
   hasVideo: Boolean(event.video_url)
 });
 
+/**
+ * 사용자 범위: userId가 있으면 그 사용자의 기기 id 목록, 없으면 null(제한 없음 — 서버 내부·stdio 전용)
+ * 기기 조회가 실패하면 빈 목록이 되어 아무것도 보이지 않는다(실패 시 닫힘).
+ * 기기 없이 저장된 이벤트(device_id NULL)는 주인을 알 수 없어 사용자에게는 보이지 않는다.
+ */
+const deviceIdsOf = async (userId) => {
+  if (!userId) return null;
+  return (await deviceService.getDevices(userId)).map(d => d.id);
+};
+
 const getEvents = async (filters = {}) => {
   try {
-    const { type, startDate, endDate, limit = 20, offset = 0 } = filters;
+    const { type, startDate, endDate, limit = 20, offset = 0, userId } = filters;
+
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && deviceIds.length === 0) return { events: [], total: 0, limit, offset };
 
     let query = supabaseAdmin
       .from('events')
       .select('*', { count: 'exact' })
       .order('timestamp', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    if (deviceIds) query = query.in('device_id', deviceIds);
 
     if (type) query = query.eq('type', type);
     if (startDate) query = query.gte('timestamp', startDate);
@@ -44,7 +60,7 @@ const getEvents = async (filters = {}) => {
   }
 };
 
-const getEventById = async (id) => {
+const getEventById = async (id, userId) => {
   try {
     const { data, error } = await supabaseAdmin
       .from('events')
@@ -53,6 +69,10 @@ const getEventById = async (id) => {
       .single();
 
     if (error) throw error;
+
+    // 남의 이벤트는 "없음"과 똑같이 응답 (존재 여부도 알려주지 않음)
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && !deviceIds.includes(data.device_id)) return null;
     return data;
 
   } catch (error) {
@@ -61,17 +81,23 @@ const getEventById = async (id) => {
   }
 };
 
-const getEventsByDate = async (date) => {
+const getEventsByDate = async (date, userId) => {
   try {
     // 날짜는 한국 기준 하루 (UTC 자정으로 자르면 KST 00~09시 이벤트가 전날로 잡힘)
     const { start, end } = kstDayRange(date);
 
-    const { data, error } = await supabaseAdmin
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && deviceIds.length === 0) return [];
+
+    let query = supabaseAdmin
       .from('events')
       .select('*')
       .gte('timestamp', start)
       .lte('timestamp', end)
       .order('timestamp', { ascending: true });
+    if (deviceIds) query = query.in('device_id', deviceIds);
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
@@ -105,9 +131,9 @@ const createEvent = async (eventData) => {
   }
 };
 
-const getDailySummary = async (date) => {
+const getDailySummary = async (date, userId) => {
   try {
-    const events = await getEventsByDate(date);
+    const events = await getEventsByDate(date, userId);
 
     const summary = {
       date,
@@ -144,17 +170,25 @@ const getDailySummary = async (date) => {
   }
 };
 
-const getWeeklySummary = async () => {
+const getWeeklySummary = async (userId) => {
   try {
     const today   = new Date();
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const { data, error } = await supabaseAdmin
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && deviceIds.length === 0) {
+      return { startDate: kstDateString(weekAgo), endDate: kstDateString(today), totalEvents: 0, byType: {}, dailySummaries: {}, events: [] };
+    }
+
+    let query = supabaseAdmin
       .from('events')
       .select('*')
       .gte('timestamp', weekAgo.toISOString())
       .lte('timestamp', today.toISOString())
       .order('timestamp', { ascending: true });
+    if (deviceIds) query = query.in('device_id', deviceIds);
+
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -198,16 +232,20 @@ const getWeeklySummary = async () => {
  * @param {number} [days] - 주면 최근 days일 안에서만, 생략하면 기간 제한 없음
  */
 const MEDIA_COLUMNS = { video: 'video_url', audio: 'audio_url' };
-const getLatestEventWithMedia = async (mediaType, days) => {
+const getLatestEventWithMedia = async (mediaType, days, userId) => {
   const column = MEDIA_COLUMNS[mediaType];
   if (!column) return null;
   try {
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && deviceIds.length === 0) return null;
+
     let query = supabaseAdmin
       .from('events')
       .select('*')
       .not(column, 'is', null)
       .order('timestamp', { ascending: false })
       .limit(1);
+    if (deviceIds) query = query.in('device_id', deviceIds);
     if (days > 0) {
       query = query.gte('timestamp', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
     }
@@ -225,13 +263,20 @@ const getLatestEventWithMedia = async (mediaType, days) => {
 // 삭제하면서 지워진 행의 미디어 URL을 돌려받아 Storage 파일도 지운다
 const DELETED_MEDIA_COLUMNS = 'id, image_url, audio_url, video_url';
 
-const deleteEvent = async (id) => {
+// userId를 주면 그 사용자의 기기 이벤트만 지운다 → 지운 건수 (남의 이벤트·없는 id면 0)
+const deleteEvent = async (id, userId) => {
   try {
-    const { data, error } = await supabaseAdmin.from('events').delete().eq('id', id).select(DELETED_MEDIA_COLUMNS);
+    const deviceIds = await deviceIdsOf(userId);
+    if (deviceIds && deviceIds.length === 0) return 0;
+
+    let query = supabaseAdmin.from('events').delete().eq('id', id);
+    if (deviceIds) query = query.in('device_id', deviceIds);
+
+    const { data, error } = await query.select(DELETED_MEDIA_COLUMNS);
     if (error) throw error;
     logger.info(`[EventService] Event deleted: ${id}`);
     await storageService.removeEventMedia(data);
-    return true;
+    return (data || []).length;
   } catch (error) {
     logger.error('[EventService] Error deleting event:', error);
     throw error;

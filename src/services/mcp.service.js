@@ -12,12 +12,17 @@ const logger = require('../utils/logger');
 /**
  * MCP 서버에 접속해 fn(session)을 실행하고 연결을 정리
  * 채팅 1건 = MCP 연결 1개 (도구 목록 조회 + 도구 호출을 같은 연결로 처리)
+ * userId: 질문한 사용자. X-User-Id 헤더로 붙여 /mcp가 그 사용자의 기기·이벤트만 조회하게 한다.
+ *         헤더는 우리 코드가 붙이므로 Claude가 도구 인자로 바꿀 수 없다.
  */
-const withSession = async (fn) => {
+const withSession = async (fn, { userId } = {}) => {
   const client = new Client({ name: 'homecare-chat', version: '1.0.0' });
   const transport = new StreamableHTTPClientTransport(new URL(config.mcp.url), {
     requestInit: {
-      headers: { Authorization: `Bearer ${config.mcp.authToken}` }
+      headers: {
+        Authorization: `Bearer ${config.mcp.authToken}`,
+        ...(userId && { 'X-User-Id': String(userId) })
+      }
     }
   });
 

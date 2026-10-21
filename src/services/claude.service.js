@@ -325,7 +325,7 @@ const chat = async ({ message, conversationId, userId }) => {
       }
 
       return res;
-    });
+    }, { userId });
 
     // 6. 최종 텍스트 응답 추출
     const text = stripModelMediaLines(textOf(response));

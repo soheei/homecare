@@ -91,16 +91,19 @@ const fetchLatestCapture = async (deviceId) => {
   }
 };
 
-// 도구 핸들러
+// userId가 있으면(웹 채팅) 본인 기기만, 없으면 제한 없음(외부 MCP 클라이언트)
+const ownedBy = (device, userId) => Boolean(device) && (!userId || device.user_id === userId);
+
+// 도구 핸들러 — 두 번째 인자 { userId }는 /mcp가 X-User-Id 헤더로 받은 질문자 (Claude 인자가 아님)
 const handlers = {
-  async get_camera_status({ deviceId }) {
+  async get_camera_status({ deviceId }, { userId } = {}) {
     if (deviceId) {
       const status = await deviceService.getDeviceStatus(deviceId);
-      return status || { error: 'Device not found' };
+      return ownedBy(status, userId) ? status : { error: 'Device not found' };
     }
 
     // 모든 디바이스 상태 조회
-    const devices = await deviceService.getDevices('all');
+    const devices = await deviceService.getDevices(userId || 'all');
     const statuses = await Promise.all(
       devices.map(async (d) => {
         const status = await deviceService.getDeviceStatus(d.id);
@@ -117,8 +120,8 @@ const handlers = {
     return statuses;
   },
 
-  async get_device_list() {
-    const devices = await deviceService.getDevices('all');
+  async get_device_list(_args, { userId } = {}) {
+    const devices = await deviceService.getDevices(userId || 'all');
     return devices.map(d => ({
       id: d.id,
       name: d.name,
@@ -132,9 +135,9 @@ const handlers = {
   // request_capture — Pi 카메라로 실제 촬영 (capture.service.js가 Pi 롱폴링에 요청 전달)
   // 결과의 imageUrl은 claude.service.js가 답변에 이미지로 붙인다 (모델이 URL을 옮겨 쓰지 않게)
   // ============================================================
-  async request_capture({ deviceId } = {}) {
+  async request_capture({ deviceId } = {}, { userId } = {}) {
     try {
-      const capture = await captureService.requestCapture(deviceId);
+      const capture = await captureService.requestCapture(deviceId, userId);
       logger.info(`[CameraTools] Captured ${capture.captureId} from device ${capture.deviceId}`);
       return {
         success: true,
@@ -158,10 +161,10 @@ const handlers = {
   // [버그 3 수정] get_latest_capture 구현
   // events 테이블에서 해당 디바이스의 가장 최근 이미지 조회
   // ============================================================
-  async get_latest_capture({ deviceId }) {
-    // 1. 디바이스 정보 조회
+  async get_latest_capture({ deviceId }, { userId } = {}) {
+    // 1. 디바이스 정보 조회 (남의 기기는 없는 기기와 똑같이 응답)
     const status = await deviceService.getDeviceStatus(deviceId);
-    if (!status) {
+    if (!ownedBy(status, userId)) {
       return {
         success: false,
         error: `Device not found: ${deviceId}`

@@ -60,14 +60,14 @@ const pruneCaptures = () => {
 /**
  * 촬영할 카메라 결정: deviceId가 있으면 그 기기, 없으면 등록된 카메라 중 켜진 것 우선
  */
-const resolveCamera = async (deviceId) => {
+const resolveCamera = async (deviceId, userId) => {
   if (deviceId) {
     const device = await deviceService.getDeviceStatus(deviceId);
-    if (!device) throw new AppError(MESSAGES.noCamera, 404);
+    if (!device || (userId && device.user_id !== userId)) throw new AppError(MESSAGES.noCamera, 404);
     if (device.type !== 'camera') throw new AppError(MESSAGES.notCamera, 400);
     return device;
   }
-  const cameras = (await deviceService.getDevices('all')).filter(d => d.type === 'camera');
+  const cameras = (await deviceService.getDevices(userId || 'all')).filter(d => d.type === 'camera');
   if (cameras.length === 0) throw new AppError(MESSAGES.noCamera, 404);
   const device = cameras.find(d => d.status === 'online') || cameras[0];
   return { ...device, isOnline: device.status === 'online' };
@@ -77,8 +77,8 @@ const resolveCamera = async (deviceId) => {
  * 현재 화면 1장 촬영 요청 → 이미지가 도착하면 { captureId, imageUrl, ... } 반환
  * @throws {AppError} 카메라 꺼짐/연결 안 됨/시간 초과/촬영 실패 (message는 사용자용)
  */
-const requestCapture = async (deviceId) => {
-  const device = await resolveCamera(deviceId);
+const requestCapture = async (deviceId, userId) => {
+  const device = await resolveCamera(deviceId, userId);
   if (!device.isOnline) throw new AppError(MESSAGES.cameraOff, 409);
 
   const last = lastPollAt.get(device.id);

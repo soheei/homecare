@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { supabase } = require('../config/supabase');
 const config = require('../config');
 const logger = require('../utils/logger');
+const deviceService = require('../services/device.service');
 
 // ============================================================
 // 사용자 인증 미들웨어
@@ -104,9 +105,24 @@ const safeCompare = (a, b) => {
   }
 };
 
+// 등록된 기기로 확인된 id는 잠깐 기억 (하트비트·롱폴링마다 DB를 조회하지 않도록)
+const KNOWN_DEVICE_TTL_MS = 60000;
+const knownDevices = new Map(); // deviceId → 만료 시각(ms)
+
+const isRegisteredDevice = async (deviceId) => {
+  const expiresAt = knownDevices.get(deviceId);
+  if (expiresAt && expiresAt > Date.now()) return true;
+
+  const device = await deviceService.getDeviceStatus(deviceId);
+  if (!device) return false;
+  knownDevices.set(deviceId, Date.now() + KNOWN_DEVICE_TTL_MS);
+  return true;
+};
+
 /**
  * Edge Device 인증
  * - X-Device-Id 헤더와 X-Device-Secret 헤더 확인
+ * - 시크릿이 맞아도 X-Device-Id가 devices 테이블에 있는 기기여야 통과 (아무 id나 지어내 쓰는 것 차단)
  */
 const authenticateDevice = async (req, res, next) => {
   try {
@@ -147,6 +163,14 @@ const authenticateDevice = async (req, res, next) => {
 
     if (!safeCompare(deviceSecret, expectedSecret)) {
       logger.warn(`[Auth] Invalid device secret for device: ${deviceId}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Invalid device credentials'
+      });
+    }
+
+    if (!(await isRegisteredDevice(deviceId))) {
+      logger.warn(`[Auth] Unregistered device id: ${deviceId}`);
       return res.status(403).json({
         success: false,
         error: 'Invalid device credentials'

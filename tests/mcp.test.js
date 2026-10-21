@@ -297,6 +297,21 @@ describe('MCP Server /mcp', () => {
       expect(result.isError).toBe(false);
       expect(JSON.parse(result.content)[0].type).toBe('microphone');
     });
+
+    it('userId를 주면 X-User-Id 헤더로 전달되어 도구가 그 사용자 범위로 조회 (Claude 인자로는 못 바꿈)', async () => {
+      const deviceService = require('../src/services/device.service');
+      const eventService = require('../src/services/event.service');
+      deviceService.getDevices.mockClear();
+      eventService.getEventsByDate.mockClear();
+
+      await mcpService.withSession(async mcp => {
+        await mcp.callTool('get_device_list', { userId: 'attacker' }); // 인자의 userId는 무시됨
+        await mcp.callTool('get_events_by_date', { date: '2026-09-25' });
+      }, { userId: 'user-A' });
+
+      expect(deviceService.getDevices).toHaveBeenCalledWith('user-A');
+      expect(eventService.getEventsByDate).toHaveBeenCalledWith('2026-09-25', 'user-A');
+    });
   });
 
   describe('claude.service 채팅 → MCP 도구 실행', () => {

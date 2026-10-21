@@ -72,6 +72,12 @@
   - claude.ai 웹의 커스텀 커넥터는 헤더 지정 없이 OAuth를 쓰는 방식이라 현재 Bearer 방식으로는 바로 못 붙는 것으로 보임 — **확인 필요**.
 - **stdio 버전(`npm run mcp`)을 Claude Desktop에 직접 붙이지 말 것** (2026-09-27 확인): ① `server.js`가 `.env`를 로드하지 않아 Supabase 환경변수가 비고(`index.js`만 `dotenv` 호출), ② winston 로거가 stdout에 로그를 써서 MCP JSON-RPC 메시지와 섞인다(`initialize` 응답 앞에 `info: MCP Server ... is running` 줄이 붙는 것 확인). 고치려면 stdio 모드에서 로그를 stderr로 보내고 dotenv를 로드해야 함 — 미수정.
 
+### 사생활 보호: 사용자 범위 (2026-10-21)
+- 문제: 이벤트 조회·삭제와 MCP 도구가 `supabaseAdmin`(RLS 우회)으로 전체를 조회해, 로그인한 누구나 타인의 이벤트·미디어를 볼 수 있었다.
+- 변경: `event.service.js` 함수들이 `userId`를 받아 그 사용자의 `devices` id 목록으로 거른다(기기 조회 실패·기기 없음 = 빈 결과, 남의 이벤트 = "없음"과 같은 응답/404). 컨트롤러는 `req.user.id`를 넘긴다.
+- MCP: 채팅(`mcp.service.js`)이 `/mcp` 요청에 `X-User-Id` 헤더를 붙이고, `mcp.controller.js`가 인증(`MCP_AUTH_TOKEN`) 통과 후 이를 읽어 `createMcpServer({ userId })` → 도구 핸들러 두 번째 인자로 전달한다. 헤더는 서버 코드가 붙이므로 Claude가 도구 인자로 바꿀 수 없다. 헤더가 없으면(외부 MCP 클라이언트·stdio) 기존처럼 제한 없음 — **토큰 소지자는 신뢰**하는 전제.
+- 주의: `device_id`가 NULL인 이벤트(과거 샘플 등)는 사용자에게 보이지 않는다.
+
 ## 홈 "오늘의 브리핑" 저장 (2026-09-27 추가)
 
 - 브리핑(`POST /api/chat/summary`)을 만들면 `briefings` 테이블에 **사용자당 1행**으로 저장(upsert, `user_id UNIQUE` — 새로 만들면 덮어씀). 앱을 열거나 새로고침하면 `GET /api/chat/summary/latest`로 복원해서 다시 만들 필요 없음. 다른 기기에서도 같은 브리핑이 보임.
@@ -230,7 +236,8 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 
 - 웹 푸시: Supabase 테이블 생성 + Render/Vercel 환경변수 등록 전까지는 알림 토글을 켜도 실제 푸시가 오지 않는다(위 "웹 푸시 알림" 참고). 일일 브리핑(매일 21시) 자동 발송은 스케줄러가 없어 미구현.
 - 채팅 대화/메시지는 `src/services/conversation.service.js`만 통해 접근한다 — `conversations`/`messages` RLS가 `auth.uid()` 기준이라 서버 anon 클라이언트로는 항상 빈 결과. admin으로 읽되 반드시 `user_id`로 소유자를 확인할 것(2026-09-27 정리). 2026-09-27 이전에 만들어진 대화는 제목이 null이라 채팅 기록 목록에 "제목 없는 대화"로 표시됨.
-- `deleteEvent`(`/api/events/:id` DELETE)가 요청자가 그 이벤트 소유 디바이스의 사용자인지 검사하지 않는다 — 로그인한 사용자면 누구나 다른 사용자의 이벤트를 삭제할 수 있는 상태. **확인 필요**
+- ~~`deleteEvent`(`/api/events/:id` DELETE)가 소유자 검사를 하지 않아 누구나 남의 이벤트를 지울 수 있음~~ → 2026-10-21 해결(로컬 코드, 미커밋·미배포): 이벤트 조회·요약·삭제와 MCP 도구가 `devices.user_id` 기준 본인 기기 범위로 제한됨(아래 "사생활 보호" 참고).
+- **사생활 보호 1단계 진행 중(2026-10-21, 계획: `~/.claude/plans/peppy-wibbling-liskov.md`)**: 완료 = 이벤트 사용자 범위 + MCP `X-User-Id` 헤더 + 엣지 `X-Device-Id`가 `devices`에 등록된 기기인지 검증(`authenticateDevice`, 60초 캐시; 없는 id는 403) + `NODE_ENV` 미설정 시 기본값을 `production`으로 변경(인증 우회는 `NODE_ENV=development`를 명시해야만 켜짐 — **로컬 개발은 `.env`에 `NODE_ENV=development` 필요**). 남은 것 = ① 기기별 시크릿(전역 `EDGE_DEVICE_SECRET` 개선, 보류) ② 2단계(https 강제·미디어 경로 추측 불가화·보존기간·로그 정제) ④ 3단계(사생활 모드·Claude 전송 전 마스킹·열람 감사 로그).
 - **`edge/systemd/`의 unit 파일이 아직 Pi에 설치 안 됨** — `sudo cp ... /etc/systemd/system/ && sudo systemctl daemon-reload`까지는 해둬야 `systemctl start`로 켤 수 있음(자동 시작은 원하지 않으므로 `enable`은 하지 않음). 설치 전까지는 카메라/마이크 카드가 계속 "꺼짐"으로 보임.
 - 2026-09-27 작업분은 커밋·push됨(`a1559cc`, `cc1ad07`). **Render 배포 후 확인 필요**: `/health`가 `production`, 토큰 없이 `POST /mcp` 401, 웹 채팅 "이번주 요약"이 3건 모두·한국 시간으로 답하는지, 홈 브리핑이 새로고침 후에도 유지되는지(`briefings` 테이블 생성 후).
 - 채팅 "이번주 요약"이 3건 중 1건만·UTC 시각("오전 7시")으로 답한 원인은 **미확정**(로컬 프론트→로컬 백엔드, 새 코드로 동작 중이었음을 확인). 후보: 이전 대화 기록 재사용(대화 기록엔 최종 답변 텍스트만 저장, 도구 결과는 저장 안 됨) / 다른 도구 선택. 새 대화에서 재질문 후 로그의 `[MCP] Tool called:` 도구명으로 판별할 것.

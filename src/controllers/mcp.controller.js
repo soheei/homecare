@@ -14,7 +14,9 @@ const logger = require('../utils/logger');
  * POST /mcp - MCP JSON-RPC 요청 처리 (initialize, tools/list, tools/call ...)
  */
 const handleRequest = async (req, res) => {
-  const server = createMcpServer();
+  // 인증(authenticateMcp)을 통과한 요청에서만 신뢰. 없으면 사용자 제한 없음(외부 클라이언트용)
+  const userId = req.get('x-user-id') || undefined;
+  const server = createMcpServer({ userId });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true

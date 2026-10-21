@@ -25,7 +25,7 @@ def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("label", nargs="?", help="Event label, e.g. scream_shout or background")
     p.add_argument("position", nargs="?", choices=("left", "right", "center"))
-    p.add_argument("--seconds", type=positive_int, default=15)
+    p.add_argument("--seconds", type=positive_int, default=8)
     p.add_argument("--countdown", type=int, default=10)
     p.add_argument("--samplerate", type=positive_int, default=16000)
     p.add_argument("--device", help="Input device index or name")

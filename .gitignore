@@ -54,6 +54,10 @@ CLAUDE.local.md
 # yamnet/ — Python 오디오 분류 파이프라인 (Plan.md 참고)
 # ESC-50: 2000개 wav(1.4G) + 자체 .git 보유(nested repo) + CC BY-NC 라이선스(비상용) — 커밋 대상 아님
 yamnet/ESC-50/
+# playback_samples/: ESC-50에서 복사한 재생용 음원(CC BY-NC) — 커밋 대상 아님
+yamnet/playback_samples/
+# dataset_phone/: 핸드폰 재생을 Pi로 다시 녹음한 비교용 녹음 — 커밋 대상 아님
+yamnet/dataset_phone/
 # media/: 개인 녹음 샘플(권한 700) — 오디오 원본은 커밋하지 않음
 yamnet/media/
 yamnet/dataset/*

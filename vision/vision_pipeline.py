@@ -624,6 +624,9 @@ def main():
             mode_state=mode_state,
         )
         previous_state = None
+        # 진단용(HOMECARE_FALL_DEBUG=1): 실시간에서만 생기는 프레임 간격·모드 문제를 로그로 본다.
+        fall_debug = os.environ.get("HOMECARE_FALL_DEBUG") == "1"
+        debug_prev = None
 
         while True:
 
@@ -728,6 +731,16 @@ def main():
                     fall_person, timestamp=frame_monotonic, changed=changed,
                     person_visible=any(d['class_id'] == 0 for d in fall_detections),
                     frame_size=(frame.shape[1], frame.shape[0]))
+
+            if fall_debug:
+                dt = None if debug_prev is None else frame_monotonic - debug_prev
+                debug_prev = frame_monotonic
+                people = [d for d in fall_detections if d['class_id'] == 0]
+                print(f"[FALL DEBUG] mode={current_mode} dt={'-' if dt is None else f'{dt:.2f}'}"
+                      f"{' GAP>0.6(이력 리셋)' if dt is not None and dt > 0.6 else ''} "
+                      f"persons={[round(d['confidence'], 2) for d in people]} "
+                      f"tracked={'Y' if fall_person else '-'} changed={locals().get('changed')} "
+                      f"candidate={fall_detector.fall_candidate} fall={fall_detected}")
 
             # ==================================
             # 7. Visitor

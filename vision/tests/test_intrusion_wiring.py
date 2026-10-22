@@ -24,9 +24,10 @@ from vision import vision_pipeline as vp
 
 class IntrusionWiringTest(unittest.TestCase):
     def run_pipeline(self, states, sound=False, fall_frames=(), failure=None,
-                     busy=False, real_visitor=False, entrance_signals=False, fall_positions=None):
+                     busy=False, real_visitor=False, entrance_signals=False, fall_positions=None,
+                     frame_size=(4, 4)):
         """states는 프레임별 (경비 상태, 카메라 모드, 사람 존재 여부)."""
-        frame = np.zeros((4, 4, 3), dtype=np.uint8)
+        frame = np.zeros((frame_size[1], frame_size[0], 3), dtype=np.uint8)
         person = {"class_id": 0, "confidence": 0.9, "center_y": 2, "center_x": 2,
                   "x1": 0, "y1": 0, "x2": 4, "y2": 4}
         state = DetectionModeState()
@@ -59,10 +60,13 @@ class IntrusionWiringTest(unittest.TestCase):
             state.update_from_heartbeat({"mode": mode, "securityArmed": armed})
             if fall_positions is not None:
                 y = fall_positions[current]
-                width, height = (80, 200) if y == 100 else (160, 80)
-                person.update(center_x=200, center_y=y,
-                              x1=200 - width / 2, x2=200 + width / 2,
-                              y1=y - height / 2, y2=y + height / 2)
+                if isinstance(y, dict):
+                    person.update(y)
+                else:
+                    width, height = (80, 200) if y == 100 else (160, 80)
+                    person.update(center_x=200, center_y=y,
+                                  x1=200 - width / 2, x2=200 + width / 2,
+                                  y1=y - height / 2, y2=y + height / 2)
             yolo.get_best_person.return_value = person if present else None
             yolo.detect.return_value = [person.copy()] if present else []
             if fall_positions is None:
@@ -134,6 +138,14 @@ class IntrusionWiringTest(unittest.TestCase):
         states = [(False, "living", False)] * 6 + [(False, "living", True)] * 20
         starts, _ = self.run_pipeline(states, fall_positions=[180] * len(states))
         self.assertEqual([i for i, e in starts if e['event_type'] == 'fall_suspect'], [16])
+
+    def test_posture_loss_in_pipeline_uses_actual_frame_bounds(self):
+        from vision.tests.test_posture_loss import PostureLossTest
+        boxes = PostureLossTest().descent()
+        states = [(False, 'living', True)] * len(boxes) + [(False, 'living', False)] * 20
+        positions = boxes + [boxes[-1]] * 20
+        starts, _ = self.run_pipeline(states, fall_positions=positions, frame_size=(640, 480))
+        self.assertEqual([(i, e['event_type']) for i, e in starts], [(13, 'fall_suspect')])
 
     def test_mode_or_disarming_clears_pending_and_triggered_state(self):
         active = (True, "living", True)

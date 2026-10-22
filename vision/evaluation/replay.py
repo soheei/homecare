@@ -57,7 +57,8 @@ class RuleRunner:
         if self.mode == "living":
             tracked, changed = self.tracker.update(detections, timestamp=timestamp)
             fall = self.fall.update_tracked(tracked, timestamp=timestamp, changed=changed,
-                                           person_visible=any(d['class_id'] == 0 for d in detections))
+                                           person_visible=any(d['class_id'] == 0 for d in detections),
+                                           frame_size=(width, height))
         visitor = self.visitor.update(person, width, height)
         delivery = self.delivery.update(detections, width, height, frame=frame, timestamp=timestamp)
         intrusion = self.intrusion.update(person, self.armed and self.mode == "living")

@@ -718,7 +718,8 @@ def main():
                 fall_person, changed = fall_person_tracker.update(detections, timestamp=frame_monotonic)
                 fall_detected = fall_detector.update_tracked(
                     fall_person, timestamp=frame_monotonic, changed=changed,
-                    person_visible=any(d['class_id'] == 0 for d in detections))
+                    person_visible=any(d['class_id'] == 0 for d in detections),
+                    frame_size=(frame.shape[1], frame.shape[0]))
 
             # ==================================
             # 7. Visitor

@@ -62,6 +62,102 @@ class ProneAppearanceDetector:
         return False
 
 
+class PostureLossDetector:
+    """화면 안쪽의 짧은 하강·형태 변화 뒤 연속 미검출을 주의로 판정.
+
+    급하강 확정과 독립된 보조 경로다. 가림의 의미를 알아내는 모델은
+    아니므로, 앉거나 숙인 직후 완전히 가려지는 경우까지 구별하지 못한다.
+    frame_size=(width, height)가 없으면 경계 이탈 검증 불가로 비활성화한다.
+    """
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.history = deque()
+        self.last_time = None
+        self.frame_size = None
+        self.origin = None
+        self.low_since = None
+        self.low_count = 0
+        self.missing_since = None
+
+    @staticmethod
+    def _interior(sample, frame_size):
+        width, height = frame_size
+        # 머리는 화면 위쪽에 잘려 있어도 허용하되 좌우/아래 퇴장은 제외.
+        return (sample['x'] - sample['w'] / 2 > width * .05
+                and sample['x'] + sample['w'] / 2 < width * .95
+                and sample['y'] + sample['h'] / 2 < height * .95)
+
+    @staticmethod
+    def _transition(current, origin):
+        elapsed = current['time'] - origin['time']
+        drop = (current['y'] - origin['y']) / origin['h']
+        bottom_shift = abs((current['y'] + current['h'] / 2)
+                           - (origin['y'] + origin['h'] / 2)) / origin['h']
+        return (0 < elapsed <= .8 + 1e-9 and drop >= .20
+                and drop / elapsed >= .25
+                and current['h'] <= origin['h'] * .65
+                and current['w'] / current['h'] >= 1.2
+                and current['w'] >= origin['w'] * 1.25
+                and abs(current['x'] - origin['x']) <= origin['h'] * .35
+                and bottom_shift <= .15)
+
+    def update(self, person, timestamp, changed, person_visible, frame_size):
+        if (frame_size is None or len(frame_size) != 2
+                or not all(isinstance(v, (int, float)) and isfinite(v) and v > 0
+                           for v in frame_size)):
+            self.reset()
+            return False
+        if (self.last_time is not None and
+                (timestamp <= self.last_time or timestamp - self.last_time > .6 + 1e-9
+                 or self.frame_size != frame_size)):
+            self.reset()
+        # tracker의 장기 미검출 reset(changed=True)은 이미 관측한 소실을 취소하지 않음.
+        if (changed and person is not None) or (person is None and person_visible):
+            self.reset()
+        self.last_time, self.frame_size = timestamp, frame_size
+        if person is None:
+            if (person_visible or self.low_count < 2 or self.low_since is None
+                    or not self.history or self.history[-1]['time'] - self.low_since < .2 - 1e-9):
+                self.history.clear()
+                return False
+            if self.missing_since is None:
+                # 변화 직후 소실만 허용. 오래 숙이고 있다가 사라진 경우는 제외.
+                if timestamp - self.low_since > .8 + 1e-9:
+                    self.reset()
+                    return False
+                self.missing_since = timestamp
+            if timestamp - self.missing_since >= 1.0 - 1e-9:
+                self.reset()
+                return True
+            return False
+        current = FallDetector._sample(person, timestamp)
+        if self.missing_since is not None:
+            # 짧은 가림 뒤 복귀하면 이전 소실 후보를 재사용하지 않는다.
+            self.reset()
+            self.last_time, self.frame_size = timestamp, frame_size
+        if current is None or not self._interior(current, frame_size):
+            self.reset()
+            return False
+        while self.history and timestamp - self.history[0]['time'] > .8 + 1e-9:
+            self.history.popleft()
+        origins = [s for s in self.history if s['w'] / s['h'] <= .8]
+        matches = [s for s in origins if self._transition(current, s)]
+        if matches and len(origins) >= 2 and origins[-1]['time'] - origins[0]['time'] >= .2 - 1e-9:
+            if self.low_since is None:
+                self.low_since = timestamp
+                self.origin = matches[-1]
+            if self._transition(current, self.origin):
+                self.low_count += 1
+            else:
+                self.low_since, self.origin, self.low_count = timestamp, matches[-1], 1
+        else:
+            self.low_since, self.origin, self.low_count = None, None, 0
+        self.history.append(current)
+        return False
+
+
 class FallDetector:
     """비율의 기준은 하강 전 사람 높이, 속도 단위는 사람 높이/초다.
 
@@ -108,10 +204,12 @@ class FallDetector:
         self.min_stable_samples = min_stable_samples
         self.missing_grace_sec = missing_grace_sec
         self.appearance = ProneAppearanceDetector()
+        self.posture_loss = PostureLossDetector()
         self.reset()
 
     def reset(self):
         self.appearance.reset()
+        self.posture_loss.reset()
         self.last_event = None
         self.pending_loss_since = None
         self.incident_id = None
@@ -119,7 +217,7 @@ class FallDetector:
         self.incident_level = None
         self._reset_motion()
 
-    def update_tracked(self, person, timestamp, changed=False, person_visible=False):
+    def update_tracked(self, person, timestamp, changed=False, person_visible=False, frame_size=None):
         """대상 변경 시 하강 이력은 버리고, 미검출 뒤 출현은 별도로 확인한다."""
         self.last_event = None
         if (not isinstance(timestamp, (int, float)) or not isfinite(timestamp)
@@ -146,13 +244,16 @@ class FallDetector:
             appearance_hit = False
         else:
             appearance_hit = self.appearance.update(person, timestamp, target_changed=changed)
+        posture_loss_hit = self.posture_loss.update(person, timestamp, changed, person_visible, frame_size)
         motion_hit = self.update(person, timestamp)
-        if motion_hit or appearance_hit or lost_after_drop:
+        if motion_hit or appearance_hit or lost_after_drop or posture_loss_hit:
             self.appearance.reset()
+            self.posture_loss.reset()
             self.pending_loss_since = None
             category = 'fall_detected' if motion_hit else 'fall_suspect'
             reason = ('rapid_drop_low_posture' if motion_hit else
-                      'rapid_drop_person_lost' if lost_after_drop else 'prone_appearance')
+                      'rapid_drop_person_lost' if lost_after_drop else
+                      'posture_change_person_lost' if posture_loss_hit else 'prone_appearance')
             # 짧은 미검출 뒤 확인된 같은 추적 대상만 기존 의심 사건으로 승격.
             upgrade = (motion_hit and not changed and self.incident_level == 'fall_suspect'
                        and self.incident_time is not None and timestamp - self.incident_time <= 2.5)

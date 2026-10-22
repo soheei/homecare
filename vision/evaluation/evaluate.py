@@ -50,8 +50,12 @@ def load_labels(path):
         if not row["label"] and (row["start_s"] != 0 or row["end_s"] != row["duration_s"]):
             raise ValueError("negative/background observation must span the full file")
         if row["label"]:
-            enabled = (row["mode"] == "entrance" if row["category"] in CATEGORIES[:2]
-                       else row["mode"] == "living")
+            if row["category"] in CATEGORIES[:2]:
+                enabled = row["mode"] == "entrance"
+            elif row["category"] in ("fall_suspect", "fall_detected"):
+                enabled = True  # 낙상은 거실·현관 모두에서 동작
+            else:
+                enabled = row["mode"] == "living"
             if row["category"] == "intrusion_suspect":
                 enabled = enabled and row["armed"] == 1
             if not enabled:

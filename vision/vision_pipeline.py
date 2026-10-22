@@ -15,7 +15,7 @@ from edge.transport.config import load_config
 from edge.transport.emit import EventEmitter
 
 from . import camera_service
-from .yolo_detector import YOLODetector
+from .yolo_detector import YOLODetector, confident_only
 from .fall_detector import FallDetector
 from .visitor_detector import VisitorDetector
 from .delivery_detector import DeliveryDetector
@@ -50,6 +50,8 @@ else:
     YOLO_MODEL = "yolov8n.pt"
 
 YOLO_CONFIDENCE = 0.5
+# 누운 사람 미탐 방지: 낙상 추적에만 쓰는 낮은 사람 신뢰도(오탐 증가 감수).
+FALL_PERSON_CONFIDENCE = 0.25
 
 
 # ==========================================
@@ -58,8 +60,10 @@ YOLO_CONFIDENCE = 0.5
 
 # 픽셀/프레임 대신 실제 초와 하강 전 사람 높이에 대한 비율을 사용한다.
 # 자세 조건의 나머지 초기값은 FallDetector에 있으며 현장 영상 검증이 필요하다.
-FALL_DROP_WINDOW_SEC = 0.8
-FALL_DROP_RATIO = 0.25
+# 미탐을 줄이기 위해 완화한 값(오탐 증가 감수): 느리게 주저앉는 낙상도 후보가 된다.
+FALL_DROP_WINDOW_SEC = 1.0
+FALL_DROP_RATIO = 0.2
+FALL_MIN_DROP_SPEED = 0.25
 FALL_STABLE_SEC = 0.8
 FALL_CANDIDATE_TIMEOUT_SEC = 2.5
 
@@ -498,6 +502,7 @@ def main():
     detector = YOLODetector(
         model_path=YOLO_MODEL,
         confidence=YOLO_CONFIDENCE,
+        fall_confidence=FALL_PERSON_CONFIDENCE,
     )
 
     # ==========================================
@@ -515,6 +520,7 @@ def main():
     fall_detector = FallDetector(
         drop_window_sec=FALL_DROP_WINDOW_SEC,
         drop_ratio=FALL_DROP_RATIO,
+        min_drop_speed=FALL_MIN_DROP_SPEED,
         stable_sec=FALL_STABLE_SEC,
         candidate_timeout_sec=FALL_CANDIDATE_TIMEOUT_SEC,
     )
@@ -686,9 +692,11 @@ def main():
             # 5. YOLO
             # ==================================
 
-            detections = detector.detect(
+            # 낙상 추적은 저신뢰 사람 박스(누운 자세)까지, 나머지는 기존 문턱으로 거른다.
+            fall_detections = detector.detect(
                 frame
             )
+            detections = confident_only(fall_detections, YOLO_CONFIDENCE)
 
             person = (
                 detector.get_best_person(
@@ -714,11 +722,11 @@ def main():
 
             fall_detected = False
             fall_person = None
-            if current_mode == "living":
-                fall_person, changed = fall_person_tracker.update(detections, timestamp=frame_monotonic)
+            if current_mode in ("living", "entrance"):
+                fall_person, changed = fall_person_tracker.update(fall_detections, timestamp=frame_monotonic)
                 fall_detected = fall_detector.update_tracked(
                     fall_person, timestamp=frame_monotonic, changed=changed,
-                    person_visible=any(d['class_id'] == 0 for d in detections),
+                    person_visible=any(d['class_id'] == 0 for d in fall_detections),
                     frame_size=(frame.shape[1], frame.shape[0]))
 
             # ==================================

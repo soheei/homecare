@@ -64,7 +64,7 @@ vision 테스트는 하드웨어 연동 일부를 대체하므로 통과해도 �
 
 ### 낙상 설정 위치와 적용 전 확인
 
-- `vision/vision_pipeline.py`: `FALL_DROP_WINDOW_SEC=0.8`, `FALL_DROP_RATIO=0.25`, `FALL_STABLE_SEC=0.8`, `FALL_CANDIDATE_TIMEOUT_SEC=2.5`.
+- `vision/vision_pipeline.py`: `FALL_DROP_WINDOW_SEC=1.0`, `FALL_DROP_RATIO=0.2`, `FALL_MIN_DROP_SPEED=0.25`, `FALL_STABLE_SEC=0.8`, `FALL_CANDIDATE_TIMEOUT_SEC=2.5`.
 - 박스 형태, 최소 하강 속도, 최소 관측 횟수, `max_gap_sec=0.6`, `missing_grace_sec=1.0`은 `vision/fall_detector.py` 기본값이다. 안정 반경은 판정에서 제거했다. 새 환경변수나 edge 변경은 필요하지 않다.
 - 기존 픽셀·프레임 인자(`history_frames`, `drop_threshold`, `candidate_frames`, `movement_threshold`)는 새 감지기에서 사용하지 않는다. `backup_pipe.py`는 새 기본 생성 호출에 맞췄으며 실제 실행 진입점은 `vision.vision_pipeline`이다.
 - Pi에서 관측 간격을 측정한 뒤 녹화 영상으로 오탐·미탐·알림 지연을 비교한다. 0.6초 초과 구간은 낮은 자세 관측 시간에서 제외하고 1초 초과 시 이력을 끊는다. 정면 낙상·가림과 의도적으로 눕기 구분은 보장하지 않는다.

@@ -79,3 +79,5 @@ edge/data/
 vision/dataset/
 vision/*_R[0-9]*_*.mp4
 vision/*_R[0-9]*_*.json
+
+output

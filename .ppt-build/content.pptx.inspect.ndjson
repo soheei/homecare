@@ -1,0 +1,16 @@
+{"kind":"deck","id":"pr/r0u64r","name":"Deck"}
+{"kind":"layout","id":"ly/dsby947q","editable":false,"name":"Master","type":"master"}
+{"kind":"layout","id":"ly/r690ja98","editable":false,"name":"Title Slide","type":"title","placeholders":[{"name":"title","type":"title"},{"name":"subtitle","type":"subtitle"}]}
+{"kind":"layout","id":"ly/wzm1wbed","editable":false,"name":"Section Header","type":"sectionHeader","placeholders":[{"name":"title","type":"title"}]}
+{"kind":"layout","id":"ly/r218rupg","editable":false,"name":"Title and Body","type":"tx","placeholders":[{"name":"title","type":"title"},{"name":"body","type":"body"}]}
+{"kind":"layout","id":"ly/fmtcbe9k","editable":false,"name":"Title and Two Column","type":"twoColTx","placeholders":[{"name":"title","type":"title"},{"name":"Left column","type":"body"},{"name":"Right column","type":"body"}]}
+{"kind":"layout","id":"ly/d8bu5wny","editable":false,"name":"Title and One Column","type":"tx","placeholders":[{"name":"title","type":"title"},{"name":"body","type":"body"}]}
+{"kind":"layout","id":"ly/cjetcbqh","editable":false,"name":"Blank","type":"blank"}
+{"kind":"slide","id":"sl/klw2t1","slideIndex":0,"layout":{"id":"ly/cjetcbqh","name":"Blank"},"title":"Pi 마이크 24클립 · 6개 소리 분류 · ESC-50 2,000클립으로 오경보 점검","textShapes":5,"backgroundColor":"rgba(255,255,255,1)"}
+{"kind":"textbox","id":"sh/t4j6pove","slideIndex":0,"position":{"left":398,"top":290,"width":1460,"height":55},"text":"Pi 마이크 24클립 · 6개 소리 분류 · ESC-50 2,000클립으로 오경보 점검","geometry":"rect","lineWidth":0,"style":{"fontSize":30,"typeface":"Aptos","color":"#13233A","alignment":"left"}}
+{"kind":"textbox","id":"sh/61s7u9wn","slideIndex":0,"position":{"left":398,"top":362,"width":1450,"height":80},"text":"평균 F1   0.510  →  0.610","geometry":"rect","lineWidth":0,"style":{"fontSize":56,"typeface":"Aptos","color":"#1D7C74","bold":true,"alignment":"left"}}
+{"kind":"textbox","id":"sh/721oned8","slideIndex":0,"position":{"left":398,"top":448,"width":1450,"height":55},"text":"기존 설정 대비 음원 단위 교차검증 결과  +0.100","geometry":"rect","lineWidth":0,"style":{"fontSize":32,"typeface":"Aptos","color":"#13233A","alignment":"left"}}
+{"kind":"textbox","id":"sh/h836t8va","slideIndex":0,"position":{"left":398,"top":940,"width":1490,"height":48},"text":"F1: 오경보와 놓침을 함께 평가하는 점수(0~1)   검출률: 실제 소리 중 감지한 비율","geometry":"rect","lineWidth":0,"style":{"fontSize":24,"typeface":"Aptos","color":"#13233A","alignment":"left"}}
+{"kind":"textbox","id":"sh/u5s7ytcz","slideIndex":0,"position":{"left":398,"top":994,"width":1490,"height":48},"text":"한계: 같은 날·장소의 소규모 표본. 다른 날·새 음원 검증과 장시간 배경 녹음 필요","geometry":"rect","lineWidth":0,"style":{"fontSize":24,"typeface":"Aptos","color":"#B83A26","alignment":"left"}}
+{"kind":"table","id":"tb/lozuxwju","slideIndex":0,"position":{"left":398,"top":525,"width":1460,"height":390},"name":"","rows":7,"cols":4,"preview":"소리 종류 | F1 기존 | F1 교차검증 | 교차검증 검출률"}
+{"kind":"notes","id":"nt/klw2t1","slideIndex":0,"text":""}

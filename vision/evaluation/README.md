@@ -3,6 +3,14 @@
 작성: 2026-10-13. 참고: `SH_README/hometalk_테스트셋_평가계획.md`.
 이번 작업은 `vision/` 안에만 추가했다. 운영 감지기·임계값·전송 코드는 변경하지 않았다.
 
+## 실환경 평가 노트북
+
+`vision/vision_realworld_eval.ipynb`는 YAMNet 실환경 평가 노트북과 같은 흐름으로 영상 평가를 실행한다. 검수 라벨·영상 품질 확인, 현재 코드 전체 재생, 검증된 추론 캐시, 지표와 변경 전후 비교, 보고서용 PNG/SVG, 오류 목록과 재현 정보를 한 번에 만든다.
+
+저장소 루트 또는 `vision/`에서 기존 vision 의존성과 matplotlib가 설치된 Python 커널로 연다. 첫 설정 셀의 `LABELS_PATH`, `SPLIT`, `BASELINE_PREDICTIONS`를 확인한 뒤 위에서 아래로 실행한다. 기본값은 로컬에 보관된 2026-10-22 재촬영 라벨을 찾고, 없으면 `vision/evaluation/data/labels.csv`를 사용한다. 원본·모델·감지 코드·설정·실행 라이브러리가 모두 같을 때만 `vision/evaluation/output/realworld_eval/cache/`의 추론 결과를 재사용한다.
+
+결과는 실행별 `vision/evaluation/output/realworld_eval/<UTC 실행시각>/`에 저장된다. 이 경로는 Git에서 제외된다. 낙상은 `fall_detected`만의 성능과 `fall_suspect`를 포함한 경보 성능을 따로 표시한다. 연속 점수 기반 분류기가 아니므로 YOLO 사람 신뢰도로 ROC-AUC나 이벤트 임계값 최적화를 만들지 않는다. 노트북 결과는 오프라인 영상 감지 단계이며 Pi 실제 FPS, 녹화·전송·DB·앱 알림 성공률은 별도 검증 대상이다.
+
 ## 평가 범위
 
 `replay.py`는 로컬 영상 → 기존 YOLO → 기존 낙상/사람 추적/방문자/택배/침입 감지기를 실행한다.

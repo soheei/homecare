@@ -90,3 +90,12 @@ input {
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
+
+@keyframes banner-down {
+  from { opacity: 0; transform: translateY(-120%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-banner-down {
+  animation: banner-down 0.25s ease-out;
+}

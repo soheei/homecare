@@ -96,7 +96,8 @@
 - 관련 코드: `src/services/push.service.js`(발송), `src/services/notification.service.js`(구독/설정 관리 + 이벤트 발생 시 발송 판단), `src/routes/notification.routes.js`, `web/public/sw.js`(서비스워커), `web/src/lib/push.js`(구독 헬퍼).
 - 동작 방식: 이벤트 생성(`event.controller.js`) 성공 시 `notifyEvent()`가 해당 이벤트를 만든 디바이스의 소유자(`devices.user_id`)를 찾아, 그 사용자의 `notification_preferences`에서 이벤트 타입에 해당하는 토글이 켜져 있으면 등록된 모든 구독으로 발송한다.
 - **배너 표시(2026-10-09)**: 토글을 통과해 발송되는 모든 알림은 Web Push 긴급도 `high`·TTL 60초로 보내고(`push.service.js` `urgent` 옵션), `sw.js`가 진동·`silent:false`를 붙여 모바일 상단 배너로 잠깐 뜨게 한다. `requireInteraction`·`tag`는 일부러 안 씀(남는 알림이 되거나 서로 덮어쓰는 것 방지). 기기 알림 설정에서 배너/팝업이 꺼져 있거나 방해금지면 웹에서 제어 불가, iOS는 홈 화면에 추가한 PWA에서만 푸시 수신. 실기 확인 필요.
-- **구독은 브라우저(기기)마다 따로**다. 사이트 접속만으로는 구독되지 않고 설정 화면에서 토글을 켜야 권한 요청+구독이 된다. 알림 설정은 켜져 있는데 이 기기에 구독이 없으면 설정 화면에 "이 기기에서 알림 켜기" 버튼이 뜨고(`SettingsScreen.jsx`), 브라우저에서 차단된 상태면 허용 안내만 표시한다. 설정 화면을 열 때만 확인하며 다른 화면의 안내·앱 내 배너(사이트가 열려 있을 때)는 미구현.
+- **구독은 브라우저(기기)마다 따로**다. 사이트 접속만으로는 구독되지 않고 설정 화면에서 토글을 켜야 권한 요청+구독이 된다. 알림 설정은 켜져 있는데 이 기기에 구독이 없으면 설정 화면에 "이 기기에서 알림 켜기" 버튼이 뜨고(`SettingsScreen.jsx`), 브라우저에서 차단된 상태면 허용 안내만 표시한다. 설정 화면을 열 때만 확인하며 다른 화면의 안내는 미구현.
+- **앱 내 위험 배너(2026-11-09)**: 앱 화면이 보이는 상태에서 푸시가 오면 `sw.js`가 창에 `postMessage({type:'push-alert'})`를 보내고(OS 알림은 중복이라 생략, iOS만 구독 유지를 위해 OS 알림도 띄움), `web/src/components/DangerBanner.jsx`가 `type==='danger'` 또는 `isSecurity`인 것만 상단 빨간 배너로 5초 보여준다. 탭하면 이벤트 탭으로 이동, 알림이 오면 `refreshAll`로 목록 갱신. payload에 `type`·`isSecurity` 필드가 추가됨(`notification.service.js`). 방문자·소리 알림은 배너 없이 기존대로 OS 알림만. 실기(폰 PWA) 확인 필요, 반영엔 새로고침으로 서비스워커 갱신 필요.
 
 ## 카메라/마이크 온·오프 상태 (2026-09-22 추가)
 
@@ -248,7 +249,7 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 - 엣지 `event_mapper.py` 변환표는 기본안 — 팀 확정 필요
 - DB 정리 필요: `schema.sql` 샘플 데이터가 운영 `events`에 아직 섞여 있음(가짜 기기 2개는 2026-09-22 삭제했으나 그 기기를 참조하던 샘플 이벤트 3건은 device_id가 null로 남아있을 수 있음), 테스트 이벤트(`[테스트] 엣지 전송 확인`) 2건
 - GCP(Cloud Run 시도)에 만들어 둔 리소스/결제 계정 정리 여부 **확인 필요**
-- 테스트 현황(2026-10-05 이 PC에서 의존성 설치 후 실측): `npm test` **75 통과 / 5 실패(총 80)**, 엣지 `python -m unittest discover -s edge/tests -t .` **46 통과**, vision `python -m unittest discover -s vision/tests -t .` **42 통과**. 의존성(`web-push`, `numpy`, `scipy`, `opencv` 등)이 없으면 스위트가 로드 실패로 "실패"처럼 보이니 수치 비교 전에 설치부터 확인. Jest 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정
+- 테스트 현황(2026-10-05 이 PC에서 의존성 설치 후 실측): `npm test` **75 통과 / 5 실패(총 80)**, 엣지 `python -m unittest discover -s edge/tests -t .` **46 통과**, vision `python -m unittest discover -s vision/tests -t .` **42 통과**. 의존성(`web-push`, `numpy`, `scipy`, `opencv` 등)이 없으면 스위트가 로드 실패로 "실패"처럼 보이니 수치 비교 전에 설치부터 확인. Jest 실패 5건은 기존부터: 채팅 테스트 4건은 인증 추가 후 토큰 없이 요청해 401(인증은 정상 동작 — 테스트가 낡음, 고치려면 인증·Claude API·Supabase mock 필요), 404 테스트 1건은 `app.js`의 레거시 `frontend/` SPA 폴백(`app.get('*')`)이 모든 GET에 200을 줘서 실패. 정리 방향 미결정. **2026-11-09 재실측: `npm test` 138 통과 / 8 실패(5개 스위트)** — 위 5건 외에 `event-date`(KST 시각 표시 1건)·`capture`·`chat-history`(시각을 모델에 넘기는 건) 계열 3건이 더 실패하며 변경을 stash해도 동일하다. 원인 **확인 필요**(시간대/날짜 관련 추정, 미조사).
 - `docker-compose.yml`의 `version` 속성 obsolete 경고 (현재 배포 경로 아님, 정리는 선택)
 
 ## 정확도 평가 계획

@@ -11,6 +11,7 @@ import EventsScreen from './screens/EventsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import ResetPasswordScreen from './screens/ResetPasswordScreen';
 import BottomNav from './components/BottomNav';
+import DangerBanner from './components/DangerBanner';
 
 /** 로그인 후 화면 본체 — Provider 안쪽이라야 데이터 새로고침(refreshAll)을 쓸 수 있다 */
 function ShellBody({ tab, setTab }) {
@@ -37,6 +38,8 @@ function ShellBody({ tab, setTab }) {
         <ActiveScreen onKeyboardChange={setKeyboardOpen} />
       </div>
       <BottomNav tab={tab} setTab={setTab} hidden={keyboardOpen} />
+      {/* 위험 알림 배너: 새 이벤트가 목록에 반영되도록 데이터를 새로고침하고, 탭하면 이벤트 탭(2)으로 이동 */}
+      <DangerBanner onAlert={refreshAll} onOpen={() => setTab(2)} />
     </div>
   );
 }

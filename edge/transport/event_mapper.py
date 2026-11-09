@@ -50,7 +50,7 @@ SPECS = {
     # 방문자 알림·채팅 방문자 조회에는 함께 잡히고, 앱/DB에서는 description·metadata.category_id로 구분한다.
     "door_visitor":          EventSpec("초인종/노크 소리", "visitor", "normal", 30),  # 소리 판단(마이크)
     "visitor_detected":      EventSpec("방문자 감지", "visitor", "normal", 300),       # 영상 판단(카메라)
-    "delivery_suspect":      EventSpec("택배 감지", "visitor", "normal", 300),
+    "delivery_suspect":      EventSpec("택배 감지", "visitor", "normal", 10),
     "door_security":         EventSpec("문 열고 닫힘", "sound", "normal", 300),
     # 카메라 수동 촬영 (edge/apps/capture_photo.py) — 감지가 아니라 사용자가 직접 찍는 것이라 쿨다운 없음
     "camera_capture":        EventSpec("카메라 사진 촬영", "other", "normal", 0),

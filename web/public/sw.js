@@ -19,6 +19,22 @@ self.addEventListener('push', (event) => {
   }
 
   const title = payload.title || 'HOME-TALK';
+
+  event.waitUntil(handlePush(title, payload));
+});
+
+// iOS(WebKit)는 푸시마다 OS 알림을 띄우지 않으면 구독을 취소하므로 예외로 둔다
+const IS_IOS = /iPad|iPhone|iPod/.test(self.navigator.userAgent);
+
+async function handlePush(title, payload) {
+  // 앱 화면이 보이는 상태면 화면 안 배너로 알리고, 같은 내용의 OS 알림은 중복이라 생략한다
+  const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const visible = clients.filter((c) => c.visibilityState === 'visible');
+  if (visible.length > 0) {
+    visible.forEach((c) => c.postMessage({ type: 'push-alert', payload }));
+    if (!IS_IOS) return;
+  }
+
   const options = {
     body: payload.body || '',
     icon: '/icons/icon-192.png',
@@ -32,8 +48,8 @@ self.addEventListener('push', (event) => {
     timestamp: Date.now()
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
-});
+  await self.registration.showNotification(title, options);
+}
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();

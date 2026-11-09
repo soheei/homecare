@@ -1,18 +1,28 @@
 from ultralytics import YOLO
 
 
+def confident_only(detections, threshold):
+    """신뢰도 threshold 이상인 검출만 남긴다(낙상 전용 저신뢰 사람 박스 제외용)."""
+    return [d for d in detections if d["confidence"] >= threshold]
+
+
 class YOLODetector:
     def __init__(
         self,
         model_path="yolov8n.pt",
         confidence=0.5,
+        fall_confidence=None,
     ):
         self.model = YOLO(model_path)
         self.confidence = confidence
+        # 누운 사람은 신뢰도가 낮게 나오므로 낙상 경로용으로 더 낮은 문턱까지 검출한다.
+        self.fall_confidence = (confidence if fall_confidence is None
+                                else min(confidence, fall_confidence))
 
     def detect(self, frame):
         """
         한 프레임에서 필요한 객체들을 모두 검출한다.
+        fall_confidence까지 낮춰 검출하므로, 일반 용도는 confident_only()로 거른다.
 
         반환 예:
         [
@@ -34,7 +44,7 @@ class YOLODetector:
 
         results = self.model.predict(
             frame,
-            conf=self.confidence,
+            conf=self.fall_confidence,
             verbose=False,
         )
 

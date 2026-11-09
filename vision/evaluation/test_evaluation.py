@@ -89,7 +89,7 @@ class EvaluationTests(unittest.TestCase):
 
     def test_label_validation(self):
         for patch in ({"label": 2}, {"start_s": -1}, {"duration_s": "nan"},
-                      {"mode": "entrance"}, {"kind": "background"}, {"session": ""}):
+                      {"mode": "bedroom"}, {"kind": "background"}, {"session": ""}):
             with self.subTest(patch=patch), self.assertRaises(ValueError):
                 self.load([{**label(), **patch}])
 

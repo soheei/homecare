@@ -199,16 +199,15 @@ class IntrusionWiringTest(unittest.TestCase):
     def test_camera_cleanup_on_error(self):
         self.run_pipeline([], failure=RuntimeError("camera failed"))
 
-    def test_fall_runs_in_living_regardless_of_guard(self):
+    def test_fall_runs_in_living_and_entrance_regardless_of_guard(self):
         for armed in (False, True):
             for mode in ("living", "entrance"):
                 with self.subTest(armed=armed, mode=mode):
                     starts, mocks = self.run_pipeline([(armed, mode, True)] * 2, fall_frames=(0,))
                     types = [kw["event_type"] for _, kw in starts]
                     # 낙상이 프레임 0에서 먼저 잡히므로 경비 ON/OFF 모두 낙상 녹화가 시작된다
-                    self.assertEqual(types, ["fall_suspect"] if mode == "living" else [])
-                    self.assertEqual(mocks["FallDetector"].return_value.update_tracked.call_count,
-                                     2 if mode == "living" else 0)
+                    self.assertEqual(types, ["fall_suspect"])
+                    self.assertEqual(mocks["FallDetector"].return_value.update_tracked.call_count, 2)
 
     def test_entrance_events_are_independent_of_guard(self):
         for armed in (False, True):

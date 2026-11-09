@@ -121,7 +121,10 @@ const notifyEvent = async (event) => {
       title: isSecurityEvent ? SECURITY_TITLE : (NOTIFY_TITLES[prefKey] || 'HOME-TALK 알림'),
       body: event.description,
       eventId: event.id,
-      dangerLevel: event.danger_level
+      dangerLevel: event.danger_level,
+      // 앱이 열려 있을 때 화면 안 배너를 띄울지 프론트가 판단하는 데 쓴다
+      type: prefKey,
+      isSecurity: isSecurityEvent
     };
 
     // 사용자 알림 설정을 통과한 알림은 모두 배너로 즉시 뜨도록 높은 긴급도로 보낸다

@@ -13,7 +13,7 @@ VISION = Path(__file__).resolve().parents[1]
 SETTING_NAMES = (
     "FPS", "WIDTH", "HEIGHT", "YOLO_CONFIDENCE", "DOOR_ROI", "DELIVERY_OBJECT_ROI",
     "VISITOR_REQUIRED_FRAMES", "DELIVERY_REQUIRED_FRAMES", "INTRUSION_REQUIRED_FRAMES",
-    "INTRUSION_MISSING_FRAMES_TO_RESET", "FALL_DROP_WINDOW_SEC", "FALL_DROP_RATIO",
+    "INTRUSION_MISSING_FRAMES_TO_RESET", "FALL_DROP_WINDOW_SEC", "FALL_DROP_RATIO", "FALL_MIN_DROP_SPEED", "FALL_PERSON_CONFIDENCE",
     "FALL_STABLE_SEC", "FALL_CANDIDATE_TIMEOUT_SEC",
 )
 
@@ -39,10 +39,11 @@ class RuleRunner:
         from vision.visitor_detector import VisitorDetector
         from vision.delivery_detector import DeliveryDetector
         from vision.intrusion_detector import IntrusionDetector
-        s = settings
+        s = self.settings = settings
         self.mode, self.armed = mode, armed
         self.tracker = FallPersonTracker()
         self.fall = FallDetector(drop_window_sec=s["FALL_DROP_WINDOW_SEC"], drop_ratio=s["FALL_DROP_RATIO"],
+                                 min_drop_speed=s["FALL_MIN_DROP_SPEED"],
                                  stable_sec=s["FALL_STABLE_SEC"], candidate_timeout_sec=s["FALL_CANDIDATE_TIMEOUT_SEC"])
         self.visitor = VisitorDetector(roi=s["DOOR_ROI"], required_frames=s["VISITOR_REQUIRED_FRAMES"])
         self.delivery = DeliveryDetector(roi=s["DOOR_ROI"], object_roi=s["DELIVERY_OBJECT_ROI"],
@@ -50,14 +51,15 @@ class RuleRunner:
         self.intrusion = IntrusionDetector(required_frames=s["INTRUSION_REQUIRED_FRAMES"],
                                            missing_frames_to_reset=s["INTRUSION_MISSING_FRAMES_TO_RESET"])
 
-    def update(self, frame, detections, timestamp, detector):
+    def update(self, frame, fall_detections, timestamp, detector):
         height, width = frame.shape[:2]
+        detections = [d for d in fall_detections if d["confidence"] >= self.settings["YOLO_CONFIDENCE"]]
         person = detector.get_best_person(detections)
         fall = False
-        if self.mode == "living":
-            tracked, changed = self.tracker.update(detections, timestamp=timestamp)
+        if self.mode in ("living", "entrance"):
+            tracked, changed = self.tracker.update(fall_detections, timestamp=timestamp)
             fall = self.fall.update_tracked(tracked, timestamp=timestamp, changed=changed,
-                                           person_visible=any(d['class_id'] == 0 for d in detections),
+                                           person_visible=any(d['class_id'] == 0 for d in fall_detections),
                                            frame_size=(width, height))
         visitor = self.visitor.update(person, width, height)
         delivery = self.delivery.update(detections, width, height, frame=frame, timestamp=timestamp)
@@ -136,7 +138,8 @@ def main():
             parser.error(f"missing local video: {row['clip_id']}")
     settings = pipeline_settings()
     from vision.yolo_detector import YOLODetector
-    detector = YOLODetector(model_path=str(args.model.resolve()), confidence=settings["YOLO_CONFIDENCE"])
+    detector = YOLODetector(model_path=str(args.model.resolve()), confidence=settings["YOLO_CONFIDENCE"],
+                            fall_confidence=settings["FALL_PERSON_CONFIDENCE"])
     predictions, diagnostics = {}, {}
     for row in rows:
         print(f"Evaluating {row['clip_id']}")

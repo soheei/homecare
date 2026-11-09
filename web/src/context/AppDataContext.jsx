@@ -89,7 +89,36 @@ export function AppDataProvider({ children }) {
     await Promise.all(tasks);
   }, [load]);
 
+  // 최신 이벤트 목록 상태 (조용한 새로고침에서 "새 이벤트가 생겼는지" 비교용)
+  const eventListRef = useRef(eventList);
+  eventListRef.current = eventList;
+  // 삭제가 일어나면 올라간다. 삭제 직전에 시작된 조용한 새로고침 응답이 지워진 이벤트를 되살리지 못하게 한다
+  const listEpoch = useRef(0);
+
+  /**
+   * 이벤트 목록 자동 새로고침 — 로딩 표시 없이 받아서 이벤트 id가 달라졌을 때만 화면을 바꾼다.
+   * 아직 목록을 한 번도 불러오지 않았거나 수동 새로고침 중이면 아무것도 하지 않고, 실패해도 조용히 넘어간다.
+   */
+  const refreshEventListQuiet = useCallback(async () => {
+    if (!requested.current.eventList) return;
+    if (eventListRef.current.status === 'loading') return;
+    const epoch = listEpoch.current;
+    try {
+      const data = await fetchEventList();
+      if (epoch !== listEpoch.current) return;
+      const prev = eventListRef.current.data;
+      const same = prev && prev.length === data.length && prev.every((e, i) => e.id === data[i].id);
+      if (same) return;
+      setEventList({ status: 'done', data, error: '' });
+      // 홈의 최근 이벤트·위험 건수도 달라졌을 수 있으니 다음 홈 진입 때 다시 불러온다
+      delete requested.current.home;
+    } catch {
+      // 자동 갱신 실패는 사용자에게 알리지 않는다 (다음 주기에 다시 시도)
+    }
+  }, []);
+
   const deleteEvent = useCallback(async (id) => {
+    listEpoch.current += 1;
     await api.events.delete(id);
     setEventList((prev) => (prev.data ? { ...prev, data: prev.data.filter((e) => e.id !== id) } : prev));
     setHome((prev) => (prev.data ? { ...prev, data: { ...prev.data, events: prev.data.events.filter((e) => e.id !== id) } } : prev));
@@ -99,6 +128,7 @@ export function AppDataProvider({ children }) {
 
   /** ids를 주면 선택한 이벤트만, 생략하면 전체 삭제 */
   const deleteEvents = useCallback(async (ids) => {
+    listEpoch.current += 1;
     await api.events.deleteMany(ids);
     const keep = ids ? (e) => !ids.includes(e.id) : () => false;
     setEventList((prev) => (prev.data ? { ...prev, data: prev.data.filter(keep) } : prev));
@@ -141,7 +171,7 @@ export function AppDataProvider({ children }) {
   }, []);
 
   return (
-    <AppDataContext.Provider value={{ home, loadHome, refreshAll, setDeviceStatus, setDeviceMode, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
+    <AppDataContext.Provider value={{ home, loadHome, refreshAll, refreshEventListQuiet, setDeviceStatus, setDeviceMode, eventList, loadEventList, deleteEvent, deleteEvents, briefing, generateBriefing }}>
       {children}
     </AppDataContext.Provider>
   );

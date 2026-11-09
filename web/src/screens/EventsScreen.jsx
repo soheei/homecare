@@ -12,7 +12,10 @@ const FILTERS = [
   { key: 'low', label: '낮음', dot: 'bg-success' }
 ];
 
-const RISK_TO_LEVEL = { high: 'danger', mid: 'warning', low: 'normal' };
+// 이벤트 화면이 열려 있을 때 새 이벤트를 확인하는 주기
+const AUTO_REFRESH_MS = 15000;
+
+const RISK_TO_LEVEL ={ high: 'danger', mid: 'warning', low: 'normal' };
 
 function CheckCircle({ checked }) {
   return (
@@ -29,7 +32,7 @@ function CheckCircle({ checked }) {
 
 export default function EventsScreen() {
   // 이벤트 목록은 AppDataContext에 캐시되어 탭을 오가도 다시 불러오지 않음
-  const { eventList, loadEventList, deleteEvent, deleteEvents } = useAppData();
+  const { eventList, loadEventList, refreshEventListQuiet, deleteEvent, deleteEvents } = useAppData();
   const [filter, setFilter] = useState('all');
   const [deletingId, setDeletingId] = useState(null);
   // 휴지통 버튼 → 선택 모드: 카드를 눌러 고른 뒤 선택 삭제 또는 전체 삭제
@@ -39,6 +42,27 @@ export default function EventsScreen() {
   // 영상/소리 재생 팝업에 띄울 이벤트
   const [mediaEvent, setMediaEvent] = useState(null);
   const closeMedia = useCallback(() => setMediaEvent(null), []);
+
+  // 새 이벤트 자동 반영: 화면이 보이는 동안 주기적으로, 앱으로 돌아왔을 때, 푸시가 왔을 때 확인한다.
+  // 아래 최초 로드 effect보다 먼저 선언해야 한다 — 처음 진입할 땐 아직 "불러온 적 없음"이라 건너뛰고(중복 호출 방지),
+  // 이미 캐시가 있는 상태로 다시 들어오면 바로 한 번 확인한다.
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === 'visible') refreshEventListQuiet();
+    };
+    const onMessage = (e) => {
+      if (e.data?.type === 'push-alert') refreshEventListQuiet();
+    };
+    check();
+    const timer = setInterval(check, AUTO_REFRESH_MS);
+    document.addEventListener('visibilitychange', check);
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', check);
+      navigator.serviceWorker?.removeEventListener('message', onMessage);
+    };
+  }, [refreshEventListQuiet]);
 
   // 이미 불러온 상태면 loadEventList()는 아무것도 하지 않음
   useEffect(() => {

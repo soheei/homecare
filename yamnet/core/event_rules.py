@@ -302,7 +302,7 @@ CATEGORY_RULE_CONFIG = {
     ),
     "animal": dict(
         fn=rule_threshold,
-        kwargs=dict(class_ids=_cat_class_ids("animal"), threshold=0.3),
+        kwargs=dict(class_ids=_cat_class_ids("animal"), threshold=0.15),
     ),
     "ambient_log": dict(
         fn=rule_log_only,

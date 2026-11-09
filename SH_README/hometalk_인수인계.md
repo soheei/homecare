@@ -229,7 +229,7 @@ python -m edge.apps.send_test_event            # 전송 경로 점검 (웹 "최�
 
 - **앱 TODO 9개 진행 현황(2026-10-05, 계획: 단계 1→2→3)**
   - **단계 1 완료(코드·단위 테스트까지, 배포·실기 미확인)**: 홈 위험 알림 = `type=danger`만 집계(`event.service.js` `getDailySummary`), 채팅방 이름 변경(`PATCH /api/chat/history/:id` + 서랍 ✏️), 아래로 당겨 새로고침·홈 ↻ 버튼(`web/src/lib/usePullToRefresh.js`, `AppDataContext.refreshAll`), 홈/설정 헤더 높이 통일(`min-h-[112px]`), 영상이 있으면 소리 플레이어 숨김(영상만 보기), 토큰 절감(히스토리 50→20, 도구 루프 5→3, 시스템 프롬프트 캐싱 `cache_control`, `usage` 로그).
-  - **프롬프트 캐싱은 실제로 적중하는지 미확인**: Haiku 4.5는 캐시 최소 길이가 커서 현재 프롬프트가 못 미치면 조용히 건너뜀. Render 로그 `[Claude] usage(chat) ... cache_read=`가 0보다 큰지 확인 필요.
+  - **프롬프트 캐싱은 실제로 적중하는지 미확인**: 모델별로 캐시 최소 길이가 있어(Haiku 계열은 큼, 현재 모델은 2026-11-09부터 `claude-sonnet-5-5` — 최소 길이는 **확인 필요**) 현재 프롬프트가 못 미치면 조용히 건너뜀. Render 로그 `[Claude] usage(chat) ... cache_read=`가 0보다 큰지 확인 필요.
   - **남은 단계**: 2) 초인종/방문자 구분(`event_mapper.py`·`category_map.py`) + 소리 이벤트에 영상 항상 동봉(`stream_pipeline.py`·`vision_pipeline.py`). ~~3) 거실/현관 모드 + 경비 모드~~ → 2026-10-09 코드 구현(위 "거실/현관 감지 모드 + 경비 모드"), Supabase ALTER 실행 완료, **Pi/앱 실기 확인과 경비 감지기(방 안 사람·문 열림) 연결은 미완료**.
   - 홈 "위험 알림" 기준이 바뀌어(비명·울음 같은 warning 제외) 채팅 도구 `get_daily_summary`의 `dangerEvents`도 같은 기준이 됨(`get_danger_events` 도구는 기존대로 danger+warning).
   - 2026-10-18 비명 및 고함(`scream_shout`)을 warning → **danger**로 올림(`event_mapper.py`, type은 `sound` 유지). 그래서 홈 "위험 알림"·`dangerEvents`에 비명이 포함된다. 이미 저장된 과거 비명 이벤트는 warning으로 남고, Pi 마이크 서비스 재시작 필요(실기 미검증).
